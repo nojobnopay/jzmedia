@@ -1,5 +1,5 @@
 // Real Vue UI + in-memory API fixtures. Never opens .env, backend, DB or media.
-// Run: node scripts/smoke_settings_ui.mjs [--capture-docs] [--player-only|--drafts-only|--cache-only|--previews-only|--preview-baseline|--tools-only]
+// Run: node scripts/smoke_settings_ui.mjs [--capture-docs] [--player-only|--drafts-only|--cache-only|--previews-only|--preview-baseline|--tools-only|--scan-cleanup-only]
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
@@ -14,7 +14,7 @@ import { chromium } from '../docs/node_modules/playwright/index.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
-assert.ok(args.every(arg => ['--capture-docs', '--player-only', '--drafts-only', '--cache-only', '--preview-baseline', '--previews-only', '--tools-only'].includes(arg)))
+assert.ok(args.every(arg => ['--capture-docs', '--player-only', '--drafts-only', '--cache-only', '--preview-baseline', '--previews-only', '--tools-only', '--scan-cleanup-only'].includes(arg)))
 const capture = args.includes('--capture-docs')
 const playerOnly = args.includes('--player-only')
 const draftsOnly = args.includes('--drafts-only')
@@ -22,8 +22,9 @@ const cacheOnly = args.includes('--cache-only')
 const previewBaseline = args.includes('--preview-baseline')
 const previewsOnly = args.includes('--previews-only') || previewBaseline
 const toolsOnly = args.includes('--tools-only')
-assert.ok([playerOnly, draftsOnly, cacheOnly, previewsOnly, toolsOnly].filter(Boolean).length <= 1, 'Choose one focused regression scope')
-assert.ok(!(capture && (draftsOnly || cacheOnly || previewsOnly || toolsOnly)), 'Documentation capture requires the complete settings regression')
+const scanCleanupOnly = args.includes('--scan-cleanup-only')
+assert.ok([playerOnly, draftsOnly, cacheOnly, previewsOnly, toolsOnly, scanCleanupOnly].filter(Boolean).length <= 1, 'Choose one focused regression scope')
+assert.ok(!(capture && (draftsOnly || toolsOnly || previewBaseline)), 'Documentation capture requires current-source settings, player, cache or preview checks')
 async function frontendFingerprint() {
   const hash = createHash('sha256')
   async function walk(directory) {
@@ -39,7 +40,7 @@ async function frontendFingerprint() {
   }
   return hash.digest('hex')
 }
-const sourceSha256 = capture || previewsOnly ? await frontendFingerprint() : null
+const sourceSha256 = capture || previewsOnly || scanCleanupOnly ? await frontendFingerprint() : null
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-settings-ui-'))
 const dist = path.join(work, 'dist')
 const libs = [{ id: 1, name: '电影', kind: 'movie', subpath: '电影' }, { id: 2, name: '剧集', kind: 'tv', subpath: '剧集' }]
@@ -952,6 +953,10 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       assert.equal(await page.locator('.skip-link').evaluate(el => el === document.activeElement), false, `${scene} skip link is not focused`)
       await preview.screenshot({ path: path.join(directory, `${scene}-${width}.png`), animations: 'disabled', style: screenshotStyle })
       await page.screenshot({ path: path.join(directory, `${scene}-${width}-viewport.png`), animations: 'disabled', style: screenshotStyle })
+      if (scene === 'batch-inventory-checking' && width === 1440) {
+        await screenshot(page, 'preview-batch-inventory', 'user-guide/playback-previews.md',
+          '后台全库盘点：已检查 2500/5000 项；盘点与抽帧处理队列分别展示，可离开后返回', { target: preview })
+      }
       const metrics = await preview.evaluate(el => ({
         headings: [...el.querySelectorAll('h5')].map(h => ({ text: h.textContent, fontSize: getComputedStyle(h).fontSize })),
         rowCount: el.querySelectorAll('.queue-row').length,
@@ -1535,6 +1540,24 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       assert.equal(await failed.getByText('库二失败', { exact: true }).count(), 0)
       assert.equal(await failed.getByRole('status').filter({ hasText: '库二失败' }).count(), 0, 'late retry feedback cannot enter the next library')
       checks.push('switching libraries aborts/stales old completed/failure/retry responses, resets collapsed lists and loads current library only')
+      if (capture) {
+        previewQueue = structuredClone(original.queue.slice(0, 2))
+        previewRunning = structuredClone(original.running)
+        previewCompleted = structuredClone(original.completed.slice(0, 2))
+        previewFailed = structuredClone(original.failed.slice(0, 1))
+        await page.setViewportSize({ width: 1440, height: 1000 })
+        await openLibrary()
+        await queue.getByText('4/10 张 · 40%', { exact: true }).waitFor()
+        await queue.getByText('队列样本 2', { exact: true }).waitFor()
+        await screenshot(page, 'preview-queue', 'user-guide/playback-previews.md',
+          '合并处理队列：当前影片置顶显示帧数与百分比，两个待处理项可勾选或移出', { target: preview })
+        await toggle.click()
+        await completed.getByText('旧版可用', { exact: true }).waitFor()
+        await failedToggle.click()
+        await failed.getByText('失败样本 1', { exact: true }).waitFor()
+        await screenshot(page, 'preview-results', 'user-guide/playback-previews.md',
+          '按需展开已生成与失败清单：旧版可用、最近失败原因及单片重新生成入口', { target: preview })
+      }
     }
     await writeFile(path.join(directory, `${baseline ? 'before' : 'after'}-checks.json`), JSON.stringify({
       mocked: true, realVue: true, sourceSha256, viewports, scenes, checks,
@@ -1555,12 +1578,14 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
   }
 }
 
-async function screenshot(page, name, doc, scene, { animations = 'disabled' } = {}) {
+async function screenshot(page, name, doc, scene, { animations = 'disabled', target = null } = {}) {
   if (!capture) return
-  await page.evaluate(() => window.scrollTo(0, 0))
+  if (target) await target.scrollIntoViewIfNeeded()
+  else await page.evaluate(() => window.scrollTo(0, 0))
   await page.evaluate(() => document.fonts.ready)
   const png = path.join(work, name + '.png'), file = 'screenshots/' + name + '.webp'
-  await page.screenshot({ path: png, animations })
+  await (target || page).screenshot({ path: png, animations,
+    ...(target ? { style: '.skip-link:not(:focus) { visibility: hidden !important; }' } : {}) })
   execFileSync(await ffmpeg(), ['-hide_banner', '-loglevel', 'error', '-y', '-i', png, '-quality', '86', path.join(root, 'docs/assets', file)])
   const bytes = await readFile(path.join(root, 'docs/assets', file))
   captured.push({ file, page: doc, scene, verified_at: new Date().toISOString().slice(0, 10),
@@ -1569,7 +1594,8 @@ async function screenshot(page, name, doc, scene, { animations = 'disabled' } = 
     source_state: '当前工作区设置、文件管理与播放器回归', source_sha256: sourceSha256,
     source_digest_scope: ['frontend/src/**/*', 'frontend/public/**/*', 'frontend/index.html', 'frontend/package.json', 'frontend/package-lock.json'],
     source: '真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体',
-    viewport: { ...page.viewportSize(), device_scale_factor: 1 }, recording_script: 'scripts/smoke_settings_ui.mjs --capture-docs',
+    viewport: { ...page.viewportSize(), device_scale_factor: 1 }, capture_mode: target ? 'element' : 'viewport',
+    recording_script: 'node scripts/smoke_settings_ui.mjs ' + args.join(' '), format: 'WebP q86',
     fixtures: 'scripts/smoke_settings_ui.mjs 内置内存数据', fixture_sha256: createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex'),
     bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
 }
@@ -1674,6 +1700,283 @@ async function checkFileLoading(browser, base) {
     await context.close()
   }
 }
+async function checkScanCleanup(browser, base) {
+  const directory = path.join(root, 'output/playwright/scan-cleanup-followup')
+  await mkdir(directory, { recursive: true })
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
+  const storageKey = 'jzmedia:scan-cleanup-followups:v1'
+  const cleanupPath = '/api/stream/previews/cache/clean-obsolete'
+  const cleanCalls = [], checks = [], releases = []
+  const mib = 1024 ** 2
+  let sequence = 0, latest = null, outcome = { state: 'done', counts: { tv_ok: 2 } }
+  let mode = 'mixed', cleanupGate = null
+  const gate = () => {
+    let release, seen
+    const promise = new Promise(resolve => { release = resolve })
+    const requested = new Promise(resolve => { seen = resolve })
+    releases.push(release)
+    return { promise, requested, release, seen }
+  }
+  const candidate = () => ({
+    dry_run: true, candidates: ['zero', 'protected', 'replacement'].includes(mode) ? 0 : 2,
+    candidate_bytes: ['zero', 'protected', 'replacement'].includes(mode) ? 0 : 128 * mib,
+    reasons: { deleted: ['zero', 'protected', 'replacement'].includes(mode) ? 0 : 1,
+      replaced: ['zero', 'protected', 'replacement'].includes(mode) ? 0 : 1, superseded: 0, invalid: 0 },
+    skipped: { in_use: 0, offline: 0, protected: ['mixed', 'protected'].includes(mode) ? 1 : 0,
+      unknown: ['mixed', 'replacement'].includes(mode) ? 1 : 0 },
+    skipped_details: { replacement_missing: ['mixed', 'replacement'].includes(mode) ? 1 : 0,
+      recently_used: ['mixed', 'protected'].includes(mode) ? 1 : 0 },
+    removed: 0, freed: 0, failed: 0,
+  })
+  const ingestion = () => ({ preview_id: 'scan-cleanup-review-' + sequence,
+    plans: [{ show_id: 77, library_id: 2, title: '合成剧集 · 资料与目录检查', needs: true,
+      fingerprint: 'synthetic-scan-cleanup-files-v1', counts: { rename: 2 },
+      groups: [{ action: 'rename', episodes: 2, files: 2, count: 2, to: '合成剧集 (2024)/Season 01',
+        samples: [{ from: '合成剧集/第01集.mp4', to: '合成剧集 (2024)/Season 01/合成剧集-S01E01-回家的路.mp4' }] }],
+      metadata: { filled: 2, status: 'ok', issues: [] }, dir_totals: [], conflicts: [], warnings: [], manual: [] }],
+    params: { ids: [77], actions: ['rename'], allow_torrent: false, allow_absolute_shows: [] },
+    auto_prompt: true, auto_prompt_ids: [77],
+    metadata_results: [{ show_id: 77, library_id: 2, filled: 2, status: 'ok', issues: [] }] })
+  await context.route('**/*', async route => {
+    const request = route.request(), url = new URL(request.url())
+    if (url.origin !== base) return route.abort()
+    if (url.pathname === '/api/jobs/scan') {
+      if (request.method() === 'POST') {
+        const body = request.postDataJSON()
+        latest = { job_id: 'scan-cleanup-' + ++sequence, library_id: Number(body.library_id),
+          state: 'running', done: 0, total: 3, polls: 0, outcome: structuredClone(outcome) }
+        requests.push({ key: url.pathname, method: 'POST', body, query: Object.fromEntries(url.searchParams) })
+      } else if (latest?.state === 'running' && ++latest.polls > 1) {
+        latest.state = latest.outcome.state
+        latest.done = 3
+        const counts = latest.outcome.counts || {}
+        latest.summary = { counts, by_library: { [latest.library_id]: counts },
+          ...(latest.outcome.organize ? { tv_ingest: ingestion() } : {}) }
+        if (latest.state === 'failed') latest.error = '模拟扫描未完整结束'
+      }
+      const value = latest ? { job_id: latest.job_id, library_id: latest.library_id, state: latest.state,
+        done: latest.done, total: latest.total, summary: latest.summary, error: latest.error } : { state: 'idle' }
+      return route.fulfill({ json: value })
+    }
+    if (url.pathname === '/api/tv/ingestion-reviews/decision') return route.fulfill({ json: { ok: true } })
+    if (url.pathname === cleanupPath) {
+      const body = request.postDataJSON(), delayed = cleanupGate, currentMode = mode
+      cleanCalls.push({ ...body })
+      requests.push({ key: url.pathname, method: request.method(), body, query: Object.fromEntries(url.searchParams) })
+      const result = candidate()
+      if (delayed) { delayed.seen(); await delayed.promise }
+      if ((currentMode === 'check-error' && body.dry_run) || (currentMode === 'clean-error' && !body.dry_run))
+        return route.fulfill({ status: 503, json: { detail: body.dry_run ? '模拟废弃缩略图检查失败' : '模拟废弃缩略图清理失败' } }).catch(() => {})
+      return route.fulfill({ json: body.dry_run ? result : { ...result, dry_run: false,
+        removed: ['partial', 'slow-clean'].includes(currentMode) ? 1 : 2,
+        freed: ['partial', 'slow-clean'].includes(currentMode) ? 64 * mib : 128 * mib,
+        failed: ['partial', 'slow-clean'].includes(currentMode) ? 1 : 0 } }).catch(() => {})
+    }
+    return route.continue()
+  })
+  const page = await context.newPage()
+  page.setDefaultTimeout(12000)
+  page.on('pageerror', error => errors.push(String(error)))
+  const notice = page.getByRole('region', { name: '扫描后缓存维护', exact: true })
+  const dialog = page.getByRole('dialog', { name: '清理废弃缩略图', exact: true })
+  const checkButton = () => notice.getByRole('button', { name: '检查废弃缩略图', exact: true })
+  const confirmButton = () => dialog.getByRole('button', { name: '确认清理废弃缩略图', exact: true })
+  const openLibrary = async id => {
+    await page.goto(base + '/settings?sec=sec-libtools&library=' + id + '&media=1')
+    await page.locator('.lib-tabs').waitFor()
+  }
+  async function scan(next) {
+    outcome = next
+    const toggle = page.locator('.pipe-toggle:visible').filter({ hasText: '扫描' }).first()
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
+    await page.getByRole('button', { name: '扫描新文件', exact: true }).click()
+    const terminal = next.state === 'failed' ? /^扫描失败：/ : next.state === 'cancelled' ? /^已取消/
+      : next.counts?.library_offline ? /^库离线，已跳过扫描/ : /^扫描完成：/
+    await page.getByText(terminal).first().waitFor()
+  }
+  async function openCheck(expected = 2) {
+    await checkButton().click()
+    await dialog.waitFor()
+    await dialog.getByText(new RegExp('可清理 ' + expected + ' 个目录')).first().waitFor()
+  }
+  async function closeCheck() {
+    await page.keyboard.press('Escape')
+    await dialog.waitFor({ state: 'hidden' })
+    const trigger = notice.locator('.obsolete-cleanup > button')
+    if (await trigger.count()) assert.equal(await trigger.evaluate(button => button === document.activeElement), true,
+      'closing cleanup restores focus to the scan followup, including the renamed completed action')
+  }
+  async function ensureFollowup() {
+    if (await notice.count()) return
+    await openLibrary(2)
+    await scan({ state: 'done', counts: { tv_ok: 2, replaced_episode: 1, changed_episode: 1, removed_episode: 1 } })
+    await notice.waitFor()
+  }
+  try {
+    await openLibrary(1)
+    for (const next of [{ state: 'done', counts: { ok: 2 } },
+      { state: 'failed', counts: { removed_episode: 2 } }, { state: 'cancelled', counts: { changed_episode: 1 } },
+      { state: 'done', counts: { library_offline: 1, removed_episode: 2 } }]) {
+      await scan(next)
+      assert.equal(await notice.count(), 0, 'no-change, failed, cancelled and offline scans do not create maintenance work')
+    }
+    assert.equal(cleanCalls.length, 0, 'scan completion never starts a cache traversal implicitly')
+    checks.push('settled scan scope: unchanged, failed, cancelled and offline do not invent maintenance work')
+
+    await openLibrary(2)
+    await scan({ state: 'done', counts: { tv_ok: 2, replaced_episode: 1, changed_episode: 1, removed_episode: 1 }, organize: true })
+    const organize = page.getByRole('dialog', { name: '剧集入库与整理预览', exact: true })
+    await organize.waitFor()
+    assert.equal(await dialog.count(), 0, 'scan cleanup never stacks over the organization review')
+    assert.equal(cleanCalls.length, 0, 'organization review takes priority and cleanup stays a deliberate action')
+    await organize.getByRole('button', { name: '稍后处理', exact: true }).click()
+    await organize.waitFor({ state: 'hidden' })
+    await notice.getByText('旧缩略图待检查', { exact: true }).waitFor()
+    const persisted = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey)
+    assert.equal(persisted.entries['2'].jobId, latest.job_id)
+    assert.equal(Boolean(persisted.entries['1']), false)
+    checks.push('changed TV scan persists a scoped followup without a second automatic dialog or cleanup request')
+
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+      await notice.scrollIntoViewIfNeeded()
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'followup fits at ' + width)
+      if (width < 700) {
+        const targets = await notice.locator('button, a').evaluateAll(elements => elements.map(element => {
+          const rect = element.getBoundingClientRect(); return { width: rect.width, height: rect.height }
+        }))
+        assert.ok(targets.every(rect => rect.width >= 44 && rect.height >= 44), 'followup phone actions have 44px targets')
+      }
+      await page.screenshot({ path: path.join(directory, 'followup-' + width + '.png'), animations: 'disabled' })
+      if (width === 1440) await screenshot(page, 'scan-cleanup-followup', 'user-guide/files.md',
+        '扫描发现移除或替换后保留旧缩略图维护提醒，可直接检查清理或进入本库新版生成', { target: notice })
+      await openCheck()
+      assert.match(await dialog.innerText(), /全部媒体库|全服务|所有视频库|全部视频库/, 'cleanup discloses its service-wide scope')
+      for (let index = 0; index < 5; index++) {
+        await page.keyboard.press(index % 2 ? 'Shift+Tab' : 'Tab')
+        assert.equal(await dialog.evaluate(element => element.contains(document.activeElement)), true, 'keyboard focus stays in cleanup')
+      }
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'cleanup dialog fits at ' + width)
+      await page.screenshot({ path: path.join(directory, 'dialog-' + width + '.png'), animations: 'disabled' })
+      if (width === 1440) await screenshot(page, 'scan-cleanup-dialog', 'user-guide/settings.md',
+        '扫描后直接检查全服务废弃缩略图：显示可回收空间、保留原因与先生成新版的引导，确认后重新检查', { target: dialog })
+      await closeCheck()
+    }
+    assert.ok(cleanCalls.every(call => call.dry_run === true && !Object.hasOwn(call, 'library_id')),
+      'opening or dismissing service-wide cleanup only checks; it never deletes or quietly narrows scope')
+    checks.push('1440/390/320 layouts, named global scope, keyboard trap and Escape/focus return, check-only opening')
+
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.reload()
+    await notice.waitFor()
+    await notice.getByRole('link', { name: '生成新版缩略图', exact: true }).click()
+    await page.locator('.tool-views:visible').getByRole('button', { name: '资料维护', exact: true }).waitFor()
+    await page.getByRole('region', { name: '播放进度缩略图', exact: true }).waitFor()
+    assert.equal(new URL(page.url()).searchParams.get('library'), '2', 'new-preview guidance retains the current video library')
+    assert.equal(requests.filter(request => request.key === '/api/stream/previews/jobs' && request.method === 'POST').length, 0,
+      'navigation to generation does not submit a batch implicitly')
+    await notice.getByRole('link', { name: '系统维护', exact: true }).click()
+    await page.waitForURL(/sec=sec-index/)
+    await page.locator('.storage-usage-panel').waitFor()
+    await openLibrary(1)
+    await scan({ state: 'done', counts: { ok: 1 } })
+    assert.equal(await notice.count(), 0, 'another library does not show TV followup content')
+    await openLibrary(2)
+    await notice.waitFor()
+    await scan({ state: 'failed', counts: { changed_episode: 1 } })
+    await notice.waitFor()
+    assert.equal((await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey)).entries['2'].jobId, persisted.entries['2'].jobId,
+      'a later failed scan cannot erase existing followup work')
+    checks.push('refresh persistence, direct maintenance/generation links, another-library scans and failed-scan preservation')
+
+    mode = 'check-error'
+    await checkButton().click()
+    await dialog.getByRole('alert').filter({ hasText: '模拟废弃缩略图检查失败' }).waitFor()
+    assert.equal(await confirmButton().count(), 0, 'failed checks never expose destructive confirmation')
+    mode = 'protected'
+    await dialog.getByRole('button', { name: '重新检查', exact: true }).click()
+    await dialog.getByText(/可清理 0 个目录/).first().waitFor()
+    assert.equal(await confirmButton().count(), 0)
+    await closeCheck()
+    await notice.waitFor()
+    mode = 'replacement'
+    await openCheck(0)
+    assert.match(await dialog.innerText(), /生成.*新版|新版.*生成|先.*生成/, 'unreplaced caches explain the next useful action')
+    await closeCheck()
+    await notice.waitFor()
+    checks.push('check failures recover without deletion; zero-candidate protected and replacement-missing work remains visible')
+
+    mode = 'clean-error'
+    await openCheck()
+    await confirmButton().click()
+    await dialog.getByRole('alert').filter({ hasText: '模拟废弃缩略图清理失败' }).waitFor()
+    await closeCheck()
+    await notice.waitFor()
+    mode = 'partial'
+    await openCheck()
+    await confirmButton().click()
+    await dialog.getByText(/已清理 1 个目录.*失败 1 个/).waitFor()
+    await closeCheck()
+    await notice.waitFor()
+    mode = 'slow-clean'
+    await openCheck()
+    cleanupGate = gate()
+    const beforeBusy = cleanCalls.length
+    await confirmButton().click()
+    await cleanupGate.requested
+    assert.equal(await dialog.locator('.jz-dialog-close').isDisabled(), true, 'active deletion blocks closing')
+    await page.keyboard.press('Escape')
+    assert.equal(await dialog.isVisible(), true, 'busy Escape cannot detach an in-flight cleanup')
+    await confirmButton().evaluate(button => button.click())
+    assert.equal(cleanCalls.length, beforeBusy + 1, 'busy confirmation cannot submit a duplicate')
+    cleanupGate.release(); cleanupGate = null
+    await dialog.getByText(/已清理 1 个目录.*失败 1 个/).waitFor()
+    await closeCheck()
+    checks.push('failed/partial cleanup keeps followup; busy confirmation and Escape protect the actual delete request')
+
+    mode = 'mixed'
+    cleanupGate = gate()
+    await checkButton().click()
+    await cleanupGate.requested
+    await openLibrary(1)
+    cleanupGate.release(); cleanupGate = null
+    assert.equal(await notice.count(), 0)
+    assert.equal(await dialog.count(), 0)
+    await openLibrary(2)
+    await notice.waitFor()
+    assert.equal(await dialog.count(), 0, 'late first-library checks do not reopen a dialog after navigation')
+    checks.push('navigation aborts or ignores a stale check while preserving the originating library followup')
+
+    mode = 'ready'
+    await openCheck()
+    await confirmButton().click()
+    await notice.getByRole('heading', { name: '缓存维护已完成', exact: true }).waitFor()
+    assert.equal(Boolean((await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey))?.entries?.['2']), false,
+      'only a complete cleanup without retained or failed work resolves the followup')
+    if (await dialog.isVisible()) await closeCheck()
+    await page.reload()
+    await page.locator('.lib-tabs').waitFor()
+    assert.equal(await notice.count(), 0, 'the already acknowledged scan is not re-added on refresh')
+    await ensureFollowup()
+    mode = 'zero'
+    await openCheck(0)
+    assert.equal(await confirmButton().count(), 0, 'an empty completed check never offers deletion')
+    await closeCheck()
+    checks.push('successful global cleanup clears persisted work and dedup survives refresh; empty checks have no delete action')
+    await writeFile(path.join(directory, 'checks.json'), JSON.stringify({ mocked: true, realVue: true, sourceSha256,
+      scope: 'successful scan followup; cleanup is service-wide', viewports: [1440, 390, 320], checks, cleanCalls }, null, 2) + '\n')
+    await Promise.all(['failure.json', 'failure.png'].map(name => rm(path.join(directory, name), { force: true })))
+  } catch (error) {
+    await page.screenshot({ path: path.join(directory, 'failure.png'), fullPage: true }).catch(() => {})
+    await writeFile(path.join(directory, 'failure.json'), JSON.stringify({ checks, cleanCalls,
+      error: String(error), text: await page.locator('main').allTextContents() }, null, 2) + '\n')
+    throw error
+  } finally {
+    for (const release of releases) release()
+    await context.close()
+  }
+}
+
 async function checkCacheSettings(browser, base) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
   const gib = 1024 ** 3
@@ -2423,6 +2726,14 @@ async function checkCacheSettings(browser, base) {
     await obsolete.getByText(/旧片源 2/).waitFor()
     await obsolete.getByText(/离线或扫描未完成 2/).waitFor()
     assert.deepEqual(cleanCalls.filter(call => call.cache === 'obsolete').map(call => call.dry_run), [true])
+    if (capture) {
+      const viewport = page.viewportSize()
+      await page.setViewportSize({ width: 1440, height: 1000 })
+      await screenshot(page, 'preview-cache-cleanup', 'user-guide/settings.md',
+        '废弃缩略图检查：可清理空间、废弃原因、保护与跳过分类，确认后重新检查；尚未执行删除',
+        { target: panel.locator('.cache-budget-row[data-cache="previews"]') })
+      await page.setViewportSize(viewport)
+    }
     await obsolete.getByRole('button', { name: '取消', exact: true }).click()
     assert.equal(await checkObsolete.evaluate(button => button === document.activeElement), true)
     await checkObsolete.click()
@@ -3045,9 +3356,11 @@ try {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
   const base = `http://127.0.0.1:${server.address().port}`
   browser = await chromium.launch({ headless: true })
+  if (scanCleanupOnly || !previewsOnly && !playerOnly && !draftsOnly && !cacheOnly && !toolsOnly) await checkScanCleanup(browser, base)
+  if (!scanCleanupOnly) {
   if (toolsOnly || !previewsOnly && !playerOnly && !draftsOnly && !cacheOnly) await checkLibraryTools(browser, base)
   if (!toolsOnly) {
-  if (previewsOnly) await checkPreviewMaintenance(browser, base, { baseline: previewBaseline })
+  if (previewsOnly || capture && !playerOnly && !cacheOnly) await checkPreviewMaintenance(browser, base, { baseline: previewBaseline })
   if (!previewsOnly && !playerOnly && !draftsOnly) await checkCacheSettings(browser, base)
   if (!previewsOnly && !playerOnly && !cacheOnly) await checkSettingsDrafts(browser, base)
   if (!previewsOnly && !playerOnly && !draftsOnly && !cacheOnly) await checkFileLoading(browser, base)
@@ -3593,9 +3906,10 @@ try {
   await context.close()
   }
   }
+  }
   assert.deepEqual(unexpected, [], 'all API calls must be mocked explicitly')
   assert.deepEqual(errors, [], 'no browser or fixture errors')
-  if (previewsOnly) assert.equal(await frontendFingerprint(), sourceSha256, 'Frontend source changed during preview checks; rerun after it is stable')
+  if (previewsOnly || scanCleanupOnly) assert.equal(await frontendFingerprint(), sourceSha256, 'Frontend source changed during focused checks; rerun after it is stable')
   if (capture) {
     assert.equal(await frontendFingerprint(), sourceSha256, 'Frontend source changed during capture; rerun after it is stable')
     const filename = path.join(root, 'docs/assets/manifest.json')
@@ -3604,7 +3918,7 @@ try {
     manifest.assets = manifest.assets.filter(entry => !names.has(entry.file)).concat(captured)
     await writeFile(filename, JSON.stringify(manifest, null, 2) + '\n')
   }
-  console.log(toolsOnly ? 'PASS compact library tools isolated browser checks' : cacheOnly ? 'PASS cache budgets: exact-edit popups, local input guards and keyboard viewport, independent quotas, frozen drag scale and overflow recovery, viewport-safe tooltips and segment labels, grouped inputs, real mouse/touch allocation, keyboard bounds, secondary-pointer termination isolation, Tab/drag cancellation, non-overlapping handles, allocation colors/proportions, legacy/zero compatibility, exact/over budgets, base growth, statistics/save failures, cleanup confirmation, persistence, busy/leave guards and 1440/390/320 layouts' : previewsOnly ? 'PASS preview maintenance isolated browser checks' : draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: controls, rate, fullscreen, preview/normal lifecycle; native HLS detached clock fallback without repeated recovery, MP4 clip prefetch/continuation/seek/source subtitle offset/lease cleanup and diagnostic copy; real ASS worker and video/subtitle pixels in phone portrait/landscape fullscreen' : 'PASS settings, files and playback: draft/navigation/preview lifecycle; browser playback compatibility, MP4 source timeline and subtitles, ASS fullscreen pixels and cleanup')
+  console.log(scanCleanupOnly ? 'PASS scan cleanup followup: persistent per-library reminders, explicit service-wide checks, organization priority, safe confirmation/retry, stale navigation isolation and 1440/390/320 layouts' : toolsOnly ? 'PASS compact library tools isolated browser checks' : cacheOnly ? 'PASS cache budgets: exact-edit popups, local input guards and keyboard viewport, independent quotas, frozen drag scale and overflow recovery, viewport-safe tooltips and segment labels, grouped inputs, real mouse/touch allocation, keyboard bounds, secondary-pointer termination isolation, Tab/drag cancellation, non-overlapping handles, allocation colors/proportions, legacy/zero compatibility, exact/over budgets, base growth, statistics/save failures, cleanup confirmation, persistence, busy/leave guards and 1440/390/320 layouts' : previewsOnly ? 'PASS preview maintenance isolated browser checks' : draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: controls, rate, fullscreen, preview/normal lifecycle; native HLS detached clock fallback without repeated recovery, MP4 clip prefetch/continuation/seek/source subtitle offset/lease cleanup and diagnostic copy; real ASS worker and video/subtitle pixels in phone portrait/landscape fullscreen' : 'PASS settings, files and playback: draft/navigation/preview lifecycle; browser playback compatibility, MP4 source timeline and subtitles, ASS fullscreen pixels and cleanup')
 } finally {
   if (browser) await browser.close()
   if (server) await new Promise(resolve => server.close(resolve))

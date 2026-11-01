@@ -66,6 +66,8 @@ docker run -d --name jzmedia \
 
 扫描入库后即可观看；需要整理时，先预览路径变化和冲突，再确认移动，支持 Kodi/Plex 命名档及关联文件处理。电影可预览还原首次位置，剧集可按历史批次预览撤销。[整理电影](docs/user-guide/organizing.md) · [整理剧集](docs/user-guide/tv-organizing.md) · [文件管理与上传](docs/user-guide/files.md)
 
+剧集上传、扫描和详情共用入库检查，先补齐可取得的资料，再显示整理建议；暂缓的建议可从视频库待办继续处理。
+
 <span id="沿用现有片库资料也能留在文件旁"></span>
 
 ### 本地/NAS 与 NFO
@@ -75,6 +77,10 @@ docker run -d --name jzmedia \
 ### 网页与电视
 
 电脑、手机网页与 Android TV 共享观看进度，各设备可独立选择儿童或隐私模式；也可向支持 DLNA 视频接收的电视投屏，兼容性取决于接收设备。[安装电视端](android-tv/README.md#已有-apk安装并连接) · [观看模式](docs/user-guide/settings.md#儿童模式与隐私模式) · [DLNA 投屏](docs/user-guide/playback-controls.md#投屏到电视)
+
+### 在线点播
+
+启用并配置在线视频源后，可在网页和 Android TV 浏览、搜索、收藏与续播来源内容。服务器负责地址解析和有界媒体透传，设备负责解码，不需要将影片先导入本地媒体库；实际可用性取决于来源、服务器网络与设备能力。[观看在线视频](docs/user-guide/watch-online.md)
 
 ## 界面预览
 

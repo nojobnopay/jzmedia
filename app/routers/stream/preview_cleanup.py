@@ -92,14 +92,21 @@ def _catalogue(pv):
         if store.list_libraries() != libraries:
             raise HTTPException(409, '视频库配置已变化，请重新盘点')
         snapshots = {int(lib['id']): store.preview_catalogue_snapshot(lib['id']) for lib in libraries}
-        healthy = {int(lib['id']): (lib.get('effective_enabled', True)
-                   and store.preview_scan_health(lib['id']) == 'healthy'
-                   and not store.fs_change_summary(lib['id'])['pending']) for lib in libraries}
+        healthy, blockers = {}, {}
+        for lib in libraries:
+            lid = int(lib['id'])
+            if not lib.get('effective_enabled', True):
+                healthy[lid], blockers[lid] = False, 'source_unavailable'
+            elif (store.preview_scan_health(lid) != 'healthy'
+                  or store.fs_change_summary(lid)['pending']):
+                healthy[lid], blockers[lid] = False, 'scan_required'
+            else:
+                healthy[lid] = True
         rows = {(row.get('kind', 'movie'), row['id']): row for lib in libraries
                 for row in store.get_library_preview_playables(lib['id'])}
         intervals = {int(lib['id']): pv._interval({'library_id': lib['id']}, library=lib)
                      for lib in libraries}
-    return libraries, snapshots, healthy, rows, intervals
+    return libraries, snapshots, healthy, rows, intervals, blockers
 
 
 def _active(pv):
@@ -192,13 +199,22 @@ def clean(pv, dry_run):
 def _clean(pv, dry_run):
     reasons = dict.fromkeys(('deleted', 'replaced', 'superseded', 'invalid'), 0)
     skipped = dict.fromkeys(('in_use', 'offline', 'protected', 'unknown'), 0)
+    skipped_details = dict.fromkeys(('replacement_missing', 'scan_required', 'recently_used',
+                                    'in_use', 'source_unavailable', 'unknown'), 0)
     result = dict(dry_run=dry_run, candidates=0, candidate_bytes=0, reasons=reasons,
-                  skipped=skipped, removed=0, freed=0, failed=0)
+                  skipped=skipped, skipped_details=skipped_details, removed=0, freed=0, failed=0)
+
+    def skip(category, detail, count=1):
+        # Keep the original counters while exposing one actionable primary reason
+        # per skipped directory. Details never relax an existing safety check.
+        skipped[category] += count
+        skipped_details[detail] += count
+
     with pv._lock:
         if pv._worker_thread and pv._worker_thread.is_alive():
             raise HTTPException(409, '进度缩略图正在生成，请完成后再清理')
         issued, active = set(pv._preview_issued), _active(pv)
-    libraries, snapshots, healthy, rows, intervals = _catalogue(pv)
+    libraries, snapshots, healthy, rows, intervals, blockers = _catalogue(pv)
     with ExitStack() as stack:
         try:
             root = pv._root().absolute()
@@ -218,7 +234,7 @@ def _clean(pv, dry_run):
                     if entry.name == _TRASH:
                         continue
                     if entry.is_symlink():
-                        skipped['unknown'] += 1
+                        skip('unknown', 'unknown')
                     elif entry.is_dir(follow_symlinks=False):
                         names.append(entry.name)
         except OSError:
@@ -228,7 +244,7 @@ def _clean(pv, dry_run):
             try:
                 entries[name] = _inspect(root_fd, name)
             except OSError:
-                skipped['unknown'] += 1
+                skip('unknown', 'unknown')
         sources, backends = {}, {}
         for lib in libraries:
             lid = int(lib['id'])
@@ -238,6 +254,7 @@ def _clean(pv, dry_run):
                     fresh_stat = getattr(backend, 'stat_uncached', backend.stat)
                     if not fresh_stat('').is_dir:
                         healthy[lid] = False
+                        blockers[lid] = 'source_unavailable'
                     for identity, row in rows.items():
                         if (row.get('library_id') or 1) != lid:
                             continue
@@ -245,13 +262,17 @@ def _clean(pv, dry_run):
                             sources[identity] = raw_preview_source(row, backend, bypass_cache=True)
                         except storage.StorageOffline:
                             healthy[lid] = False
+                            blockers[lid] = 'source_unavailable'
                             sources[identity] = None
                         except (storage.StorageError, OSError, ValueError):
                             sources[identity] = None
             except (storage.StorageError, OSError, ValueError):
                 healthy[lid] = False
+                blockers[lid] = 'source_unavailable'
         all_healthy = bool(libraries) and all(healthy.values())
         all_sources = all_healthy and all(value is not None for value in sources.values())
+        unowned_blocker = ('scan_required' if 'scan_required' in blockers.values()
+                           else 'source_unavailable' if blockers else 'unknown')
         key_index, owner_keys = {}, {}
         for identity, src in sources.items():
             if src is None:
@@ -267,37 +288,37 @@ def _clean(pv, dry_run):
         candidates = []
         for name, entry in entries.items():
             if name in issued:
-                skipped['in_use'] += 1
+                skip('in_use', 'in_use')
                 continue
             info, files, data = entry['signature'], entry['entries'], entry['data']
             timestamps = [info[4], info[5], info[6]] + [t for value in files.values() for t in (value[4], value[5], value[6])]
             if any(now - t / 1e9 < PROTECTION_SECONDS for t in timestamps):
-                skipped['protected'] += 1
+                skip('protected', 'recently_used')
                 continue
             owner = None
             if isinstance(data, dict) and data.get('item_kind') in ('movie', 'episode', 'extra') and type(data.get('item_id')) is int and data['item_id'] > 0:
                 owner = (data['item_kind'], data['item_id'])
             match = key_index.get(name)
             if match and owner is not None and owner != match[0]:
-                skipped['unknown'] += 1
+                skip('unknown', 'unknown')
                 continue
             if match and owner is None:
                 owner = match[0]
             if owner in active:
-                skipped['in_use'] += 1
+                skip('in_use', 'in_use')
                 continue
             row = rows.get(owner)
             if row and not healthy.get(int(row.get('library_id') or 1), False):
-                skipped['offline'] += 1
+                skip('offline', blockers.get(int(row.get('library_id') or 1), 'unknown'))
                 continue
             if row and sources.get(owner) is None:
-                skipped['unknown'] += 1
+                skip('unknown', 'source_unavailable')
                 continue
             if not row and not all_healthy:
-                skipped['offline'] += 1
+                skip('offline', unowned_blocker)
                 continue
             if not row and not all_sources:
-                skipped['unknown'] += 1
+                skip('unknown', 'source_unavailable')
                 continue
             reason = None
             if row:
@@ -312,7 +333,7 @@ def _clean(pv, dry_run):
                 elif any(_complete(pv, entries.get(key), row, src, key, interval) for key in keys):
                     reason = 'replaced'
                 else:
-                    skipped['unknown'] += 1
+                    skip('unknown', 'replacement_missing')
                     continue
             elif owner:
                 reason = 'deleted'
@@ -342,23 +363,29 @@ def _clean(pv, dry_run):
         for name, entry, owner, row in candidates:
             lids = [int(row.get('library_id') or 1)] if row else list(healthy)
             if not all(root_health.get(lid, False) for lid in lids):
-                skipped['offline'] += 1
+                skip('offline', 'source_unavailable')
                 continue
             if row:
                 try:
                     if owner not in refreshed:
                         refreshed[owner] = raw_preview_source(row, backends[lids[0]], bypass_cache=True)
                     fresh = refreshed[owner]
+                except (storage.StorageError, OSError, ValueError):
+                    skip('unknown', 'source_unavailable')
+                    continue
+                try:
                     if source_snapshot(fresh, row) != source_snapshot(sources[owner], row):
                         raise ValueError('source changed')
                     interval = intervals[lids[0]]
                     keys = owner_keys[owner]
                     preferred = keys[:keys.index(name)] if name in keys else keys
-                    if not any(_complete(pv, _inspect(root_fd, key), row, fresh, key, interval)
-                               for key in preferred if key in entries):
-                        raise ValueError('replacement is no longer complete')
+                    complete = any(_complete(pv, _inspect(root_fd, key), row, fresh, key, interval)
+                                   for key in preferred if key in entries)
                 except (storage.StorageError, OSError, ValueError):
-                    skipped['unknown'] += 1
+                    skip('unknown', 'unknown')
+                    continue
+                if not complete:
+                    skip('unknown', 'replacement_missing')
                     continue
             valid.append((name, entry, owner))
         if not valid:
@@ -370,18 +397,20 @@ def _clean(pv, dry_run):
                 commit.enter_context(library_mutation_lock(lib['id']))
             commit.enter_context(pv._lock)
             commit.enter_context(store._lock)
-            if (store.list_libraries() != libraries or any(
-                    store.preview_catalogue_snapshot(lid) != snapshot for lid, snapshot in snapshots.items())
-                    or any(healthy[lid] and (store.preview_scan_health(lid) != 'healthy'
-                           or store.fs_change_summary(lid)['pending']) for lid in healthy)):
-                skipped['unknown'] += len(valid)
+            catalogue_changed = (store.list_libraries() != libraries or any(
+                store.preview_catalogue_snapshot(lid) != snapshot for lid, snapshot in snapshots.items()))
+            scan_changed = not catalogue_changed and any(
+                healthy[lid] and (store.preview_scan_health(lid) != 'healthy'
+                                 or store.fs_change_summary(lid)['pending']) for lid in healthy)
+            if catalogue_changed or scan_changed:
+                skip('unknown', 'unknown' if catalogue_changed else 'scan_required', len(valid))
                 return result
             active = _active(pv)
             reserved = []
             for name, entry, owner in valid:
                 if (name in pv._preview_issued or owner in active or pv._cache_removing
                         or pv._worker_thread and pv._worker_thread.is_alive()):
-                    skipped['in_use'] += 1
+                    skip('in_use', 'in_use')
                     continue
                 reserved.append((name, entry))
             pv._cache_removing.update(name for name, _ in reserved)
@@ -405,7 +434,7 @@ def _clean(pv, dry_run):
                     moved = False
                     try:
                         if _inspect(root_fd, name) != entry:
-                            skipped['in_use'] += 1
+                            skip('in_use', 'in_use')
                             continue
                         os.rename(name, name, src_dir_fd=root_fd, dst_dir_fd=batch_fd)
                         moved = True

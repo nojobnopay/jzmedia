@@ -2,6 +2,7 @@ import { computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { api } from './api.js'
 import { tvIngestFlow } from './useTvIngestFlow.js'
 import { fileReconciliationText, hasMetadataIssues, ingestionMetadataResults } from './tvIngestFeedback.js'
+import { scanCleanupFollowups } from './scanCleanupFollowups.js'
 
 const shared = reactive({ job: null, error: '', starting: false })
 let subscribers = 0
@@ -46,6 +47,7 @@ async function refresh() {
       const previous = shared.job
       shared.job = await api('/api/jobs/scan')
       shared.error = ''
+      scanCleanupFollowups.record(shared.job)
       if (previous?.state === 'running' && previous.job_id === shared.job.job_id
         && shared.job.state === 'done' && shared.job.summary?.tv_ingest?.preview_id && reviewedScan !== shared.job.job_id) {
         reviewedScan = shared.job.job_id
@@ -103,7 +105,7 @@ export function useLibraryScan(library, onDone = () => {}, { isCurrent = () => t
     try { await api(`/api/jobs/scan/${shared.job.job_id}/cancel`, { method: 'POST' }); await refresh() }
     catch (e) { shared.error = '取消失败：' + e.message }
   }
-  onMounted(() => { subscribers++; refresh().then(schedule) })
+  onMounted(() => { subscribers++; scanCleanupFollowups.reload(); refresh().then(schedule) })
   onUnmounted(() => { disposed = true; subscribers--; if (!subscribers) clearTimeout(timer) })
   return { running, blocked, message, stateText, start, cancel }
 }

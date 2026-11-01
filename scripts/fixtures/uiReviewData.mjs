@@ -145,6 +145,7 @@ export function createFixture() {
     if(key==='/api/tv/stats')return {shows:6,seasons:12,episodes:96,pending:1,episode_review:1,by_library:[{library_id:2,name:'剧集',shows:6,episodes:96,pending:1,episode_review:1}]}
     if(key==='/api/data-usage')return dataUsage()
     if(key==='/api/stream/previews/auto')return {mode:'all',queued:0,running:false,start_hour:3,end_hour:6,pause_reason:'scheduled'}
+    if(key==='/api/stream/previews/submissions/latest')return {submission:null}
     if(key==='/api/stream/previews/queue')return {library_id:Number(url.searchParams.get('library_id')||1),revision:1,total:0,offset:0,limit:20,items:[],batches:[],running:null}
     if(key==='/api/stream/previews/cache/clean'||key==='/api/stream/cache/clean')return {total:dataUsage().categories[key==='/api/stream/cache/clean'?'transcode':'previews'],candidates:0,candidate_bytes:0,dry_run:body?.dry_run??true,removed:0,freed:0}
     if(key==='/api/metadata/providers')return {providers:[{name:'local',label:'本地索引',available:true},{name:'tmdb',label:'TMDB',available:true}]}

@@ -299,11 +299,18 @@ node scripts/smoke_settings_ui.mjs
 node scripts/smoke_settings_ui.mjs --drafts-only
 node scripts/smoke_settings_ui.mjs --previews-only
 node scripts/smoke_settings_ui.mjs --capture-docs
+node scripts/smoke_settings_ui.mjs --previews-only --capture-docs
+node scripts/smoke_settings_ui.mjs --cache-only --capture-docs
+node scripts/smoke_settings_ui.mjs --scan-cleanup-only --capture-docs
 ```
 
 该脚本构建真实 Vue 页面，但使用内存 API 模拟；不读取 `.env`、真实数据库或媒体。覆盖设置分组、按库草稿与来源顺序、明确打开/返回入口、刷新后返回原工具标签、目录分页、右键改名、退出守卫、切库与扫描目标一致性，以及手机更多菜单。预览用 FFmpeg 在临时目录生成测试视频和图片，另有合成字幕/NFO/PDF；真实播放器对照验证预览不触发任何观看进度请求或已看/连播事件，普通播放仍读取、清除、保存进度。截图来源逐项记录在 `docs/assets/manifest.json`；不能当作真实 NAS 写入或网络服务验证。运行需要已安装 FFmpeg（可使用现有 static-ffmpeg），`--capture-docs` 同时用它生成 WebP。
 
 `--previews-only` 仅检查缩略图维护：合并处理队列、当前帧进度与等待状态、跨页选择和移出，以及按需加载的已生成清单和生成失败清单、独立分页与刷新、加载失败恢复、单项重新生成和取消、切库旧响应隔离。桌面 1440px、手机 390px 与 320px 的隔离截图及结果写入 `output/playwright/preview-maintenance-unified/`。
+
+全量 `--capture-docs` 同时执行缩略图维护回归。只更新相关教程图时，`--previews-only --capture-docs` 在该范围回归通过后导出全库盘点、合并队列与成品/失败清单三张图；`--cache-only --capture-docs` 执行容量与清理回归，导出废弃缩略图检查确认图。两者只更新各自的素材清单条目。新图截取实际维护面板，逐项记录 CSS 视口与 `capture_mode: element`；截图像素高度可超过视口高度。
+
+`--scan-cleanup-only --capture-docs` 检查成功扫描后的按库维护提醒、浏览器本地恢复、整理预览优先、全服务清理范围、保护原因、失败重试、忙时关闭和切库晚响应，并导出提醒卡片与清理弹窗两张图。1440/390/320px 交互截图留在 `output/playwright/scan-cleanup-followup/`。该范围使用模拟扫描结果和缓存，不执行真实扫描或删除。
 
 ## 离线发布包
 

@@ -40,6 +40,9 @@
       </div>
       <p v-if="fileScanError" class="hint warn-text" role="alert">{{ fileScanError }}</p>
 
+      <ScanCleanupFollowup v-if="active && !filesPage && selectedTab" :key="selectedTab.id" :library="selectedTab"
+        :disabled="scanBlocked || working || !selectedTab.enabled" />
+
       <template v-for="t in tabs" :key="'lt' + t.id">
         <div v-if="openedTabs.has(t.id)" v-show="!filesPage && t.id === selectedId">
           <MovieLibraryTools v-if="t.kind !== 'tv'" :tab="t" :active="active && !filesPage && t.id === selectedId"
@@ -67,6 +70,7 @@ import MovieLibraryTools from './MovieLibraryTools.vue'
 import TvLibraryTools from './TvLibraryTools.vue'
 import FsBrowser from './FsBrowser.vue'
 import FileReviewDialog from './FileReviewDialog.vue'
+import ScanCleanupFollowup from './ScanCleanupFollowup.vue'
 import Spinner from './Spinner.vue'
 import { useFileChanges } from '../useFileChanges.js'
 import { useLibraryScan } from '../useLibraryScan.js'

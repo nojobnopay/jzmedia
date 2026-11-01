@@ -73,6 +73,9 @@ def test_inventory_and_cleanup_are_selective_and_idempotent(env):
     check = run()
     assert check['candidates'] == 3
     assert check['reasons'] == {'deleted': 1, 'replaced': 1, 'superseded': 1, 'invalid': 0}
+    assert check['skipped_details'] == dict.fromkeys((
+        'replacement_missing', 'scan_required', 'recently_used', 'in_use',
+        'source_unavailable', 'unknown'), 0)
     assert all(p.stat().st_atime_ns == stamp for p, stamp in before.items())
     assert all(p.exists() for p in obsolete)
     result = run(False)
@@ -88,6 +91,7 @@ def test_incomplete_and_unknown_libraries_protect_ownership(env, monkeypatch):
     monkeypatch.setattr(cleanup.store, 'preview_scan_health', lambda _: 'unknown')
     result = run(False)
     assert result['skipped']['offline'] == 2 and result['removed'] == 0
+    assert result['skipped_details']['scan_required'] == 2
     assert old.exists() and orphan.exists()
 
 
@@ -95,7 +99,10 @@ def test_partial_current_does_not_replace_old_source(env):
     root, row, src = env
     make(root, pv._cache_key(row, src, 10), state='partial')
     old = make(root, 'a' * 32)
-    assert run(False)['removed'] == 0
+    result = run(False)
+    assert result['removed'] == 0
+    assert result['skipped']['unknown'] == 1
+    assert result['skipped_details']['replacement_missing'] == 1
     assert old.exists()
 
 
@@ -108,6 +115,8 @@ def test_usage_recent_symlink_and_running_worker_are_protected(env, monkeypatch)
     (root / 'link').symlink_to(outside, target_is_directory=True)
     result = run(False)
     assert result['skipped']['in_use'] == 1 and result['skipped']['unknown'] == 1
+    assert result['skipped_details']['in_use'] == 1
+    assert result['skipped_details']['unknown'] == 1
     assert old.exists() and outside.exists()
     monkeypatch.setattr(pv, '_worker_thread', SimpleNamespace(is_alive=lambda: True))
     with pytest.raises(HTTPException) as error:
@@ -149,6 +158,8 @@ def test_protection_window_and_queue(env, monkeypatch):
     os.utime(recently_written, ns=(now_ns + 3 * 86400 * 10**9, now_ns + 3 * 86400 * 10**9))
     result = run(False)
     assert result['skipped']['in_use'] == 1 and result['skipped']['protected'] == 1
+    assert result['skipped_details']['in_use'] == 1
+    assert result['skipped_details']['recently_used'] == 1
     assert queued.exists() and recently_written.exists()
 
 
@@ -159,6 +170,7 @@ def test_catalogue_change_during_confirmation_prevents_deletion(env, monkeypatch
     monkeypatch.setattr(cleanup.store, 'preview_catalogue_snapshot', lambda _: next(snapshots))
     result = run(False)
     assert result['removed'] == 0 and result['skipped']['unknown'] == 1
+    assert result['skipped_details']['unknown'] == 1
     assert orphan.exists()
 
 
@@ -226,6 +238,7 @@ def test_library_going_offline_during_cleanup_skips_orphan(env, monkeypatch):
     monkeypatch.setattr(src.backend, 'stat', library_stat)
     result = run(False)
     assert result['skipped']['offline'] == 1 and result['removed'] == 0
+    assert result['skipped_details']['source_unavailable'] == 1
     assert orphan.exists()
 
 
@@ -386,7 +399,11 @@ def test_inventory_changes_before_reservation_preserve_cache(env, monkeypatch, m
                 monkeypatch.setattr(pv, '_worker_thread', SimpleNamespace(is_alive=lambda: True))
         return value
     monkeypatch.setattr(cleanup, 'raw_preview_source', source)
-    assert run(False)['removed'] == 0
+    result = run(False)
+    assert result['removed'] == 0
+    detail = {'source': 'unknown', 'health': 'scan_required',
+              'queue': 'in_use', 'worker': 'in_use'}[mutation]
+    assert result['skipped_details'][detail] == 1
     assert old.exists() and not pv._cache_removing
 
 
@@ -425,3 +442,71 @@ def test_source_read_policy_change_does_not_reuse_older_smb_bytes(env, monkeypat
     assert pv._current_ready(row, src, 10) == (None, None)
     make(root, pv._cache_key(row, src, 10))
     assert pv.preview_manifest(7)['state'] == 'ready'
+
+
+@pytest.mark.parametrize('blocker, detail', [
+    ('unscanned', 'scan_required'), ('pending_changes', 'scan_required'),
+    ('disabled', 'source_unavailable'), ('offline', 'source_unavailable'),
+    ('missing_source', 'source_unavailable'),
+])
+def test_skip_details_offer_the_required_next_action_without_deleting(env, monkeypatch, blocker, detail):
+    root, _, _ = env
+    old = make(root, 'a' * 32)
+    orphan = make(root, 'b' * 32, owner=9)
+    if blocker == 'unscanned':
+        monkeypatch.setattr(cleanup.store, 'preview_scan_health', lambda _: 'unknown')
+    elif blocker == 'pending_changes':
+        monkeypatch.setattr(cleanup.store, 'fs_change_summary', lambda _: {'pending': True})
+    elif blocker == 'disabled':
+        monkeypatch.setattr(cleanup.store, 'list_libraries', lambda: [
+            {'id': 1, 'source': 'local', 'effective_enabled': False}])
+    else:
+        error = storage.StorageOffline if blocker == 'offline' else storage.StorageNotFound
+
+        def source(*_args, **_kwargs):
+            raise error('simulated unavailable source')
+
+        monkeypatch.setattr(cleanup, 'raw_preview_source', source)
+    result = run(False)
+    assert result['removed'] == 0 and old.exists() and orphan.exists()
+    assert result['skipped_details'][detail] == 2
+    assert sum(result['skipped_details'].values()) == sum(result['skipped'].values()) == 2
+    assert result['skipped_details']['replacement_missing'] == 0
+
+
+def test_other_unscanned_library_still_protects_unowned_cache(env, monkeypatch):
+    root, row, src = env
+    make(root, pv._cache_key(row, src, 10))
+    old_source = make(root, 'a' * 32)
+    orphan = make(root, 'b' * 32, owner=9)
+    monkeypatch.setattr(cleanup.store, 'list_libraries', lambda: [
+        {'id': lid, 'source': 'local', 'effective_enabled': True} for lid in (1, 2)])
+    monkeypatch.setattr(cleanup.store, 'preview_scan_health', lambda lid: 'healthy' if lid == 1 else 'unknown')
+    monkeypatch.setattr(cleanup.store, 'get_library_preview_playables', lambda lid: [row] if lid == 1 else [])
+    result = run(False)
+    assert result['removed'] == 1 and result['reasons']['replaced'] == 1
+    assert not old_source.exists() and orphan.exists()
+    assert result['skipped']['offline'] == 1 and result['skipped_details']['scan_required'] == 1
+
+
+def test_replacement_lost_before_commit_is_reported_as_needing_generation(env, monkeypatch):
+    root, row, src = env
+    current = make(root, pv._cache_key(row, src, 10))
+    old = make(root, 'a' * 32)
+    original = cleanup.raw_preview_source
+    calls = []
+
+    def source(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            manifest = current / 'manifest.json'
+            data = json.loads(manifest.read_text())
+            data['state'] = 'partial'
+            manifest.write_text(json.dumps(data))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(cleanup, 'raw_preview_source', source)
+    result = run(False)
+    assert result['candidates'] == 1 and result['removed'] == 0 and old.exists()
+    assert result['skipped']['unknown'] == 1
+    assert result['skipped_details']['replacement_missing'] == 1

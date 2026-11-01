@@ -15966,7 +15966,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/CacheSettingsPanel.vue",
-            "line": 185,
+            "line": 193,
             "selector": ".budget-quota-trigger",
             "values": {
               "gap": "2px 6px",
@@ -15977,7 +15977,7 @@
           },
           {
             "source": "frontend/src/components/CacheSettingsPanel.vue",
-            "line": 187,
+            "line": 195,
             "selector": ".budget-quota-trigger .budget-dot",
             "values": {
               "width": "9px"
@@ -15985,7 +15985,7 @@
           },
           {
             "source": "frontend/src/components/CacheSettingsPanel.vue",
-            "line": 203,
+            "line": 211,
             "selector": ".budget-quota-trigger",
             "values": {
               "width": "100%"
@@ -16167,9 +16167,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/CacheSettingsPanel.vue:JzButton:57",
+      "id": "frontend/src/components/CacheSettingsPanel.vue:JzButton:59",
       "source": "frontend/src/components/CacheSettingsPanel.vue",
-      "line": 64,
+      "line": 67,
       "platforms": [
         "web",
         "mobile-web"
@@ -29118,6 +29118,290 @@
       "source_excerpt": "<JzButton v-if=\"upCtl\" @click=\"cancelUpload\" type=\"button\">"
     },
     {
+      "id": "frontend/src/components/ObsoletePreviewCleanup.vue:JzButton:2",
+      "source": "frontend/src/components/ObsoletePreviewCleanup.vue",
+      "line": 3,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "{{ label }}",
+      "assets": [
+        "eye"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:36px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton ref=\"checkButton\" type=\"button\" size=\"compact\" icon=\"eye\" :loading=\"busy\" :disabled=\"disabled\" @click=\"open\">"
+    },
+    {
+      "id": "frontend/src/components/ObsoletePreviewCleanup.vue:JzButton:14",
+      "source": "frontend/src/components/ObsoletePreviewCleanup.vue",
+      "line": 17,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "生成本库新版缩略图",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"replacementMissing\" type=\"button\" :disabled=\"busy || disabled\" @click=\"generatePreviews\">"
+    },
+    {
+      "id": "frontend/src/components/ObsoletePreviewCleanup.vue:JzButton:15",
+      "source": "frontend/src/components/ObsoletePreviewCleanup.vue",
+      "line": 18,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "重新检查",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"failed || lastResult\" type=\"button\" icon=\"refresh\" :disabled=\"busy || disabled\" @click=\"preview\">"
+    },
+    {
+      "id": "frontend/src/components/ObsoletePreviewCleanup.vue:JzButton:16",
+      "source": "frontend/src/components/ObsoletePreviewCleanup.vue",
+      "line": 19,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "{{ candidate?.candidates || replacementMissing ? '稍后处理' : '关闭' }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton type=\"button\" :disabled=\"busy\" @click=\"closeDialog\">"
+    },
+    {
+      "id": "frontend/src/components/ObsoletePreviewCleanup.vue:JzButton:17",
+      "source": "frontend/src/components/ObsoletePreviewCleanup.vue",
+      "line": 20,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "确认清理废弃缩略图",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"candidate?.candidates\" type=\"button\" variant=\"danger\" :loading=\"busy && !checking\" :disabled=\"busy || disabled\" @click=\"clean\">"
+    },
+    {
+      "id": "frontend/src/components/ObsoletePreviewCleanupResult.vue:JzButton:14",
+      "source": "frontend/src/components/ObsoletePreviewCleanupResult.vue",
+      "line": 14,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "确认清理废弃缩略图",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"candidate.candidates\" type=\"button\" variant=\"danger\" :disabled=\"disabled\" :loading=\"busy\" @click=\"emit('confirm')\">"
+    },
+    {
+      "id": "frontend/src/components/ObsoletePreviewCleanupResult.vue:JzButton:15",
+      "source": "frontend/src/components/ObsoletePreviewCleanupResult.vue",
+      "line": 15,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "取消",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton type=\"button\" :disabled=\"busy || disabled\" @click=\"emit('cancel')\">"
+    },
+    {
       "id": "frontend/src/components/OnlineArtwork.vue:img:2",
       "source": "frontend/src/components/OnlineArtwork.vue",
       "line": 3,
@@ -37226,7 +37510,7 @@
       "category": "control",
       "feature": "播放",
       "element": "JzButton",
-      "purpose": "{{ starting ? '正在加入…' : '立即批量生成' }}",
+      "purpose": "{{ startLabel }}",
       "assets": [
         "image"
       ],
@@ -37255,7 +37539,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton class=\"tool-action\" @click=\"start\" :disabled=\"starting || !!mutating\" :loading=\"starting\" type=\"button\" icon=\"image\">"
+      "source_excerpt": "<JzButton class=\"tool-action\" @click=\"start\" :disabled=\"!submissionKnown || batchBusy || !!mutating\" :loading=\"starting || submissionRunning\" type=\"button\" icon=\"image\">"
     },
     {
       "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:11",
@@ -37295,12 +37579,110 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"canQueueExisting\" @click=\"queueExisting\" :disabled=\"starting || !!mutating\" type=\"button\">"
+      "source_excerpt": "<JzButton v-if=\"canQueueExisting\" @click=\"queueExisting\" :disabled=\"batchBusy || !!mutating\" type=\"button\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:15",
+      "id": "frontend/src/components/PreviewMaintenance.vue:progress:16",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 18,
+      "line": 17,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-status",
+      "feature": "播放",
+      "element": "progress",
+      "purpose": "全库预览检查进度",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-progress",
+        "specification": "原生只读进度状态，宽度随容器、条高按组件CSS；不设置触摸命中区或键盘焦点。",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "design/contracts.json",
+          "frontend/src/components/PreviewMaintenance.vue",
+          "frontend/src/components/StorageUsagePanel.vue",
+          "frontend/src/components/FsBrowser.vue",
+          "frontend/src/components/TvIngestReviewDialog.vue"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/PreviewMaintenance.vue",
+            "line": 919,
+            "selector": ".submission-status progress",
+            "values": {
+              "width": "min(100%, 420px)",
+              "height": "6px"
+            }
+          },
+          {
+            "source": "frontend/src/components/PreviewMaintenance.vue",
+            "line": 961,
+            "selector": ".frame-progress progress",
+            "values": {
+              "min-width": "0",
+              "width": "100%",
+              "height": "5px"
+            }
+          }
+        ],
+        "value": "width:min(100%, 420px), height:6px / min-width:0, width:100%, height:5px"
+      },
+      "target": null,
+      "states": [
+        "determinate",
+        "indeterminate"
+      ],
+      "accessible_name_owner": "全库预览检查进度",
+      "classification": "原生progress为只读进度状态，保留确定/不确定进度语义及aria可访问名称；条高随组件样式，不设置44px触摸命中区或键盘焦点。",
+      "source_excerpt": "<progress v-if=\"submission.phase === 'checking' && submission.total > 0\" :max=\"submission.total\" :value=\"submission.checked\" aria-label=\"全库预览检查进度\" />"
+    },
+    {
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:20",
+      "source": "frontend/src/components/PreviewMaintenance.vue",
+      "line": 22,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "重新查询批量任务状态",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "重新查询批量任务状态",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton type=\"button\" :loading=\"statusLoading\" @click=\"loadStatus\" aria-label=\"重新查询批量任务状态\">"
+    },
+    {
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:23",
+      "source": "frontend/src/components/PreviewMaintenance.vue",
+      "line": 27,
       "platforms": [
         "web",
         "mobile-web"
@@ -37325,7 +37707,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PreviewMaintenance.vue",
-            "line": 817,
+            "line": 921,
             "selector": ".completed-toggle",
             "values": {
               "width": "100%",
@@ -37334,7 +37716,7 @@
           },
           {
             "source": "frontend/src/components/PreviewMaintenance.vue",
-            "line": 818,
+            "line": 922,
             "selector": ".completed-toggle > span",
             "values": {
               "min-width": "0"
@@ -37357,9 +37739,9 @@
       "source_excerpt": "<JzButton ref=\"completedToggleRef\" type=\"button\" variant=\"ghost\" class=\"completed-toggle\" icon=\"image\" aria-label=\"已生成缩略图\" :aria-expanded=\"completedOpen\" :aria-controls=\"completedP"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:AppIcon:18",
+      "id": "frontend/src/components/PreviewMaintenance.vue:AppIcon:26",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 21,
+      "line": 30,
       "platforms": [
         "web",
         "mobile-web"
@@ -37395,9 +37777,9 @@
       "source_excerpt": "<AppIcon :name=\"completedOpen ? 'chevron-up' : 'chevron-down'\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:23",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:31",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 27,
+      "line": 36,
       "platforms": [
         "web",
         "mobile-web"
@@ -37437,9 +37819,9 @@
       "source_excerpt": "<JzButton ref=\"completedRefreshRef\" type=\"button\" variant=\"ghost\" size=\"compact\" icon=\"refresh\" :loading=\"completedLoading\" aria-label=\"刷新已生成缩略图\" @click=\"loadCompleted\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:26",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:34",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 32,
+      "line": 41,
       "platforms": [
         "web",
         "mobile-web"
@@ -37476,9 +37858,9 @@
       "source_excerpt": "<JzButton ref=\"completedRetryRef\" type=\"button\" aria-label=\"重试加载已生成缩略图\" @click=\"loadCompleted\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:43",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:51",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 49,
+      "line": 58,
       "platforms": [
         "web",
         "mobile-web"
@@ -37516,9 +37898,9 @@
       "source_excerpt": "<JzButton v-if=\"canRevokeTail(item)\" :ref=\"element => setTailRef('revoke', item, element)\" type=\"button\" variant=\"ghost\" :disabled=\"starting || !!mutating\" :aria-label=\"`撤销片尾损坏确认 $"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:45",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:53",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 54,
+      "line": 63,
       "platforms": [
         "web",
         "mobile-web"
@@ -37556,9 +37938,9 @@
       "source_excerpt": "<JzButton ref=\"completedPreviousRef\" type=\"button\" aria-label=\"已生成上一页\" :disabled=\"completedOffset === 0 || completedLoading\" @click=\"changeCompletedPage(-1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:47",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:55",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 56,
+      "line": 65,
       "platforms": [
         "web",
         "mobile-web"
@@ -37596,9 +37978,9 @@
       "source_excerpt": "<JzButton ref=\"completedNextRef\" type=\"button\" aria-label=\"已生成下一页\" :disabled=\"completedOffset + pageSize >= completed.total || completedLoading\" @click=\"changeCompletedPage(1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:49",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:57",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 63,
+      "line": 72,
       "platforms": [
         "web",
         "mobile-web"
@@ -37623,7 +38005,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PreviewMaintenance.vue",
-            "line": 817,
+            "line": 921,
             "selector": ".completed-toggle",
             "values": {
               "width": "100%",
@@ -37632,7 +38014,7 @@
           },
           {
             "source": "frontend/src/components/PreviewMaintenance.vue",
-            "line": 818,
+            "line": 922,
             "selector": ".completed-toggle > span",
             "values": {
               "min-width": "0"
@@ -37655,9 +38037,9 @@
       "source_excerpt": "<JzButton ref=\"failedToggleRef\" type=\"button\" variant=\"ghost\" class=\"completed-toggle\" icon=\"image\" aria-label=\"生成失败\" :aria-expanded=\"failedOpen\" :aria-controls=\"failedPanelId\" @cl"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:AppIcon:52",
+      "id": "frontend/src/components/PreviewMaintenance.vue:AppIcon:60",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 66,
+      "line": 75,
       "platforms": [
         "web",
         "mobile-web"
@@ -37693,9 +38075,9 @@
       "source_excerpt": "<AppIcon :name=\"failedOpen ? 'chevron-up' : 'chevron-down'\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:57",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:65",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 72,
+      "line": 81,
       "platforms": [
         "web",
         "mobile-web"
@@ -37735,9 +38117,9 @@
       "source_excerpt": "<JzButton ref=\"failedRefreshRef\" type=\"button\" variant=\"ghost\" size=\"compact\" icon=\"refresh\" :loading=\"failedLoading\" aria-label=\"刷新失败清单\" @click=\"loadFailed()\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:63",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:71",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 80,
+      "line": 89,
       "platforms": [
         "web",
         "mobile-web"
@@ -37774,9 +38156,9 @@
       "source_excerpt": "<JzButton ref=\"failedRetryRef\" type=\"button\" aria-label=\"重试加载失败清单\" @click=\"loadFailed()\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:76",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:84",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 93,
+      "line": 102,
       "platforms": [
         "web",
         "mobile-web"
@@ -37816,9 +38198,9 @@
       "source_excerpt": "<JzButton :ref=\"element => setFailedItemRef(item, element)\" class=\"queue-action\" type=\"button\" icon=\"refresh\" :disabled=\"starting || !!mutating\" :loading=\"mutating === `retry:${ite"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:77",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:85",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 96,
+      "line": 105,
       "platforms": [
         "web",
         "mobile-web"
@@ -37856,9 +38238,9 @@
       "source_excerpt": "<JzButton v-if=\"tailCandidate(item)\" :ref=\"element => setTailRef('accept', item, element)\" class=\"queue-action\" type=\"button\" variant=\"ghost\" :disabled=\"starting || !!mutating\" :ar"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:79",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:87",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 101,
+      "line": 110,
       "platforms": [
         "web",
         "mobile-web"
@@ -37896,9 +38278,9 @@
       "source_excerpt": "<JzButton ref=\"failedPreviousRef\" type=\"button\" aria-label=\"失败上一页\" :disabled=\"failedOffset === 0 || failedLoading\" @click=\"changeFailedPage(-1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:81",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:89",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 103,
+      "line": 112,
       "platforms": [
         "web",
         "mobile-web"
@@ -37936,9 +38318,9 @@
       "source_excerpt": "<JzButton ref=\"failedNextRef\" type=\"button\" aria-label=\"失败下一页\" :disabled=\"failedOffset + pageSize >= failed.total || failedLoading\" @click=\"changeFailedPage(1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:88",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:96",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 115,
+      "line": 124,
       "platforms": [
         "web",
         "mobile-web"
@@ -37975,9 +38357,9 @@
       "source_excerpt": "<JzButton type=\"button\" aria-label=\"重试加载处理队列\" @click=\"load\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:92",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:100",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 121,
+      "line": 130,
       "platforms": [
         "web",
         "mobile-web"
@@ -38015,9 +38397,9 @@
       "source_excerpt": "<JzButton :ref=\"element => setBatchCancelRef(batch, element)\" type=\"button\" variant=\"ghost\" size=\"compact\" :disabled=\"starting || !!mutating\" :aria-label=\"`取消本批次 ${index + 1}`\" @cl"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:input:97",
+      "id": "frontend/src/components/PreviewMaintenance.vue:input:105",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 127,
+      "line": 136,
       "platforms": [
         "web",
         "mobile-web"
@@ -38055,9 +38437,9 @@
       "source_excerpt": "<input type=\"checkbox\" aria-label=\"全选本库待处理项\" :checked=\"allSelected\" :indeterminate=\"selectionCount > 0 && !allSelected\" :disabled=\"starting || !!mutating\" @change=\"toggleAll\" />"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:99",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:107",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 130,
+      "line": 139,
       "platforms": [
         "web",
         "mobile-web"
@@ -38095,9 +38477,9 @@
       "source_excerpt": "<JzButton type=\"button\" variant=\"danger\" :disabled=\"!selectionCount || starting || !!mutating\" @click=\"removeSelected\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:100",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:108",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 131,
+      "line": 140,
       "platforms": [
         "web",
         "mobile-web"
@@ -38135,9 +38517,9 @@
       "source_excerpt": "<JzButton v-if=\"selectionCount\" type=\"button\" :disabled=\"starting || !!mutating\" @click=\"clearSelection\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:AppIcon:105",
+      "id": "frontend/src/components/PreviewMaintenance.vue:AppIcon:113",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 136,
+      "line": 145,
       "platforms": [
         "web",
         "mobile-web"
@@ -38172,9 +38554,9 @@
       "source_excerpt": "<AppIcon name=\"image\" :size=\"20\" />"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:progress:113",
+      "id": "frontend/src/components/PreviewMaintenance.vue:progress:121",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 143,
+      "line": 152,
       "platforms": [
         "web",
         "mobile-web"
@@ -38200,7 +38582,16 @@
         "overrides": [
           {
             "source": "frontend/src/components/PreviewMaintenance.vue",
-            "line": 857,
+            "line": 919,
+            "selector": ".submission-status progress",
+            "values": {
+              "width": "min(100%, 420px)",
+              "height": "6px"
+            }
+          },
+          {
+            "source": "frontend/src/components/PreviewMaintenance.vue",
+            "line": 961,
             "selector": ".frame-progress progress",
             "values": {
               "min-width": "0",
@@ -38209,7 +38600,7 @@
             }
           }
         ],
-        "value": "min-width:0, width:100%, height:5px"
+        "value": "width:min(100%, 420px), height:6px / min-width:0, width:100%, height:5px"
       },
       "target": null,
       "states": [
@@ -38221,9 +38612,9 @@
       "source_excerpt": "<progress :max=\"runningTotal || 1\" :value=\"runningTotal ? Math.min(runningFrames, runningTotal) : undefined\" :aria-label=\"`${running.title} 缩略图抽取进度`\" :aria-valuetext=\"runningProgre"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:117",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:125",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 152,
+      "line": 161,
       "platforms": [
         "web",
         "mobile-web"
@@ -38263,9 +38654,9 @@
       "source_excerpt": "<JzButton class=\"queue-action\" type=\"button\" variant=\"ghost\" icon=\"close\" icon-only :disabled=\"starting || !!mutating\" :loading=\"mutating === 'running'\" :aria-label=\"`取消当前影片 ${runn"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:input:121",
+      "id": "frontend/src/components/PreviewMaintenance.vue:input:129",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 158,
+      "line": 167,
       "platforms": [
         "web",
         "mobile-web"
@@ -38303,9 +38694,9 @@
       "source_excerpt": "<input type=\"checkbox\" :aria-label=\"`选择 ${item.title}`\" :checked=\"isSelected(item)\" :disabled=\"starting || !!mutating\" @change=\"toggleItem(item)\" />"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:128",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:136",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 165,
+      "line": 174,
       "platforms": [
         "web",
         "mobile-web"
@@ -38345,9 +38736,9 @@
       "source_excerpt": "<JzButton class=\"queue-action\" type=\"button\" variant=\"ghost\" icon=\"close\" icon-only title=\"移出队列\" :disabled=\"starting || !!mutating\" :loading=\"mutating === `${item.kind}-${item.id}`"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:130",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:138",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 172,
+      "line": 181,
       "platforms": [
         "web",
         "mobile-web"
@@ -38385,9 +38776,9 @@
       "source_excerpt": "<JzButton type=\"button\" :disabled=\"offset === 0 || starting || !!mutating\" @click=\"changePage(-1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:132",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:140",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 174,
+      "line": 183,
       "platforms": [
         "web",
         "mobile-web"
@@ -38425,9 +38816,9 @@
       "source_excerpt": "<JzButton type=\"button\" :disabled=\"offset + pageSize >= queue.total || starting || !!mutating\" @click=\"changePage(1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:138",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:146",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 183,
+      "line": 192,
       "platforms": [
         "web",
         "mobile-web"
@@ -38465,9 +38856,9 @@
       "source_excerpt": "<JzButton ref=\"batchKeepRef\" type=\"button\" :disabled=\"mutating === 'batch'\" @click=\"closeBatchCancel\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:139",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:147",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 184,
+      "line": 193,
       "platforms": [
         "web",
         "mobile-web"
@@ -38505,9 +38896,9 @@
       "source_excerpt": "<JzButton ref=\"batchConfirmRef\" type=\"button\" variant=\"danger\" :loading=\"mutating === 'batch'\" @click=\"cancelBatch\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:149",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:157",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 195,
+      "line": 204,
       "platforms": [
         "web",
         "mobile-web"
@@ -38545,9 +38936,9 @@
       "source_excerpt": "<JzButton ref=\"tailCancelRef\" type=\"button\" :disabled=\"tailBusy\" @click=\"closeTailDialog\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:150",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:158",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 196,
+      "line": 205,
       "platforms": [
         "web",
         "mobile-web"
@@ -39140,6 +39531,113 @@
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "semantic link",
       "source_excerpt": "<router-link to=\"/settings?sec=sec-libraries\">"
+    },
+    {
+      "id": "frontend/src/components/ScanCleanupFollowup.vue:AppIcon:3",
+      "source": "frontend/src/components/ScanCleanupFollowup.vue",
+      "line": 4,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "媒体管理",
+      "element": "AppIcon",
+      "purpose": "图片或海报占位",
+      "assets": [
+        "image"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "20"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon name=\"image\" :size=\"20\" />"
+    },
+    {
+      "id": "frontend/src/components/ScanCleanupFollowup.vue:RouterLink:13",
+      "source": "frontend/src/components/ScanCleanupFollowup.vue",
+      "line": 14,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "link",
+      "feature": "媒体管理",
+      "element": "RouterLink",
+      "purpose": "生成新版缩略图",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-link",
+        "specification": "正文链接保留行内文本；导航和按钮式链接按对应class扩展触摸区，不能把所有正文链接声明为44px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": null,
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "semantic link",
+      "source_excerpt": "<RouterLink v-if=\"entry.changed\" :to=\"previewTarget\">"
+    },
+    {
+      "id": "frontend/src/components/ScanCleanupFollowup.vue:RouterLink:14",
+      "source": "frontend/src/components/ScanCleanupFollowup.vue",
+      "line": 15,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "link",
+      "feature": "媒体管理",
+      "element": "RouterLink",
+      "purpose": "系统维护",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-link",
+        "specification": "正文链接保留行内文本；导航和按钮式链接按对应class扩展触摸区，不能把所有正文链接声明为44px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": null,
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "semantic link",
+      "source_excerpt": "<RouterLink :to=\"{ path: '/settings', query: { sec: 'sec-index' } }\">"
     },
     {
       "id": "frontend/src/components/ScoreBadge.vue:AppIcon:2",
@@ -41932,7 +42430,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/TvIngestReviewDialog.vue",
-            "line": 91,
+            "line": 92,
             "selector": ".ingest-task progress",
             "values": {
               "width": "min(420px, 100%)"
@@ -42560,6 +43058,46 @@
       "category": "control",
       "feature": "浏览与资料",
       "element": "JzButton",
+      "purpose": "完成",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"noWork\" variant=\"primary\" :disabled=\"busy\" @click=\"close\">"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:77",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 37,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
       "purpose": "忽略本次",
       "assets": [],
       "dynamic_expression": null,
@@ -42590,7 +43128,7 @@
       "source_excerpt": "<JzButton :disabled=\"busy\" @click=\"decide('ignored')\">"
     },
     {
-      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:76",
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:78",
       "source": "frontend/src/components/TvIngestReviewDialog.vue",
       "line": 37,
       "platforms": [
@@ -42630,7 +43168,7 @@
       "source_excerpt": "<JzButton :disabled=\"busy\" @click=\"decide('deferred')\">"
     },
     {
-      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:77",
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:79",
       "source": "frontend/src/components/TvIngestReviewDialog.vue",
       "line": 37,
       "platforms": [

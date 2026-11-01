@@ -23,12 +23,16 @@
 | `app/tv_bindings.py`、`app/tv_binding_rules.py`、`app/store/tv_bindings.py` | 剧集目录归属规则、纯规则判定、归属表与历史表的读写 | 预览 token 有效期、事务内应用、规则路径随整理/恢复改写 |
 | `app/onboarding.py`、`app/store/onboarding.py` | 实例共享的新手进度与连接验证 | 完成条件依据实际入库记录，上传数量不能代替入库 |
 | `app/store/fs_changes.py` | 文件实际变更与扫描水位 | 失败、取消和扫描期间新增变更不得被提前清除 |
+| `app/store/preview_scan_health.py` | 库完整扫描的持久证据与清理协调 | 配置变化、失败或未完成扫描按未知处理 |
 
 ### 扫描、元数据与播放
 
 | 目录或文件 | 主要职责 | 变更时的约束 |
 |---|---|---|
 | `app/scanner/` | 文件分类、电影和剧集扫描、匹配、NFO 同步与目录整理 | 分类/解析优先纯函数，整理先计划后执行 |
+| `app/tv_ingest.py`、`app/routers/tv_ingest.py`、`app/store/tv_ingest.py` | 统一剧集检查、资料补缺、持久待办及整理预览 | 接收请求时固定对象范围；执行绑定展示过的预览 |
+| `app/scanner/tv_reconcile.py`、`app/playback/source.py` | 外部片源替换对账、源修订及派生缓存身份 | 不完整枚举不清理旧记录；处理前后复核源修订 |
+| `app/routers/stream/preview_*.py` | 抽帧、盘点、成品索引、源快照与废弃缓存清理 | 全库盘点和抽帧分开；慢存储读取与删除留在全局锁外 |
 | `app/metadata/`、`app/tmdb.py` | 来源链、外源候选/详情、NFO 导入、TMDB 客户端 | 来源缺省与冷却状态；保守匹配门 |
 | `app/ai/`、`app/routers/ai*.py` | 可选智能配置、限额、模型请求、搜索和匹配建议 | 候选由真实来源校验；确认前不改绑定；API Key 仅服务端使用 |
 | `app/nfo.py`、`app/artwork.py`、`app/posters.py` | NFO 格式、媒体目录图片、数据目录图片路径 | 遵守库的落盘策略与已有文件所有权 |
@@ -50,6 +54,8 @@
 | `frontend/src/browseFilters.js`、`components/BrowseFilters.vue`、`components/BrowseFilterSummary.vue` | 电影/剧集共用筛选草稿、应用、摘要与移除 |
 | `frontend/src/useFsBrowser.js`、`useFileChanges.js`、`useFilePreview.js`、`fileNavigation.js` | 文件分页/操作、扫描提醒、预览及来源返回 |
 | `frontend/src/useAiRequest.js`、`useMatchingSettings.js`、`useOnboarding.js` | 智能请求代际、库级规则草稿、新手步骤与验证 |
+| `frontend/src/useTvIngestFlow.js`、`useTvIngestReview.js`、`components/TvIngestReviewDialog.vue` | 跨入口剧集检查、整理确认与待办选择 |
+| `frontend/src/components/PreviewMaintenance.vue`、`ObsoletePreviewCleanup.vue` | 全库盘点、处理队列、成品与失败清单及废弃缓存清理 |
 | `frontend/src/styles/`、`frontend/src/player.css` | 全局设计变量和动态字幕层/共享播放按钮样式 |
 
 ### 播放器与字幕

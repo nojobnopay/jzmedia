@@ -31,12 +31,16 @@ flowchart LR
 
 扫描入库另走后台：`POST /api/jobs/scan` 建任务后返回 `job_id`，`scanner` 线程经 `StorageBackend.iter_tree` 遍历 → 分类/匹配/持久化 → `scan_state` 记增量；前端轮询 `GET /api/jobs/scan` 或具体 job ID 看进度。目录整理先预览再确认；重建 NFO 与缩略图按各自任务接口显式启动，不能假定每个任务都带相同的预览协议。取消是协作式，已经完成的操作保留。
 
+剧集通过 `tv_ingest` 统一衔接上传、扫描和详情的资料补缺与整理建议，待办和预览快照持久保存；文件发现对账与物理整理分开，确认时重新核对展示过的动作。缩略图立即批量生成另有持久盘点状态，先以 HTTP 202 返回，再由后台盘点并提交到持久影片队列，最后由单个执行器抽帧。两类任务的恢复边界不同，分别见[剧集入库检查](api.md#统一剧集入库检查)与[预览队列和批次](api.md#队列与批次)。
+
 ### 网页播放
 
 1. 浏览器通过 `caps.js` 检测格式/显示能力，经 `POST /api/stream/{id}/decide` 上报候选能力。
 2. FastAPI 从 `store` 找对应电影、集或花絮，使用 `StorageBackend` 生成可读媒体源；`media.py` 对必要源做 ffprobe 探测，结果存 `media_info`。
 3. `playback.plan` 给出 direct/remux/audio_transcode/video_transcode 决策；直发走支持 Range 的 blob，其他路径建 HLS 会话。浏览器 hls.js 或原生 HLS 消费结果。
 4. 页面状态与进度仍通过 API 写库；播放缓存、缩略图属于服务数据目录，可重新生成。
+
+在线播放使用独立来源、内容身份和设备会话；服务端解析地址并透传受限媒体字节，播放设备负责解码。该路径不读取 NAS 片源，也不调用本地转码、字幕烧录或缩略图生成，见[在线播放描述](playback.md#在线播放描述)。
 
 ### 电视播放
 

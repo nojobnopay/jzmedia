@@ -24,6 +24,9 @@
 | `smoke_tv_airing.mjs --capture-docs` | 剧集播出、收藏状态与官方分集目录 |
 | `smoke_settings_ui.mjs --capture-docs` | 设置、草稿提醒、文件管理、预览与播放器控件 |
 | `smoke_settings_ui.mjs --player-only --capture-docs` | 播放器设置与文件预览控件截图 |
+| `smoke_settings_ui.mjs --previews-only --capture-docs` | 缩略图后台盘点、处理队列与成品/失败清单 |
+| `smoke_settings_ui.mjs --cache-only --capture-docs` | 废弃缩略图检查与清理确认 |
+| `smoke_settings_ui.mjs --scan-cleanup-only --capture-docs` | 扫描后的缓存维护提醒与共用清理弹窗 |
 | `smoke_online_ui.mjs --capture-docs` | 在线来源、浏览、详情、长剧选集、记录和主机确认截图 |
 | `scripts/online_fixture/tv_docs.py` | 原生电视端在线目录、影片详情及拼音键盘的隔离演示数据 |
 | `smoke_casting.mjs --capture-only` | 普通播放的手机暂停布局、投屏选择与进度缩略图（原始 PNG） |
@@ -44,6 +47,16 @@ node scripts/smoke_settings_ui.mjs --capture-docs
 node scripts/smoke_ai_ui.mjs --capture-docs
 node scripts/smoke_online_ui.mjs --capture-docs
 ```
+
+仅更新缩略图维护教程时，可按场景选择以下命令，保留其他素材的拍摄记录：
+
+```bash
+node scripts/smoke_settings_ui.mjs --previews-only --capture-docs
+node scripts/smoke_settings_ui.mjs --cache-only --capture-docs
+node scripts/smoke_settings_ui.mjs --scan-cleanup-only --capture-docs
+```
+
+各项均执行对应隔离回归并从真实维护面板生成 WebP；清单的 `capture_mode: element` 表示截取面板，`viewport` 记录拍摄时 CSS 视口，不代表图片实际尺寸。盘点数量、队列、扫描变更、失败原因与清理结果均为模拟 API 数据。
 
 2026-10-24 更新通用 UI 与剧集播出教程图，改用摄影风格的原创演示海报、横幅剧照和虚构人物肖像；逐文件拍摄记录见清单。缺失海报示例继续保留真实的缺图状态，便于说明未匹配影片。
 

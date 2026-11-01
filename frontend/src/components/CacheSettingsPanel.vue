@@ -56,7 +56,8 @@
           <div class="base-heading"><h4>{{ field.part === 'transcode' ? '播放缓存' : '进度缩略图' }}</h4>
             <p class="cache-actual">实际占用 <strong>{{ usage?.ok ? fmtBytes(usage.categories[field.part]) : '暂不可用' }}</strong></p></div>
           <p class="hint">{{ field.hint }}</p>
-          <ObsoletePreviewCleanup v-if="field.part === 'previews'" :disabled="saving" />
+          <ObsoletePreviewCleanup v-if="field.part === 'previews'" :disabled="saving"
+            @busy-change="cleanupBusy" @checked="cleanupChecked" @cleaned="cleanupChecked" />
           <p v-if="field.part === 'previews'" class="hint">清理全部缩略图会删除当前有效的缓存，之后需要重新生成。</p>
           <CacheCleanupControls :kind="field.part" :disabled="saving" />
         </div>
@@ -75,6 +76,7 @@ import { api } from '../api.js'
 import { fmtBytes } from '../format.js'
 import { cacheBudget, capacityError } from '../cacheBudget.js'
 import { useSettingsDraft } from '../settingsDrafts.js'
+import { scanCleanupFollowups } from '../scanCleanupFollowups.js'
 import BudgetAllocationBar from './BudgetAllocationBar.vue'
 import BudgetQuotaEditor from './BudgetQuotaEditor.vue'
 import CacheCleanupControls from './CacheCleanupControls.vue'
@@ -94,6 +96,9 @@ const cacheFields = [
 const saved = ref(null), draft = ref({}), saving = ref(false), error = ref(''), message = ref('')
 const allocationBar = ref(null), quotaEditor = ref(null), editor = shallowRef(null)
 const controller = new AbortController()
+let reviewedCleanup = {}
+function cleanupBusy(busy) { if (busy) reviewedCleanup = scanCleanupFollowups.snapshot() }
+function cleanupChecked(result) { scanCleanupFollowups.settle(result, reviewedCleanup) }
 const keys = ['data_warning_gb', ...cacheFields.map(field => field.key)]
 const draftDirty = computed(() => !!saved.value && keys.some(key => draft.value[key] !== saved.value[key]))
 const bufferDirty = computed(() => !!editor.value && editor.value.value !== editor.value.initial)
