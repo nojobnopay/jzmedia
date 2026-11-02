@@ -33,6 +33,8 @@ export function onlineCatalogError(problem) {
     provider_rate_limited: '视频源暂时限制了请求次数，请稍后重试。',
     provider_auth_failed: '视频源要求上游认证，请检查来源配置或选择其他来源。',
     provider_media_unsupported: '此线路没有可直接播放的 MP4 或 HLS 视频，请选择其他线路。',
+    provider_page_unsupported: '此线路的网页结构暂不支持，请选择 lzm3u8 线路。',
+    provider_page_invalid: '视频源网页解析失败，请重试或选择 lzm3u8 线路。',
     provider_not_found: '此内容已从视频源移除，请重新搜索。',
     provider_line_required: '此内容有多条线路，请在详情中选择线路后播放。',
     provider_line_not_found: '此播放线路已变化，请重新打开详情选择线路。',

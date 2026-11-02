@@ -131,6 +131,8 @@ class FixtureOrigin:
         self.catalogue_version = 0
         self.related = False
         self.detail_mode = False
+        self.page_resolver = False
+        self.page_mode = "normal"
         self.related_delay_ms = 0
         self.related_failure = False
         self.related_category_failure = False
@@ -194,6 +196,19 @@ class FixtureOrigin:
                     del origin.calls[:-2000]
                 if api:
                     self.catalogue(query, head, call)
+                    return
+                if parsed.path in {"/share/ep-1", "/share/ep-2"}:
+                    with origin.lock:
+                        revision, page_mode = origin.revision, origin.page_mode
+                    episode = parsed.path.rsplit("-", 1)[-1]
+                    target = f"/files/ep-{episode}/hls/master.m3u8?fixture_signature=server-only-{revision}"
+                    declaration = ("var main = makeDynamicUrl();" if page_mode == "dynamic" else
+                                   "var main = " + json.dumps(target) + ";")
+                    body = ("<!doctype html><html><head><meta charset='utf-8'></head><body><script>"
+                            "window.__fixtureInjected = true;" + declaration + "</script></body></html>").encode()
+                    with origin.lock:
+                        call.update(status=200, page=True, bytes_sent=len(body), complete=True)
+                    self.send_body(200, body, "text/html; charset=utf-8", head)
                     return
                 signed = query.get("fixture_signature", [None])[0]
                 with origin.lock:
@@ -404,9 +419,9 @@ class FixtureOrigin:
 
     def records(self, mode="normal"):
         with self.lock:
-            revision, reverse, alias, gallery, taxonomy, related, detail_mode, catalogue_version = (
+            revision, reverse, alias, gallery, taxonomy, related, detail_mode, catalogue_version, page_resolver = (
                 self.revision, self.reverse_lines, self.media_alias, self.gallery,
-                self.taxonomy, self.related, self.detail_mode, self.catalogue_version)
+                self.taxonomy, self.related, self.detail_mode, self.catalogue_version, self.page_resolver)
         def media(episode, transport):
             asset = "movie.mp4" if transport == "mp4" else "hls/master.m3u8"
             media_base = f"http://media.fixture.invalid:{self.port}" if alias else self.base_url
@@ -414,6 +429,10 @@ class FixtureOrigin:
         def lines(captions):
             groups = [("MP4直链", "#".join(f"{caption}${media(number, 'mp4')}" for number, caption in enumerate(captions, 1))),
                       ("HLS直链", "#".join(f"{caption}${media(number, 'hls')}" for number, caption in enumerate(captions, 1)))]
+            if page_resolver:
+                groups.append(("liangzi", "#".join(
+                    f"{caption}${self.base_url}/share/ep-{number}"
+                    for number, caption in enumerate(captions, 1))))
             if reverse:
                 groups.reverse()
             return "$$$".join(row[0] for row in groups), "$$$".join(row[1] for row in groups)

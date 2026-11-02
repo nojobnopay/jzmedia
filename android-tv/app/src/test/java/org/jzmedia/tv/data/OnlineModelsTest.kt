@@ -243,6 +243,12 @@ class OnlineModelsTest {
             onlineErrorMessage(ApiException(502, "proxy password", "provider_entry_limit")))
         assertEquals("视频源返回的资料过大，暂时无法读取。",
             onlineErrorMessage(ApiException(502, "proxy password", "provider_response_limit")))
+        assertEquals("此线路的网页结构暂不支持，请返回详情选择 lzm3u8 线路。",
+            onlineErrorMessage(ApiException(422, "https://private.invalid/?sign=secret", "provider_page_unsupported")))
+        assertEquals("视频源网页解析失败，请重试或选择 lzm3u8 线路。",
+            onlineErrorMessage(ApiException(502, "https://private.invalid/?sign=secret", "provider_page_invalid")))
+        assertEquals("视频源或网络配置已变化，请返回详情重新播放。",
+            onlineErrorMessage(ApiException(409, "private network options", "online_source_changed")))
         assertFalse(onlineErrorMessage(IllegalArgumentException("secret")).contains("secret"))
     }
 }

@@ -22,7 +22,7 @@ TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：
 
 收藏和观看进度按设备观看 Cookie 与普通／隐私模式分开保存在服务端，关闭总开关不删除记录，仍可取消收藏和清除历史。自动连播偏好在当前浏览器内按普通／隐私模式分别保存，默认关闭。
 
-MacCMS 提供方只读取 Provide JSON 接口直接返回的 MP4/HLS 地址，不执行站点播放器脚本或外部解析服务。标准模式为搜索 `ac=list`、详情 `ac=detail`；依据见 [MacCMS 官方接口说明](https://github.com/magicblack/maccms10/wiki/%E5%85%A5%E5%BA%93%E6%8E%A5%E5%8F%A3%E8%AF%B4%E6%98%8E)。站点兼容设置保存在 `provider_options`：
+MacCMS 提供方读取 Provide JSON 接口返回的 MP4/HLS 地址；量子官方接口的 `liangzi` 线路另支持受限的静态网页解析，使用方法见[观看在线视频](../user-guide/watch-online.md#量子网页播放线路)。不执行站点播放器脚本或调用外部解析服务。标准模式为搜索 `ac=list`、详情 `ac=detail`；依据见 [MacCMS 官方接口说明](https://github.com/magicblack/maccms10/wiki/%E5%85%A5%E5%BA%93%E6%8E%A5%E5%8F%A3%E8%AF%B4%E6%98%8E)。站点兼容设置保存在 `provider_options`：
 
 | 配置 | 取值与默认值 |
 |---|---|

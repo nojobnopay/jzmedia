@@ -80,7 +80,7 @@
 | `GET /api/online/sources/{source_id}` | 读取单个来源；不存在返回 `404` |
 | `PATCH /api/online/sources/{source_id}` | 原子更新已提供的字段；可用 `enabled:false` 停用并保留身份 |
 
-主机检查与追加还需先通过 `/api/viewing/session` 取得设备身份，并遵循管理授权与已配置的写令牌。`host-check` 提交 `{external_id}`，只通过该来源的 API 网络用途读取一项详情，复用目录期限、取消和并发限制；候选不做 DNS 或媒体探测。返回 `source_id`、`external_id`、`missing_hosts`、`allowed_hosts`、`rejected_count` 和 64 位小写十六进制 `configuration_fingerprint`。`allow-hosts` 接收 1–128 个精确主机与该指纹，在同一写事务核对完整来源状态，仅追加用户选择的主机，不覆盖并发编辑；已有主机的无变化追加不撤销会话。指纹过期返回 `409 online_source_changed`，需要重新检查。
+主机检查与追加还需先通过 `/api/viewing/session` 取得设备身份，并遵循管理授权与已配置的写令牌。`host-check` 提交 `{external_id}`，只通过该来源的 API 网络用途读取一项详情，复用目录期限、取消和并发限制；候选不做 DNS 或媒体探测。量子官方 `liangzi` 线路的已识别网页地址也可作为主机候选，检查不会读取该网页。返回 `source_id`、`external_id`、`missing_hosts`、`allowed_hosts`、`rejected_count` 和 64 位小写十六进制 `configuration_fingerprint`。`allow-hosts` 接收 1–128 个精确主机与该指纹，在同一写事务核对完整来源状态，仅追加用户选择的主机，不覆盖并发编辑；已有主机的无变化追加不撤销会话。指纹过期返回 `409 online_source_changed`，需要重新检查。
 
 创建来源必须提供 `name`、`provider`、`api_base_url`，提供方支持 `maccms` 与固定开放样例 `open_catalog`。可选 `allowed_hosts` 为精确主机名列表，自动包含 API 主机，不支持通配符；`enabled` 默认 `false`，`priority` 为 0–1000 的整数、默认 100，数值越小越优先。地址只接受无内嵌账号密码、查询参数或片段的 HTTP(S) 基础地址；保存时只检查结构和字面地址，不发 DNS 或网络请求。实际读取执行[公网目标与头部策略](playback.md#在线远程读取)，保存成功不代表来源已经可播放。
 
@@ -144,7 +144,7 @@
 
 来源列表的 `scope_token` 仅用于区分服务进程、设备观看身份、generation 与保护 revision 下的目录缓存，不是状态 API 的写入意图 token。`configuration_token` 是来源及完整网络配置快照的不透明摘要。客户端复用目录前须重新读取来源列表，两者均匹配且来源仍启用才能恢复；摘要不包含可读配置、上游地址或凭据。
 
-详情的每条线路为 `{id,label,entries}`，播放项为 `{label,identity,transport,supported,reason}`。支持项携带稳定播放身份；不支持的封装、播放器网页或不在允许主机中的目标返回 `supported:false`、`identity:null`，不泄露上游地址。同一线路内只有集名及原始地址均完全相同的重复播放项会合并，并保留首次出现的位置；同名但地址不同仍返回 `provider_ambiguous_identity`，不靠序号或签名地址生成新的分集身份。数量预算按合并前的原始项计数。简介按纯文本显示；海报只经上述登记路径和图片用途策略读取，缺失时 `poster_path` 为空。只有开放样例归因中的官方项目和许可链接可作为外部超链接返回，不能当作媒体入口。
+详情的每条线路为 `{id,label,entries}`，播放项为 `{label,identity,transport,supported,reason}`。支持项携带稳定播放身份；不支持的封装、未适配的播放器网页或不在允许主机中的目标返回 `supported:false`、`identity:null`，不泄露上游地址。同一线路内只有集名及原始地址均完全相同的重复播放项会合并，并保留首次出现的位置；同名但地址不同仍返回 `provider_ambiguous_identity`，不靠序号或签名地址生成新的分集身份。数量预算按合并前的原始项计数。简介按纯文本显示；海报只经上述登记路径和图片用途策略读取，缺失时 `poster_path` 为空。只有开放样例归因中的官方项目和许可链接可作为外部超链接返回，不能当作媒体入口。
 
 海报响应只接受 JPEG、PNG、WebP，最多 512 KiB、10 秒，服务进程最多同时读取两张；不在服务器解码或缩放。成功图片可在进程内缓存最多 16 MiB、512 条、10 分钟，并在 `DATA_DIR/online-artwork/` 保留最多 128 MiB、2048 条、24 小时的原图文件。磁盘容量包含元数据，命中不延长绝对期限，晋升到内存也不延长原图期限；过期、损坏及超预算内容自动回收，磁盘不可用时继续按正常网络流程读取。
 
@@ -220,6 +220,8 @@ claim 不接收任意播放身份，而是核对 `session_id` 的设备归属。
 | `DELETE /api/online/sessions/{session_id}` | 关闭本设备当前会话并返回 `204`，中断其上游读取 |
 
 身份包含 `source_id`、`item_id`、`kind`；电影的 `kind` 为 `movie`，分集为 `episode` 且必须带 `episode_id`。可选 `line_id` 为 `ln_` 加 32 位小写十六进制字符，未选择时从序列化结果省略，兼容早期单线路身份。多线路电影未选择线路时返回 `provider_line_required`；失效线路或分集明确失败，不自动改播其它线路或集。服务端核对来源、条目种类、分集及线路归属，未知身份返回 `404`。URL、headers、处理方式或其它未知字段均不接受，验证失败返回固定 `422`，不回显请求内容。播放描述固定 `processing:"passthrough"`、`time_offset_seconds:0`，不包含上游 URL、凭据或本地文件路径。
+
+量子官方 `liangzi` 网页线路在创建会话时静态解析，成功仍返回上述 `hls` 播放描述，不增加公开字段或改变播放身份。`422 provider_page_unsupported` 表示网页结构或动态表达式暂不支持；`502 provider_page_invalid` 表示响应类型、字段或目标地址无效。两者均不返回网页正文或签名，客户端可提示重新加载或手动选择 `lzm3u8`。网页读取和正式媒体客户端的网络配置不一致时返回 `409 online_source_changed`，需要重新创建会话；普通网络、超时和取消沿用既有错误码。具体边界见[在线提供方与目录](playback.md#在线提供方与目录)。
 
 创建请求断连或取消时中断提供方的上游操作，同步工作仍持有其结果；工作结束后会回收尚未交付的会话，不能仅取消等待而遗失创建结果。描述经过序列化、连接状态和来源指纹复核后才提交；仍能返回错误响应时，创建取消使用固定 `410`、`code:"online_create_cancelled"`。这不保证网络传输一定送达客户端：响应提交后的丢包仍依赖客户端释放和服务端期限兜底。前端对收到的晚到会话执行释放，也不会把它挂到已关闭或换身份的媒体元素。
 

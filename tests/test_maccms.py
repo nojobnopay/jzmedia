@@ -93,6 +93,34 @@ def test_unsupported_or_unauthorized_media_are_disabled_without_copying_url(url,
     assert entry.transport is None and entry.url == "" and entry.reason == reason
 
 
+@pytest.mark.parametrize("api", ["https://cj.lziapi.com/api.php/provide/vod/",
+                                 "https://cj.lzcaiji.com/api.php/provide/vod/"])
+def test_liangzi_pages_are_classified_without_reading_media(monkeypatch, api):
+    def no_network(*_args, **_kwargs):
+        pytest.fail("catalogue parsing must not fetch episode pages")
+    monkeypatch.setattr(maccms, "create_online_client", no_network)
+    source = {**SOURCE, "api_base_url": api}
+    page = "https://cdn.example/share/opaque?signature=never-expose-this-signature"
+    result = maccms.parse_detail(source, series(vod_play_from="liangzi$$$lzm3u8",
+        vod_play_url=f"第1集${page}$$$第1集${HLS}"))
+    first, second = (line.entries[0] for line in result.lines)
+    assert first.transport == "hls" and first.resolver == "liangzi_page" and first.url == page
+    assert second.transport == "hls" and second.resolver == "direct"
+    assert first.reason == second.reason == ""
+    assert "signature" not in repr(result)
+
+
+@pytest.mark.parametrize("api,line,page,reason", [
+    (SOURCE["api_base_url"], "liangzi", "https://cdn.example/share/opaque", "unsupported_media"),
+    ("https://cj.lziapi.com/api.php/provide/vod/", "other", "https://cdn.example/share/opaque", "unsupported_media"),
+    ("https://cj.lziapi.com/api.php/provide/vod/", "liangzi", "https://not-allowed.example/share/opaque", "target_host_not_allowed"),
+])
+def test_liangzi_page_classification_never_broadens_source_line_or_host(api, line, page, reason):
+    entry = maccms.parse_detail({**SOURCE, "api_base_url": api}, movie(vod_play_from=line,
+        vod_play_url="正片$" + page)).lines[0].entries[0]
+    assert entry.transport is None and entry.url == "" and entry.reason == reason
+
+
 @pytest.mark.parametrize("changes", [
     {"vod_play_from": "same$$$same"},
     {"vod_play_from": "main", "vod_play_url": f"第1集${MP4}#第1集${HLS}"},

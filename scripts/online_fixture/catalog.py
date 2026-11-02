@@ -67,6 +67,8 @@ class Scenario(BaseModel):
     catalogue_version: int | None = Field(default=None, ge=0, le=3)
     related: bool | None = None
     detail_mode: bool | None = None
+    page_resolver: bool | None = None
+    page_mode: Literal["normal", "dynamic"] | None = None
     related_delay_ms: int | None = Field(default=None, ge=0, le=5000)
     related_failure: bool | None = None
     related_category_failure: bool | None = None
@@ -205,6 +207,27 @@ def _isolated_fixture(value, *, root_guard, static_dir=None, throttle_bytes_per_
         stack.enter_context(patch.object(service, "registry", state.registry))
         stack.enter_context(patch.object(service, "create_online_client", state.client))
         stack.enter_context(patch.object(maccms, "create_online_client", state.client))
+        from app.online import liangzi
+        supports_liangzi_source = liangzi.supports_source
+        supports_liangzi_page = liangzi.supports_page
+
+        def fixture_supports_liangzi_source(source):
+            if (source.get("provider") == "maccms"
+                    and source.get("api_base_url") == f"{origin.base_url}/provide/vod"):
+                with origin.lock:
+                    return origin.page_resolver
+            return supports_liangzi_source(source)
+
+        def fixture_supports_liangzi_page(source, line_name, url):
+            if (source.get("api_base_url") == f"{origin.base_url}/provide/vod"
+                    and line_name == "liangzi" and url in {
+                        f"{origin.base_url}/share/ep-1", f"{origin.base_url}/share/ep-2"}):
+                return fixture_supports_liangzi_source(source)
+            return supports_liangzi_page(source, line_name, url)
+
+        stack.enter_context(patch.object(liangzi, "supports_source", fixture_supports_liangzi_source))
+        stack.enter_context(patch.object(liangzi, "supports_page", fixture_supports_liangzi_page))
+        stack.enter_context(patch.object(liangzi, "create_online_client", state.client))
         supports_year_filter = maccms.supports_year_filter
 
         def fixture_supports_year_filter(source):
@@ -340,6 +363,10 @@ def _isolated_fixture(value, *, root_guard, static_dir=None, throttle_bytes_per_
                     origin.related = body.related
                 if body.detail_mode is not None:
                     origin.detail_mode = body.detail_mode
+                if body.page_resolver is not None:
+                    origin.page_resolver = body.page_resolver
+                if body.page_mode is not None:
+                    origin.page_mode = body.page_mode
                 if body.related_delay_ms is not None:
                     origin.related_delay_ms = body.related_delay_ms
                 if body.related_failure is not None:

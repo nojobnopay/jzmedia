@@ -43,6 +43,23 @@ def test_inspection_reads_one_detail_and_returns_only_missing_exact_hosts(enviro
     assert online.get_online_source(environment.source["id"]) == original
 
 
+def test_liangzi_page_hosts_can_be_reviewed_without_contacting_pages(environment, monkeypatch):
+    environment.source = online.update_online_source(environment.source["id"], {
+        "api_base_url": "https://cj.lziapi.com/api.php/provide/vod/"})
+    environment.show.update(vod_play_from="liangzi$$$other", vod_play_url=
+        "第1集$https://page.example/share/opaque?signature=server-only-private"
+        "$$$第1集$https://unrelated.example/share/opaque")
+    def no_dns(*_args, **_kwargs):
+        pytest.fail("host review must not contact a suggested page")
+    monkeypatch.setattr(socket, "getaddrinfo", no_dns)
+    response = environment.client.post(endpoint(environment), json={"external_id": "show-1"})
+    assert response.status_code == 200, response.text
+    assert response.json()["missing_hosts"] == ["page.example"]
+    assert response.json()["rejected_count"] == 1
+    assert "server-only-private" not in response.text
+    assert "page.example" not in online.get_online_source(environment.source["id"])["allowed_hosts"]
+
+
 @pytest.mark.parametrize("value", [
     "file:///tmp/private.mp4", "javascript:alert(1)", "//cdn.example/ep.m3u8",
     "http://127.0.0.1/ep.mp4", "http://192.168.1.1/ep.mp4", "http://[::1]/ep.mp4",

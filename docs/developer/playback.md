@@ -145,9 +145,13 @@ HLS 首期只接受无加密点播清单的已知标签。媒体清单必须含�
 
 ### 在线提供方与目录
 
-`app/online/maccms.py` 读取有界 Provide JSON，`catalog.py` 将搜索、详情、稳定身份保存与播放解析分开，`open_catalog.py` 只提供显式启用的固定 Big Buck Bunny 目录。MacCMS 按来源选项使用 `ac=list/detail/videolist`，按 `vod_play_from` 与 `vod_play_url` 解析多线路和分集；只接受直接可用的 HTTP(S) MP4/HLS，不执行远程 JavaScript、Spider、JAR 或网页解析服务。
+`app/online/maccms.py` 读取有界 Provide JSON，`catalog.py` 将搜索、详情、稳定身份保存与播放解析分开，`open_catalog.py` 只提供显式启用的固定 Big Buck Bunny 目录。MacCMS 按来源选项使用 `ac=list/detail/videolist`，按 `vod_play_from` 与 `vod_play_url` 解析多线路和分集；读取 HTTP(S) MP4/HLS，量子官方接口的 `liangzi` 线路另使用下述受限静态页面适配器。不执行远程 JavaScript、Spider、JAR 或外部网页解析服务。
 
 搜索返回有界文本元数据，详情才原子保存在线条目和分集身份。线路由名称生成稳定 `ln_` ID，分集由线路名称和集名生成外部键；顺序、临时地址和签名不参与身份，重名歧义明确拒绝。播放时重新读取所选内容，精确核对线路与分集；多线路电影缺少 `line_id` 时要求选择，地址刷新不能静默换成其它线路或集。
+
+量子静态适配器只识别 `https://cj.lziapi.com/api.php/provide/vod/`、`https://cj.lzcaiji.com/api.php/provide/vod/` 来源中的 `liangzi` 线路。详情解析只标记服务端内部的页面类型，仍向客户端交付原线路与分集身份及 `hls` 传输；创建播放会话时才读取选中页面。HTML 最多 64 KiB、读取期限最多 10 秒，并受原会话创建操作的剩余期限和取消约束。Tree-sitter 与 JavaScript 语法库只构建语法树，接受内联脚本中唯一的顶层 `var main` 静态字符串；忽略注释与字符串中的伪字段，拒绝重复声明、重新赋值及动态表达式。相对地址按最终页面地址解析，保留查询参数，只接受与页面同源且通过现有目标策略的 HLS 地址。
+
+页面与后续媒体均使用 `media` 网络用途及既有精确主机、公网 DNS、固定对端和重定向限制。解析结果只在服务端携带媒体策略指纹，正式媒体客户端建立后再次比较；配置变化时拒绝交付并关闭尚未移交的客户端。该检查保证两次读取使用相同的出站配置，不保证代理的实际公网出口 IP 永远不变。页面内容和签名不持久化、不进入日志或公开播放描述；主机检查可从已识别的量子网页地址提出候选，但不自动信任新主机，也不执行网页脚本。结构不受支持与无效页面分别返回固定错误码，见[在线播放会话](api.md#在线播放会话)。
 
 上游 API 使用 `api` 网络用途，取流使用 `media`。每进程最多 4 个、每设备最多 1 个提供方操作，无等待队列；30 秒总期限覆盖有界上游读取。JSON 最多 2 MiB、每页最多 100 条、最多 16 线路、单线路最多 2000 个播放项、每条目所有线路合计最多 8000 个播放项（包含不可播放项），拆集和校验播放地址前预检数量。旧版电视客户端仍限制总数为 2000；更新的客户端支持新的总数上限。目录 GET 和创建 POST 断连会取消实际上游 I/O，工作退出后才释放配额。每次查询与会话创建前后检查权限及影响解析的来源配置指纹，避免旧地址跨配置发布；管理 API 对这些配置的变更会撤销旧会话。
 
@@ -211,7 +215,7 @@ node scripts/smoke_online_player.mjs --demo
 
 自动检查可分别运行 `node scripts/smoke_online_player.mjs --case matrix`、`--case lifecycle`、`--case failures`；`--case all` 串行执行全部场景。`matrix` 检查 MP4/HLS 的实际帧、时间、控制与桌面/触摸视口，`lifecycle` 检查身份、晚到响应及页面回收，`failures` 检查有限恢复和错误操作。参数以 `node scripts/smoke_online_player.mjs --help` 为准，服务入口为 `scripts/online_fixture/player.py`，预览入口为 `scripts/fixtures/OnlinePlayerPreview.vue`；结果写入 `output/playwright/online-player/`。Chromium 视口模拟与能力缺失模拟不代表 Safari 原生 HLS、真实手机或电视验收，实际支持范围应以对应运行记录为准。
 
-正式来源管理与在线页面通过真实 MacCMS 解析器连接隔离 API、临时数据库和开发机预先生成的媒体，可运行 `node scripts/smoke_online_catalog.mjs --demo` 手工预览，或用 `--case` 分组验证：`matrix` 检查播放，`catalogue` 检查目录流程，`discovery` 检查海报墙，`loading` 检查冷暖加载与恢复，`loading-feedback` 检查分页等待提示、减少动画与取消清理，`image-cache` 检查清空内存并完整重载网页后复用磁盘原图，`categories` 检查分类与年份，`related` 检查其他季、推荐及播放抢占，`detail` 检查主要播放、长列表选集与精确续播，`detail-recovery` 检查详情瞬态重试、取消和手动恢复，`metadata-recovery` 检查目录／搜索重试、分类缓存与取消，`refresh-strategy` 检查 15 分钟刷新、更新提示、成功海报保留与后台抢占，`hosts` 检查允许主机修复，`all` 运行全部。结果写入 `output/playwright/online-catalog/`。
+正式来源管理与在线页面通过真实 MacCMS 解析器连接隔离 API、临时数据库和开发机预先生成的媒体，可运行 `node scripts/smoke_online_catalog.mjs --demo` 手工预览，或用 `--case` 分组验证：`matrix` 检查播放，`page-resolver` 检查量子静态网页线路的起播、跳转、错误与关闭回收，`catalogue` 检查目录流程，`discovery` 检查海报墙，`loading` 检查冷暖加载与恢复，`loading-feedback` 检查分页等待提示、减少动画与取消清理，`image-cache` 检查清空内存并完整重载网页后复用磁盘原图，`categories` 检查分类与年份，`related` 检查其他季、推荐及播放抢占，`detail` 检查主要播放、长列表选集与精确续播，`detail-recovery` 检查详情瞬态重试、取消和手动恢复，`metadata-recovery` 检查目录／搜索重试、分类缓存与取消，`refresh-strategy` 检查 15 分钟刷新、更新提示、成功海报保留与后台抢占，`hosts` 检查允许主机修复，`all` 运行全部。结果写入 `output/playwright/online-catalog/`。
 
 收藏与持久续播使用 `node scripts/smoke_online_state.mjs --case state`，真实媒体结束后的连续播放使用 `--case autoplay`，`--case all` 串行检查两组。它们与目录测试共用 `scripts/online_fixture/catalog.py` 和 `scripts/fixtures/OnlineAppPreview.vue`，结果写入 `output/playwright/online-state/`。长 MP4 连续 Range 读取单独运行 `node scripts/smoke_online_range.mjs`；原生电视预览见电视工程的 `android-tv/docs/testing.md`。
 

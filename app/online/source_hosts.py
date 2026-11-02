@@ -98,7 +98,7 @@ def _checked_host(value):
     return host
 
 
-def _candidate(source_id, value, *, media):
+def _candidate(source_id, value, *, media, page=False):
     if not isinstance(value, str):
         raise ValueError("invalid source URL")
     parts = urlsplit(value)
@@ -106,7 +106,7 @@ def _candidate(source_id, value, *, media):
     # This authorizes only syntax against the exact host just extracted. It
     # performs no resolution, request, persistent trust or redirect expansion.
     canonical = TargetPolicy(source_id, [host])._canonical_url(value)[0]
-    if media and not unquote(urlsplit(canonical).path).lower().endswith((".mp4", ".m3u8")):
+    if media and not page and not unquote(urlsplit(canonical).path).lower().endswith((".mp4", ".m3u8")):
         raise ValueError("unsupported source media")
     return host
 
@@ -120,15 +120,17 @@ def _suggestions(source, row):
     groups = row.get("vod_play_url", "")
     links = []
     if groups:
-        for group in groups.split("$$$"):
+        for name, group in zip(row.get("vod_play_from", "").split("$$$"), groups.split("$$$")):
             for entry in group.split("#"):
-                links.append((entry.split("$", 1)[-1], True))
+                links.append((entry.split("$", 1)[-1], True, maccms.plain(name, 128, required=True)))
     poster = row.get("vod_pic")
     if poster:
-        links.append((poster, False))
-    for value, media in links:
+        links.append((poster, False, ""))
+    from . import liangzi
+    for value, media, line_name in links:
         try:
-            host = _candidate(source["id"], value, media=media)
+            page = media and liangzi.supports_page(source, line_name, value)
+            host = _candidate(source["id"], value, media=media, page=page)
         except (TargetPolicyError, ValueError, TypeError, UnicodeError):
             rejected += 1
             continue

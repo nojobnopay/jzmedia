@@ -493,8 +493,16 @@ def resolve(identity):
             _line, entry = found[0]
         if not entry.transport or entry.reason:
             raise ProviderError("provider_media_unsupported")
-        return ResolvedPlayback(entry.url, entry.transport, duration_seconds=selected.duration_seconds,
-                                source_fingerprint=_version(source))
+        url, media_policy_fingerprint = entry.url, None
+        if entry.resolver == "liangzi_page":
+            from . import liangzi
+            page = liangzi.resolve(source, url)
+            _after(source)
+            url, media_policy_fingerprint = page.url, page.media_policy_fingerprint
+        elif entry.resolver != "direct":
+            raise ProviderError("invalid_provider_result")
+        return ResolvedPlayback(url, entry.transport, duration_seconds=selected.duration_seconds,
+                                source_fingerprint=_version(source), media_policy_fingerprint=media_policy_fingerprint)
 
 
 def provider_error_status(error):
@@ -502,4 +510,4 @@ def provider_error_status(error):
             "provider_timeout": 504, "provider_cancelled": 410, "provider_catalog_busy": 429,
             "provider_rate_limited": 503, "provider_line_required": 409,
             "provider_line_not_found": 404, "provider_episode_not_found": 404,
-            "provider_media_unsupported": 422}.get(error.category, 502)
+            "provider_media_unsupported": 422, "provider_page_unsupported": 422}.get(error.category, 502)

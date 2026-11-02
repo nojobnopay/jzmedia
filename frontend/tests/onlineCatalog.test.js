@@ -122,6 +122,16 @@ test('catalogue entry-count limits are distinct from body-size limits and never 
   assert.equal(body.includes(message), false)
 })
 
+test('webpage parsing failures have actionable trusted messages without exposing signed URLs', () => {
+  const message = 'https://private.invalid/share/episode?sign=private-secret'
+  const unsupported = onlineCatalogError({ code: 'provider_page_unsupported', message })
+  const invalid = onlineCatalogError({ code: 'provider_page_invalid', message })
+  assert.match(unsupported, /网页结构暂不支持.*lzm3u8/)
+  assert.match(invalid, /网页解析失败.*lzm3u8/)
+  assert.notEqual(unsupported, invalid)
+  assert.doesNotMatch(unsupported + invalid, /private-secret|private\.invalid/)
+})
+
 test('health reads never cancel a catalogue query and cannot expose an older source status', async () => {
   const { createOnlineHealthClient, onlineHealthLabel } = await import('../src/onlineCatalog.js')
   const search = deferred(), oldHealth = deferred(), newHealth = deferred(), calls = []

@@ -227,6 +227,19 @@ test('the actual player distinguishes entry-count limits without exposing an ups
   assert.equal(ui.snapshot().firstFrame, false)
 })
 
+for (const [code, expected] of [
+  ['provider_page_unsupported', /网页结构暂不支持.*lzm3u8/],
+  ['provider_page_invalid', /网页解析失败.*lzm3u8/],
+]) test(`the actual player reports ${code} without attaching media or exposing webpage data`, async t => {
+  const ui = await player(t, () => grant(), { sessionProblem: Object.assign(
+    new Error('https://private.invalid/share/episode?sign=private-secret'), { code }) })
+  assert.match(ui.text(), expected)
+  assert.doesNotMatch(ui.text(), /private-secret|private\.invalid/)
+  assert.equal(ui.video.src, '')
+  assert.equal(ui.playCalls(), 0)
+  assert.equal(ui.snapshot().firstFrame, false)
+})
+
 test('actual online player waits for its writer before attaching media or observing a first frame', async t => {
   const claim = deferred()
   const ui = await player(t, () => claim.promise)

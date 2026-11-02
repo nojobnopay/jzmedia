@@ -151,6 +151,21 @@ def create(identity, access):
         client = create_online_client(identity.source_id, "media", header_policy=resolved.header_policy)
     except (NetworkPolicyError, OnlineNotFound, sqlite3.Error, ValueError):
         raise PlaybackError("online_source_unavailable", 503) from None
+    try:
+        if (resolved.media_policy_fingerprint is not None
+                and getattr(client.snapshot, "fingerprint", None) != resolved.media_policy_fingerprint):
+            raise PlaybackError("online_source_changed", 409)
+        _identity_ready(identity)
+        _current_access(access)
+        _resolved_source_current(identity, resolved)
+    except BaseException:
+        # The registry owns clients only after create() is called. All earlier
+        # failures must reclaim this unpublished pool without masking the gate.
+        try:
+            client.close()
+        except Exception:
+            pass
+        raise
     session = registry.create(identity, access.owner, client, resolved.url, resolved.transport,
                               seekable=resolved.seekable, duration_seconds=resolved.duration_seconds, context=access)
     try:

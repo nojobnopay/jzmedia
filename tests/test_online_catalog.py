@@ -148,6 +148,64 @@ def test_episode_and_line_identity_survive_refresh_sort_and_signature_changes(en
             assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
 
 
+def test_liangzi_long_detail_never_reads_pages_and_resolve_keeps_the_selected_identity(environment, monkeypatch):
+    from app.online import liangzi
+    environment.source = online.update_online_source(environment.source["id"], {
+        "api_base_url": "https://cj.lziapi.com/api.php/provide/vod/"})
+    count = 1278
+    page = "https://cdn.example/share/opaque"
+    environment.show.update(vod_play_from="liangzi$$$lzm3u8", type_name="动漫",
+        vod_play_url="#".join(f"第{i}集${page}?episode={i}" for i in range(1, count + 1))
+                     + "$$$" + "#".join(f"第{i}集${HLS}&episode={i}" for i in range(1, count + 1)))
+    pages = []
+    fingerprint = "a" * 64
+    def resolve(source, url):
+        assert source["id"] == environment.source["id"]
+        pages.append(url)
+        return SimpleNamespace(url="https://cdn.example/selected.m3u8?signature=server-only-private",
+                               media_policy_fingerprint=fingerprint)
+    monkeypatch.setattr(liangzi, "resolve", resolve)
+    first = get_detail(environment, "show-1")
+    assert first.status_code == 200, first.text
+    assert pages == []
+    detail = first.json()
+    assert [len(line["entries"]) for line in detail["lines"]] == [count, count]
+    chosen = detail["lines"][0]["entries"][-1]["identity"]
+    assert chosen["line_id"] != detail["lines"][1]["entries"][-1]["identity"]["line_id"]
+    assert detail["lines"][0]["entries"][-1]["transport"] == "hls"
+    assert "resolver" not in first.text and "fingerprint" not in first.text and "cdn.example" not in first.text
+    resolved = providers.resolve(OnlinePlaybackIdentity.model_validate(chosen))
+    assert pages == [page + f"?episode={count}"]
+    assert resolved.transport == "hls" and resolved.media_policy_fingerprint == fingerprint
+    assert resolved.url.endswith("?signature=server-only-private")
+    assert "server-only-private" not in repr(resolved)
+    second = get_detail(environment, "show-1")
+    assert second.status_code == 200
+    assert second.json()["lines"][0]["entries"][-1]["identity"] == chosen
+    assert len(pages) == 1
+    with store._base._conn() as connection:
+        for table in ("online_items", "online_episodes"):
+            assert "server-only-private" not in json.dumps([tuple(row) for row in connection.execute(f"SELECT * FROM {table}")])
+
+
+def test_source_change_during_page_resolution_does_not_publish_stale_result(environment, monkeypatch):
+    from app.online import liangzi
+    environment.source = online.update_online_source(environment.source["id"], {
+        "api_base_url": "https://cj.lziapi.com/api.php/provide/vod/"})
+    environment.movie.update(vod_play_from="liangzi", vod_play_url="正片$https://cdn.example/share/opaque")
+    response = get_detail(environment)
+    assert response.status_code == 200
+    identity = OnlinePlaybackIdentity.model_validate(response.json()["lines"][0]["entries"][0]["identity"])
+    def resolve(source, _url):
+        online.update_online_source(source["id"], {"enabled": False})
+        return SimpleNamespace(url=HLS, media_policy_fingerprint="a" * 64)
+    monkeypatch.setattr(liangzi, "resolve", resolve)
+    with pytest.raises(catalog.CatalogError) as caught:
+        providers.resolve(identity)
+    assert caught.value.category == "online_source_disabled"
+    assert catalog.admission_stats()["active"] == 0
+
+
 def test_long_series_refresh_preserves_identity_and_resolves_the_last_episode(environment):
     environment.show.update(vod_play_from="main", type_name="综艺",
         vod_play_url="#".join(f"第{i}期${HLS}&episode={i}" for i in range(1, 784)))

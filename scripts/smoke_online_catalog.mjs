@@ -19,11 +19,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_catalog.mjs [--demo] [--case matrix|catalogue|discovery|loading|loading-feedback|image-cache|categories|related|detail|detail-recovery|metadata-recovery|refresh-strategy|hosts|all]')
+    console.log('Usage: node scripts/smoke_online_catalog.mjs [--demo] [--case page-resolver|matrix|catalogue|discovery|loading|loading-feedback|image-cache|categories|related|detail|detail-recovery|metadata-recovery|refresh-strategy|hosts|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'loading-feedback', 'image-cache', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'refresh-strategy', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['page-resolver', 'matrix', 'catalogue', 'discovery', 'loading', 'loading-feedback', 'image-cache', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'refresh-strategy', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-catalog-'))
 const output = path.join(root, 'output/playwright/online-catalog')
 const dist = path.join(work, 'dist')
@@ -242,7 +242,8 @@ async function call(page, method, apiPath, body) {
 }
 function assertPrivateCatalogue(value) {
   const text = JSON.stringify(value)
-  for (const forbidden of ['fixture.invalid', 'fixture_signature', 'api_base_url', 'allowed_hosts', 'vod_play_url', 'X-Api-Token']) {
+  for (const forbidden of ['fixture.invalid', 'fixture_signature', 'api_base_url', 'allowed_hosts', 'vod_play_url', 'X-Api-Token',
+    'media_policy_fingerprint', 'liangzi_page']) {
     assert.equal(text.includes(forbidden), false, `Catalogue DTO must not expose ${forbidden}`)
   }
 }
@@ -1898,6 +1899,69 @@ async function refreshStrategy() {
   await backendChildren('after-refresh-strategy')
 }
 
+async function pageResolver() {
+  const pageReads = value => value.origin_calls.filter(call => call.path.startsWith('/share/'))
+  for (const width of [1440, 390]) {
+    phase = { name: `page-resolver-${width}`, expectedHttp: false }
+    const { context, page } = await newPage(width)
+    try {
+      await scenario(page, { page_resolver: true, page_mode: 'normal' })
+      await selectSource(page)
+      await search(page)
+      const before = await metrics()
+      const detail = await call(page, 'GET', `/api/online/catalog/detail?source_id=${primarySource.id}&external_id=show-1`)
+      assert.equal(detail.status, 200)
+      assertPrivateCatalogue(detail.body)
+      const selected = detail.body.lines.find(line => line.label === 'liangzi')
+      assert.ok(selected && selected.entries.every(entry => entry.supported && entry.transport === 'hls'))
+      await detailUi(page, 'show-1')
+      await chooseLine(page, 'liangzi')
+      assert.equal(pageReads(await metrics()).length, pageReads(before).length,
+        'Reading details and selecting a page line never fetch episode webpages')
+      const firstFrameMs = await playEntry(page, '第1集')
+      await advancing(page)
+      const initial = await snapshot(page)
+      assert.deepEqual(initial.identity, selected.entries[0].identity, 'Playback preserves the chosen page-line identity')
+      assert.equal(initial.transport, 'hls')
+      assert.equal(await page.evaluate(() => window.__fixtureInjected === true), false,
+        'Source page scripts never execute in the browser')
+      assert.equal(pageReads(await metrics()).length - pageReads(before).length, 1,
+        'One selected episode requires exactly one webpage read')
+      const beforeSeek = await pause(page)
+      await page.getByRole('dialog').getByRole('button', { name: '快进 10 秒', exact: true }).click()
+      await page.waitForFunction(time => document.querySelector('video')?.currentTime >= time + 9.4, beforeSeek.time)
+      const geometry = await layout(page, width)
+      await closePlayer(page)
+      await playEntry(page, '第2集')
+      assert.deepEqual((await snapshot(page)).identity, selected.entries[1].identity)
+      await advancing(page)
+      await closePlayer(page)
+
+      phase.expectedHttp = true
+      await scenario(page, { page_mode: 'dynamic' })
+      await page.locator('[data-online-entry]').filter({ hasText: '第1集' }).click()
+      const dialog = page.getByRole('dialog')
+      await dialog.waitFor()
+      await dialog.getByRole('alert').waitFor()
+      assert.match(await dialog.getByRole('alert').textContent(), /网页.*不支持|网页结构/)
+      assert.match(await dialog.getByRole('alert').textContent(), /lzm3u8/)
+      await idle()
+      await scenario(page, { page_mode: 'normal' })
+      phase.expectedHttp = false
+      await dialog.getByRole('button', { name: '重新加载', exact: true }).click()
+      await loaded(page)
+      assert.deepEqual((await snapshot(page)).identity, selected.entries[0].identity)
+      await closePlayer(page)
+      passed({ case: phase.name, firstFrameMs, geometry, sameLineAndEpisode: true,
+        noPageReadsDuringDetail: true, scriptsNeverExecuted: true, dynamicFailureRetry: true })
+    } finally {
+      await scenario(page, { page_resolver: false, page_mode: 'normal' }).catch(() => {})
+      await closeContext(context)
+    }
+  }
+  await backendChildren('after-page-resolver')
+}
+
 async function matrix() {
   for (const width of [1440, 390]) for (const transport of ['mp4', 'hls']) {
     phase = { name: `matrix-${width}-${transport}`, expectedHttp: false }
@@ -2360,7 +2424,7 @@ try {
     'frontend/src/components/EmptyState.vue', 'frontend/src/components/BrowseToolbar.vue', 'frontend/src/components/OnlineSkeleton.vue',
     'frontend/src/components/OnlineBrowseResults.vue', 'frontend/src/components/OnlineContinueRow.vue', 'frontend/src/components/OnlineRecordsView.vue',
     'frontend/src/components/OnlineRecordCard.vue', 'frontend/src/onlinePlayback.js', 'app/online/maccms.py',
-    'app/online/catalog.py', 'frontend/src/onlineArtwork.js', 'frontend/src/components/OnlineArtwork.vue',
+    'app/online/catalog.py', 'app/online/liangzi.py', 'frontend/src/onlineArtwork.js', 'frontend/src/components/OnlineArtwork.vue',
     'frontend/src/onlineCatalog.js', 'frontend/src/onlineBrowse.js', 'app/online/artwork.py',
     'app/online/artwork_cache.py', 'app/online/artwork_disk.py', 'app/online/image_pool.py',
     'frontend/src/onlineCategories.js', 'frontend/src/onlineRelated.js', 'app/online/related.py',
@@ -2389,6 +2453,7 @@ try {
         '--autoplay-policy=no-user-gesture-required'] })
     report.browser = { version: browser.version(), executable: chromium.executablePath() }
     await setup()
+    if (selectedCase === 'all' || selectedCase === 'page-resolver') await pageResolver()
     if (selectedCase === 'all' || selectedCase === 'hosts') await hostRepair()
     if (selectedCase === 'all' || selectedCase === 'discovery') await discovery()
     if (selectedCase === 'all' || selectedCase === 'loading') await loading()

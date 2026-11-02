@@ -1,4 +1,4 @@
-"""Bounded MacCMS Provide JSON reader; no player scripts or parser services."""
+"""Bounded MacCMS reader; no player-script execution or parser services."""
 
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -8,6 +8,7 @@ from html.parser import HTMLParser
 import json
 import re
 import time
+from typing import Literal
 from urllib.parse import unquote, urlsplit
 
 from ..network.client import create_online_client, NetworkRequestError
@@ -83,6 +84,7 @@ class Entry:
     url: str = field(repr=False)
     transport: str | None = None
     reason: str = ""
+    resolver: Literal["direct", "liangzi_page"] = "direct"
 
 
 @dataclass(frozen=True)
@@ -518,7 +520,7 @@ def browse(source, page, category_id="", year=""):
     return {**result, "categories": selected}
 
 
-def _entry(source, label, url, target=None):
+def _entry(source, label, url, target=None, *, line_name=""):
     if not isinstance(url, str) or not url or len(url) > 8192:
         return Entry(label, "", reason="unsupported_media")
     try:
@@ -532,6 +534,10 @@ def _entry(source, label, url, target=None):
         reason = "target_host_not_allowed" if str(error) == "target_host_not_allowed" else "unsupported_media"
         return Entry(label, "", reason=reason)
     transport = "hls" if path.endswith(".m3u8") else "mp4" if path.endswith(".mp4") else None
+    if transport is None:
+        from . import liangzi
+        if liangzi.supports_page(source, line_name, canonical):
+            return Entry(label, canonical, "hls", resolver="liangzi_page")
     return Entry(label, canonical if transport else "", transport,
                  "" if transport else "unsupported_media")
 
@@ -598,7 +604,7 @@ def parse_detail(source, row):
                     continue
                 raise ProviderError("provider_ambiguous_identity")
             labels[label] = raw
-            entries.append(_entry(source, label, url, target))
+            entries.append(_entry(source, label, url, target, line_name=name))
         lines.append(Line(name, tuple(entries)))
     kind = _kind(row, lines=lines)
     if kind == "movie":

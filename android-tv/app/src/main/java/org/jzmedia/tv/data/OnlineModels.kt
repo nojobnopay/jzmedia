@@ -290,6 +290,9 @@ fun onlineErrorMessage(error: Throwable): String = when ((error as? ApiException
     "online_progress_limit" -> "当前设备和模式的进度已达上限，请先清除旧观看记录。"
     "provider_entry_limit" -> "视频源返回的分集数量超过读取上限，请选择其他内容或来源。"
     "provider_response_limit" -> "视频源返回的资料过大，暂时无法读取。"
+    "provider_page_unsupported" -> "此线路的网页结构暂不支持，请返回详情选择 lzm3u8 线路。"
+    "provider_page_invalid" -> "视频源网页解析失败，请重试或选择 lzm3u8 线路。"
+    "online_source_changed" -> "视频源或网络配置已变化，请返回详情重新播放。"
     "provider_not_found", "online_identity_not_found" -> "内容或播放线路已变化，请返回详情重新选择。"
     "invalid_online_response" -> "服务器返回了无法识别的在线数据，请更新服务端后重试。"
     else -> when ((error as? ApiException)?.status) {

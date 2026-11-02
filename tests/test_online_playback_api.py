@@ -32,7 +32,7 @@ def environment(tmp_path, monkeypatch):
 
     class FakeClient:
         def __init__(self, source_id, header_policy):
-            self.snapshot = SimpleNamespace(source_id=source_id)
+            self.snapshot = SimpleNamespace(source_id=source_id, fingerprint="a" * 64)
             self.targets = TargetPolicy(source_id, ["cdn.example"], resolver=lambda _h, _p: ("8.8.8.8",))
             self.header_policy, self.closed = header_policy, False
 
@@ -128,6 +128,43 @@ def test_source_changed_between_resolution_and_registration_reclaims_new_session
     assert response.json()["code"] == "online_source_changed"
     assert len(environment.factories) == 1 and environment.factories[0].closed
     assert environment.registry.stats()["sessions"] == 0
+
+
+@pytest.mark.parametrize("fingerprint,expected", [("a" * 64, 201), ("b" * 64, 409)])
+def test_page_media_policy_is_rechecked_without_exposing_internal_fields(client, identity, environment,
+                                                                        monkeypatch, fingerprint, expected):
+    value = providers.ResolvedPlayback(UPSTREAM, "hls", media_policy_fingerprint=fingerprint)
+    monkeypatch.setattr(providers, "resolve", lambda _identity: value)
+    response = client.post("/api/online/sessions", json=identity)
+    assert_private_response(response, expected)
+    assert len(environment.factories) == 1
+    if expected == 409:
+        assert response.json()["code"] == "online_source_changed"
+        assert environment.factories[0].closed
+        assert environment.registry.stats()["sessions"] == 0
+    else:
+        assert "media_policy_fingerprint" not in response.text and fingerprint not in response.text
+        assert not environment.factories[0].closed
+        assert response.json()["transport"] == "hls"
+
+
+@pytest.mark.parametrize("fingerprint", ["", "a" * 63, "a" * 65, "A" * 64, "private-upstream-secret", 1])
+def test_media_policy_fingerprint_is_a_hidden_validated_internal_value(fingerprint):
+    with pytest.raises(providers.ProviderError) as caught:
+        providers.ResolvedPlayback(UPSTREAM, "hls", media_policy_fingerprint=fingerprint)
+    assert caught.value.category == "invalid_provider_result"
+    assert "private-upstream-secret" not in str(caught.value)
+
+
+@pytest.mark.parametrize("code,status", [("provider_page_unsupported", 422), ("provider_page_invalid", 502)])
+def test_page_errors_keep_fixed_public_codes(client, identity, environment, monkeypatch, code, status):
+    def failed(_identity):
+        raise providers.ProviderError(code)
+    monkeypatch.setattr(providers, "resolve", failed)
+    response = client.post("/api/online/sessions", json=identity)
+    assert_private_response(response, status)
+    assert response.json()["code"] == code
+    assert environment.factories == []
 
 
 @pytest.mark.parametrize("gate", ["feature", "source"])

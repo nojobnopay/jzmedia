@@ -64,7 +64,7 @@ _TEMPLATES = (
         allowed_hosts=["cj.lziapi.com"],
         description="第三方影视目录，接口地址取自站点帮助页；可作为候选，需在当前服务器验证。",
         homepage="https://lzizy.net/index.php/help.html",
-        network_note="2026-10-29 开发机直连未通过；尚未核实媒体主机。可在来源网络中选择代理后验证，播放前需补充实际返回的精确媒体主机。",
+        network_note="支持 lzm3u8 直链，以及 liangzi 网页中可静态提取的 HLS 地址；网页主机仍需明确允许，实际媒体速度和播放能力仍需验证。",
         status="unverified",
     ),
     SourceTemplate(
