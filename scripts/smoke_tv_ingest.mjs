@@ -1,5 +1,5 @@
 // Real Vue pages, synthetic art and in-memory API only. No backend or media access.
-// node scripts/smoke_tv_ingest.mjs [--baseline]
+// node scripts/smoke_tv_ingest.mjs [--baseline|--match-conflict-only]
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
@@ -14,10 +14,13 @@ import { artworkFingerprint, createFixture, shows } from './fixtures/uiReviewDat
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const baseline = process.argv.includes('--baseline')
-assert.ok(process.argv.slice(2).every(arg => arg === '--baseline'))
-const output = path.join(root, 'output/playwright/tv-ingest', baseline ? 'before' : 'after')
+const matchConflictOnly = process.argv.includes('--match-conflict-only')
+assert.ok(process.argv.slice(2).every(arg => ['--baseline', '--match-conflict-only'].includes(arg)))
+assert.ok(!(baseline && matchConflictOnly), 'Choose either the historical baseline or the current matching-conflict checks')
+const output = matchConflictOnly ? path.join(root, 'output/playwright/tv-match-conflict/report')
+  : path.join(root, 'output/playwright/tv-ingest', baseline ? 'before' : 'after')
 const temp = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-tv-ingest-ui-'))
-const fixture = createFixture(), requests = [], errors = [], unexpected = []
+const fixture = createFixture(), requests = [], errors = [], unexpected = [], external = []
 async function sourceFingerprint() {
   const hash = createHash('sha256')
   async function walk(directory) {
@@ -41,6 +44,51 @@ let preview = 1, decision = '', prepared = false, executed = false, uploadCount 
 let preparedActions = ['seasondir', 'rename']
 const previewScopes = new Map()
 let conflictOnce = false
+let matchMode = 'conflict', matchSucceeded = false
+const matchingSource = () => ({ ...shows[0], title: matchSucceeded ? '群岛新篇' : '群岛之间 · 新增目录',
+  year: matchSucceeded ? 2024 : null, tmdb_id: matchSucceeded ? 9003 : null,
+  match_source: matchSucceeded ? 'tmdb' : '', needs_review: 0 })
+const existingTarget = () => ({ ...shows[1], title: '群岛之间', year: 2023, tmdb_id: 9001 })
+const matchingInventory = () => ({ refreshing: false, items: [
+  { path: '群岛之间/新增目录', files: 8, episodes: [1, 2, 3, 4, 5, 6, 7, 8], query: '群岛之间', selected: true, show_ids: [201] },
+  { path: '群岛之间/先前目录', files: 2, episodes: [1, 2], query: '群岛之间', selected: false, show_ids: [202] },
+], shows: [existingTarget()] })
+function matchingApi(url, method, body) {
+  const key = url.pathname
+  const allowedPosts = ['/api/viewing/session', '/api/viewing/activity', '/api/jobs/tv-ingest',
+    '/api/tv/shows/201/match', '/api/tv/bindings/directories/refresh']
+  if (!['GET', 'HEAD'].includes(method) && !(method === 'POST' && allowedPosts.includes(key))) {
+    unexpected.push(method + ' ' + key)
+    return { __status: 501, detail: 'Unexpected write in the isolated matching-conflict scenario' }
+  }
+  if (key === '/api/tv/shows/201' && method === 'GET') return matchingSource()
+  if (key === '/api/tv/shows/202' && method === 'GET') return existingTarget()
+  if (key === '/api/tv/shows/201/similar') return { items: [existingTarget()] }
+  if (key === '/api/tv/shows/202/similar') return { items: [matchingSource()] }
+  if (key === '/api/tv/search') return { items: [{ tmdb_id: matchMode === 'success' ? 9003 : 9001,
+    title: matchMode === 'success' ? '群岛新篇' : '群岛之间', year: matchMode === 'success' ? 2024 : 2023, source: 'tmdb' }] }
+  if (key === '/api/tv/shows/201/match' && method === 'POST') {
+    if (matchMode === 'conflict') return { __status: 409, code: 'tv_show_identity_conflict',
+      detail: '当前视频库中已存在同名同年的剧集。请通过“归属与季号”核对目录和季号后预览处理；系统不会自动合并。' }
+    if (matchMode === 'server-error') return { __status: 500, detail: '模拟资料服务暂时失败，请稍后重试。' }
+    assert.equal(body.tmdb_id, 9003, 'the later successful match chooses a different, non-conflicting candidate')
+    matchSucceeded = true
+    return { ok: true }
+  }
+  if (key === '/api/jobs/tv-ingest' && method === 'POST') return { job_id: 'matching-readonly-review' }
+  if (key === '/api/jobs/tv-ingest/matching-readonly-review') return { state: 'done', phase: 'preview',
+    summary: { preview_id: 'matching-readonly-preview', plans: [], params: { ids: [201] }, metadata_results: [], auto_prompt: false } }
+  if (key === '/api/tv/ingestion-reviews') return { items: [], count: 0 }
+  if (key === '/api/tv/bindings/directories') return matchingInventory()
+  if (key === '/api/tv/bindings/directories/refresh' && method === 'POST') {
+    assert.deepEqual(body, { library_id: 2, show_id: 201 }, 'opening review keeps the original source library and show')
+    return { state: 'done', result: matchingInventory() }
+  }
+  if (key === '/api/tv/bindings/history') return { items: [] }
+  const result = fixture.api(url, method, body)
+  if (result === undefined) unexpected.push(method + ' ' + key)
+  return result
+}
 const plan = (id = 201) => ({ show_id: id, title: shows[id - 201]?.title || '合成剧集', library_id: 2,
   needs: true, fingerprint: 'synthetic-files-version1', counts: { rename: 8 }, blocked: false, absolute_risk: false,
   groups: preparedActions.includes('rename') ? [{ action: 'rename', episodes: 8, files: 8, count: 16, to: '群岛之间 (2023)/Season 05',
@@ -54,7 +102,8 @@ function summary() { return { preview_id: 'preview-' + preview, plans: executed 
   auto_prompt_ids: decision ? [] : preparedIds } }
 function api(url, method, body) {
   const key = url.pathname
-  requests.push({ key, method, body })
+  requests.push({ key, method, body, query: Object.fromEntries(url.searchParams) })
+  if (matchConflictOnly) return matchingApi(url, method, body)
   if (key === '/api/jobs/tv-ingest' && method === 'POST') {
     if (body.scope_preview_id && (!body.ids?.length || !body.ids.every(id => previewScopes.get(body.scope_preview_id)?.includes(id)))) {
       return { __status: 409, detail: '所选剧不属于原预览范围' }
@@ -84,6 +133,125 @@ function api(url, method, body) {
   if (result === undefined) unexpected.push(method + ' ' + key)
   return result
 }
+async function checkMatchConflicts(base) {
+  const checks = []
+  const destructiveRequests = () => requests.filter(request => request.method === 'DELETE'
+    || /\/api\/tv\/bindings\/(?:apply|undo)(?:\/|$)/.test(request.key)
+    || /\/api\/jobs\/(?:tv-organize|tv-organize-restore|scan)(?:\/|$)/.test(request.key)
+    || /\/api\/(?:fs|files)\//.test(request.key) && !['GET', 'HEAD'].includes(request.method))
+  for (const width of [1440, 390, 320]) {
+    matchMode = 'conflict'; matchSucceeded = false
+    const context = await browser.newContext({ viewport: { width, height: width === 1440 ? 1000 : 844 },
+      reducedMotion: 'reduce', serviceWorkers: 'block' })
+    await context.route('**/*', route => {
+      if (new URL(route.request().url()).origin === base) return route.continue()
+      external.push(route.request().url())
+      return route.abort()
+    })
+    const page = await context.newPage()
+    page.setDefaultTimeout(12000)
+    page.on('pageerror', error => errors.push(String(error)))
+    const conflictAction = page.getByRole('button', { name: '核对归属与季号', exact: true })
+    const bindings = page.getByRole('dialog', { name: '剧集归属与季号', exact: true })
+    const feedback = page.locator('.page-feedback')
+    const matchPanel = page.locator('.match.card-block')
+    const currentTitle = () => page.locator('.show-detail h1')
+    const assertLayout = async label => {
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, label + ' fits at ' + width + 'px')
+    }
+    async function searchMatch() {
+      if (!await matchPanel.isVisible()) await page.getByRole('button', { name: '匹配资料', exact: true }).click()
+      await matchPanel.getByRole('textbox', { name: '搜索剧集匹配', exact: true }).fill('群岛之间')
+      await matchPanel.getByRole('button', { name: '搜索', exact: true }).click()
+      await matchPanel.locator('.mrow').waitFor()
+    }
+    async function chooseMatch() { await matchPanel.locator('.mrow').getByRole('button', { name: '匹配', exact: true }).click() }
+    try {
+      await page.goto(base + '/tv/201')
+      await currentTitle().filter({ hasText: /^群岛之间 · 新增目录$/ }).waitFor()
+      await searchMatch(); await chooseMatch()
+      await conflictAction.waitFor()
+      assert.match(await feedback.innerText(), /409.*当前视频库中已存在同名同年/)
+      assert.doesNotMatch(await feedback.innerText(), /UNIQUE constraint|sqlite3|Traceback/)
+      assert.equal(await bindings.count(), 0, 'a matching conflict does not open or apply a binding implicitly')
+      await assertLayout('conflict feedback')
+      await conflictAction.scrollIntoViewIfNeeded()
+      if (width < 700) {
+        const target = await conflictAction.boundingBox()
+        assert.ok(target.width >= 44 && target.height >= 44, 'the recovery action retains a phone touch target')
+      }
+      await page.screenshot({ path: path.join(output, `conflict-${width}.png`), animations: 'disabled', fullPage: true })
+      await conflictAction.click()
+      await bindings.waitFor()
+      await bindings.locator('.binding-directory').first().waitFor()
+      await bindings.getByRole('combobox', { name: '库中已有目标剧集', exact: true }).waitFor()
+      assert.equal(await page.getByRole('dialog').count(), 1, 'the existing binding review is the only modal')
+      assert.equal(new URL(page.url()).pathname, '/tv/201', 'opening review keeps the original detail route')
+      const inventory = requests.filter(request => request.key === '/api/tv/bindings/directories').at(-1)
+      assert.deepEqual(inventory.query, { library_id: '2', show_id: '201' })
+      for (let count = 0; count < 8; count++) {
+        await page.keyboard.press(count % 2 ? 'Shift+Tab' : 'Tab')
+        assert.equal(await bindings.evaluate(element => element.contains(document.activeElement)), true, 'binding review contains keyboard focus')
+      }
+      await assertLayout('binding review')
+      await page.screenshot({ path: path.join(output, `bindings-${width}.png`), animations: 'disabled' })
+      await page.keyboard.press('Escape')
+      await bindings.waitFor({ state: 'hidden' })
+      assert.equal(await matchPanel.isVisible(), true, 'closing review returns to the previous matching panel')
+      assert.equal(await conflictAction.evaluate(element => element === document.activeElement), true, 'closing review returns focus to the explicit recovery action')
+      assert.match(await currentTitle().innerText(), /群岛之间 · 新增目录/)
+      assert.deepEqual(destructiveRequests(), [], 'checking ownership never applies, organizes, deletes, or scans')
+
+      matchMode = 'server-error'
+      await chooseMatch()
+      await feedback.filter({ hasText: /500.*模拟资料服务暂时失败/ }).waitFor()
+      assert.equal(await conflictAction.count(), 0, 'an ordinary server error has no identity-conflict recovery action')
+      await assertLayout('ordinary server error')
+      await feedback.scrollIntoViewIfNeeded()
+      await page.screenshot({ path: path.join(output, `server-error-${width}.png`), animations: 'disabled', fullPage: true })
+
+      matchMode = 'conflict'
+      await chooseMatch(); await conflictAction.waitFor()
+      await page.locator('.similar-block .similar-card').click()
+      await page.waitForURL(base + '/tv/202')
+      await currentTitle().filter({ hasText: /^群岛之间\s*\(2023\)$/ }).waitFor()
+      assert.equal(await conflictAction.count(), 0, 'changing shows clears the former identity-conflict action')
+      await page.goBack()
+      await page.waitForURL(base + '/tv/201')
+      await currentTitle().filter({ hasText: /^群岛之间 · 新增目录$/ }).waitFor()
+      assert.equal(await conflictAction.count(), 0, 'returning to the original show does not revive the former conflict')
+      await searchMatch(); await chooseMatch(); await conflictAction.waitFor()
+      matchMode = 'success'
+      await searchMatch()
+      await matchPanel.locator('.mrow').getByText('群岛新篇', { exact: true }).waitFor()
+      await chooseMatch()
+      await currentTitle().filter({ hasText: /^群岛新篇\s*\(2024\)$/ }).waitFor()
+      await matchPanel.waitFor({ state: 'hidden' })
+      assert.equal(await conflictAction.count(), 0, 'a later successful non-conflicting match clears the recovery action')
+      assert.deepEqual(destructiveRequests(), [], 'all scenarios leave binding application and physical operations untouched')
+      checks.push({ width, conflictStatus: 409, conflictCode: 'tv_show_identity_conflict',
+        recovery: 'explicit original binding review, Escape and focus return', ordinaryErrorStatus: 500,
+        noImplicitBindingOrPhysicalOperations: true, clearsOnShowChangeAndSuccess: true, overflow: false })
+      await rm(path.join(output, `failure-${width}.png`), { force: true })
+      console.log(`PASS matching conflict ${width}px: explicit review, error isolation, focus and source scope`)
+    } catch (error) {
+      await page.screenshot({ path: path.join(output, `failure-${width}.png`), fullPage: true }).catch(() => {})
+      await writeFile(path.join(output, 'failure.json'), JSON.stringify({ error: String(error), width, checks,
+        requests, errors, unexpected, external }, null, 2) + '\n')
+      throw error
+    } finally { await context.close() }
+  }
+  assert.deepEqual(errors, [])
+  assert.deepEqual(unexpected, [])
+  assert.deepEqual(external, [], 'the isolated matching scenarios never access an external origin')
+  assert.equal(await sourceFingerprint(), sourceSha256, 'UI source changed during matching-conflict checks')
+  assert.equal(await fixtureFingerprint(), fixtureSha256, 'Fixtures changed during matching-conflict checks')
+  await writeFile(path.join(output, 'report.json'), JSON.stringify({ source_sha256: sourceSha256, fixture_sha256: fixtureSha256,
+    artwork_sha256: artworkFingerprint, all_api_mocked: true, realVue: true, sources_stable: true,
+    viewports: [1440, 390, 320], checks, requests, errors, unexpected, external }, null, 2) + '\n')
+  await rm(path.join(output, 'failure.json'), { force: true })
+  console.log('PASS TV matching-conflict UI; ' + output)
+}
 try {
   await mkdir(output, { recursive: true })
   const dist = path.join(temp, 'dist')
@@ -106,6 +274,9 @@ try {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
   const base = `http://127.0.0.1:${server.address().port}`
   browser = await chromium.launch({ headless: true })
+  if (matchConflictOnly) {
+    await checkMatchConflicts(base)
+  } else {
   for (const width of [1440, 390, 320]) {
     prepared = false; decision = ''; executed = false; preview++
     const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block' })
@@ -270,6 +441,7 @@ try {
   await writeFile(path.join(output, 'report.json'), JSON.stringify({ baseline, source_sha256: sourceSha256, fixture_sha256: fixtureSha256,
     artwork_sha256: artworkFingerprint, sources_stable: true, viewports: [1440, 390, 320], requests, errors, unexpected }, null, 2) + '\n')
   console.log(`PASS TV ingestion ${baseline ? 'baseline' : 'UI'}: desktop/390/320; ${output}`)
+  }
 } finally {
   await browser?.close()
   if (server) await new Promise(resolve => server.close(resolve))

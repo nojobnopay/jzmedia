@@ -52,6 +52,8 @@
 .media-detail .inline-edit input, .media-detail .match-bar input { min-width: 0; max-width: 100%; }
 .media-detail .match-bar { flex-wrap: wrap; }
 .media-detail .page-feedback { border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); background: var(--jz-surface); padding: var(--jz-gap-m) var(--jz-gap-l); margin: var(--jz-gap-m) 0; font-size: var(--jz-font-m); line-height: 1.6; overflow-wrap: anywhere; }
+.media-detail .page-feedback-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-m); }
+.media-detail .page-feedback-actions > span { flex: 1 1 240px; min-width: 0; }
 .media-detail .grid { padding: 0; gap: var(--jz-gap-xl); }
 .media-detail .season-sec { background: transparent; padding: 0; margin: var(--jz-gap-2xl) 0; }
 .media-detail .season-grid, .media-detail .work-wall { gap: var(--jz-gap-l); }

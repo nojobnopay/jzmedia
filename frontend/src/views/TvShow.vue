@@ -44,7 +44,11 @@
             :scope-label="show.media_name" @check="checkCollection" @retry="reloadCollection" />
           <MediaOverview :text="show.overview || ''" />
           <EmptyState v-if="loadError" state="error" title="剧集刷新失败" :text="loadError" retry @retry="load()" />
-          <p v-if="msg || ingestMessage" class="page-feedback" role="status">{{ msg || ingestMessage }}</p>
+          <div v-if="msg || ingestMessage" class="page-feedback page-feedback-actions" role="status">
+            <span>{{ msg || ingestMessage }}</span>
+            <JzButton v-if="matchConflict && msg === matchConflict && !isChildren" :disabled="busy"
+              type="button" icon="match" @click="openMatchConflictBindings">核对归属与季号</JzButton>
+          </div>
           <div v-if="!isChildren && ((!show.tmdb_id && !show.match_source) || show.needs_review)" class="review-notice">
             <span>{{ !show.tmdb_id && !show.match_source ? '剧集资料尚未匹配' : '请确认剧集是否匹配正确' }}</span>
             <JzButton v-if="show.tmdb_id || show.match_source" :disabled="busy" @click="confirmMatch" type="button" icon="match">匹配正确</JzButton>
@@ -220,6 +224,10 @@ function pauseForMedia() {
   })
 }
 const msg = ref('')
+const matchConflict = ref('')
+function matchViewingContext() {
+  return [viewing.mode, viewing.enabled, viewing.management_unlocked, viewing.generation, viewing.revision].join('|')
+}
 const playing = ref(null)
 const busy = ref(false)
 const matchOpen = ref(false)
@@ -234,6 +242,11 @@ const verifying = ref(false)
 // 海报版本（换绑/重刮后原地覆盖同 URL，带版本破浏览器缓存；对标电影 posterVer）
 const posterVer = ref(0)
 const bindingsOpen = ref(false)
+function openMatchConflictBindings() {
+  if (!matchConflict.value || msg.value !== matchConflict.value || isChildren.value || busy.value
+      || !actionableShow(showContext())) return
+  bindingsOpen.value = true
+}
 const { busy: ingestBusy, message: ingestMessage, start: startIngest, flow: ingestFlow } = useTvIngestFlow({
   isCurrent: () => actionableShow(showContext()),
   scopeKey: () => `${route.params.id}|${showGeneration}`,
@@ -347,6 +360,7 @@ async function load (verify = '0', context = showContext()) {
   if (show.value && String(show.value.id) !== requestedId) show.value = null
   loadError.value = ''
   msg.value = ''
+  matchConflict.value = ''
   similar.value = []
   try {
     const q = verify && verify !== '0' ? '?verify=' + encodeURIComponent(verify) : ''
@@ -486,25 +500,32 @@ async function doSearch () {
 }
 async function doMatch (tmdbId) {
   const context = showContext()
-  if (!actionableShow(context) || busy.value) return
+  if (!actionableShow(context) || busy.value || isChildren.value) return
+  const viewingContext = matchViewingContext()
+  const current = () => currentShow(context) && viewingContext === matchViewingContext()
+  matchConflict.value = ''
+  msg.value = ''
   busy.value = true
   try {
     const res = await api(`/api/tv/shows/${context.id}/match`, {
       method: 'POST', body: JSON.stringify({ tmdb_id: tmdbId }) })
-    if (!currentShow(context)) return
+    if (!current()) return
     matchOpen.value = false
     results.value = []
     posterVer.value++
     await load('0', context)
-    if (!currentShow(context)) return
+    if (!current()) return
     await waitForMedia(context)
-    if (!currentShow(context)) return
+    if (!current()) return
     posterVer.value++
     const note = mediaNote(res)
     if (note) msg.value = '已匹配成功' + note
     await startIngest({ ids: [Number(context.id)] })
-  } catch (e) { if (currentShow(context)) msg.value = '匹配失败：' + e.message }
-  finally { if (currentShow(context)) busy.value = false }
+  } catch (e) {
+    if (!current()) return
+    msg.value = '匹配失败：' + e.message
+    matchConflict.value = e.code === 'tv_show_identity_conflict' && !isChildren.value ? msg.value : ''
+  } finally { if (currentShow(context)) busy.value = false }
 }
 // 外部元数据绑定（P2.5）：无 TMDB Token 时用 Wikidata/TVmaze/Bangumi/NFO 落库
 const EXTERNAL_SOURCES = ['wikidata', 'tvmaze', 'bgm', 'douban', 'nfo']
@@ -579,11 +600,19 @@ onMounted(() => { load(); window.addEventListener('jzmedia:content-changed', ref
 onUnmounted(() => { disposed = true; loadSeq++; invalidateSearch(); stopMediaWaits(); window.removeEventListener('jzmedia:content-changed', refreshIngestedShow) })
 watch(mq, () => invalidateSearch(), { flush: 'sync' })
 watch(matchOpen, open => { if (!open) invalidateSearch(false) }, { flush: 'sync' })
+watch(matchViewingContext, () => {
+  if (matchConflict.value) {
+    bindingsOpen.value = false
+    if (msg.value === matchConflict.value) msg.value = ''
+  }
+  matchConflict.value = ''
+}, { flush: 'sync' })
 watch(() => route.params.id, () => {
   showGeneration++
   invalidateSearch()
   stopMediaWaits()
   bindingsOpen.value = false
+  matchConflict.value = ''
   matchOpen.value = false
   renameOpen.value = false
   nameDraft.value = ''

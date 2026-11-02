@@ -13110,7 +13110,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -22479,7 +22479,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -27975,7 +27975,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -40222,7 +40222,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -41964,7 +41964,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -42060,7 +42060,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -43519,7 +43519,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -46698,7 +46698,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 74,
+            "line": 76,
             "selector": ".media-detail .back-link",
             "values": {
               "min-height": "var(--jz-touch-target)"
@@ -47110,7 +47110,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 57,
+            "line": 59,
             "selector": ".media-detail .no-poster",
             "values": {
               "aspect-ratio": "2 / 3",
@@ -47675,7 +47675,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 62,
+            "line": 64,
             "selector": ".collection-detail .grid > .card .t",
             "values": {
               "padding-inline": "0"
@@ -48299,7 +48299,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 74,
+            "line": 76,
             "selector": ".media-detail .back-link",
             "values": {
               "min-height": "var(--jz-touch-target)"
@@ -48392,7 +48392,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 65,
+            "line": 67,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster",
             "values": {
               "width": "160px"
@@ -48400,7 +48400,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 80,
+            "line": 82,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster, .media-detail .person-photo",
             "values": {
               "width": "88px",
@@ -48464,7 +48464,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 65,
+            "line": 67,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster",
             "values": {
               "width": "160px"
@@ -48472,7 +48472,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 80,
+            "line": 82,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster, .media-detail .person-photo",
             "values": {
               "width": "88px",
@@ -48482,7 +48482,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 81,
+            "line": 83,
             "selector": ".media-detail .hero-no-poster, .media-detail .poster-empty, .media-detail .hero-no-still",
             "values": {
               "font-size": "2rem"
@@ -48570,7 +48570,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -48961,7 +48961,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 86,
+            "line": 88,
             "selector": ".media-detail .ver-sel",
             "values": {
               "max-width": "100%"
@@ -50243,7 +50243,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 98,
+            "line": 100,
             "selector": ".episode-detail .hero-still",
             "values": {
               "width": "104px"
@@ -50306,7 +50306,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 81,
+            "line": 83,
             "selector": ".media-detail .hero-no-poster, .media-detail .poster-empty, .media-detail .hero-no-still",
             "values": {
               "font-size": "2rem"
@@ -50314,7 +50314,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 98,
+            "line": 100,
             "selector": ".episode-detail .hero-still",
             "values": {
               "width": "104px"
@@ -50402,7 +50402,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -51286,7 +51286,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 57,
+            "line": 59,
             "selector": ".media-detail .no-poster",
             "values": {
               "aspect-ratio": "2 / 3",
@@ -54706,7 +54706,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 80,
+            "line": 82,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster, .media-detail .person-photo",
             "values": {
               "width": "88px",
@@ -54760,7 +54760,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 80,
+            "line": 82,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster, .media-detail .person-photo",
             "values": {
               "width": "88px",
@@ -54910,7 +54910,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 57,
+            "line": 59,
             "selector": ".media-detail .no-poster",
             "values": {
               "aspect-ratio": "2 / 3",
@@ -55000,7 +55000,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 57,
+            "line": 59,
             "selector": ".media-detail .no-poster",
             "values": {
               "aspect-ratio": "2 / 3",
@@ -55246,7 +55246,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 65,
+            "line": 67,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster",
             "values": {
               "width": "160px"
@@ -55254,7 +55254,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 80,
+            "line": 82,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster, .media-detail .person-photo",
             "values": {
               "width": "88px",
@@ -55318,7 +55318,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 65,
+            "line": 67,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster",
             "values": {
               "width": "160px"
@@ -55326,7 +55326,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 80,
+            "line": 82,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster, .media-detail .person-photo",
             "values": {
               "width": "88px",
@@ -55336,7 +55336,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 81,
+            "line": 83,
             "selector": ".media-detail .hero-no-poster, .media-detail .poster-empty, .media-detail .hero-no-still",
             "values": {
               "font-size": "2rem"
@@ -55387,7 +55387,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -56896,7 +56896,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -57363,7 +57363,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -58016,7 +58016,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -58155,7 +58155,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -58253,7 +58253,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -58392,7 +58392,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -58591,7 +58591,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -59161,7 +59161,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 57,
+            "line": 59,
             "selector": ".media-detail .no-poster",
             "values": {
               "aspect-ratio": "2 / 3",
@@ -59256,7 +59256,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 74,
+            "line": 76,
             "selector": ".media-detail .back-link",
             "values": {
               "min-height": "var(--jz-touch-target)"
@@ -59349,7 +59349,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 65,
+            "line": 67,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster",
             "values": {
               "width": "160px"
@@ -59357,7 +59357,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 80,
+            "line": 82,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster, .media-detail .person-photo",
             "values": {
               "width": "88px",
@@ -59421,7 +59421,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 65,
+            "line": 67,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster",
             "values": {
               "width": "160px"
@@ -59429,7 +59429,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 80,
+            "line": 82,
             "selector": ".media-detail .hero-poster, .media-detail .hero-main > .poster, .media-detail .person-photo",
             "values": {
               "width": "88px",
@@ -59439,7 +59439,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 81,
+            "line": 83,
             "selector": ".media-detail .hero-no-poster, .media-detail .poster-empty, .media-detail .hero-no-still",
             "values": {
               "font-size": "2rem"
@@ -59490,7 +59490,7 @@
           },
           {
             "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
+            "line": 87,
             "selector": ".media-detail .play-main, .media-detail .acts > .primary",
             "values": {
               "min-width": "112px"
@@ -59801,9 +59801,51 @@
       "source_excerpt": "<JzButton :disabled=\"verifying\" @click=\"verifyExists\" type=\"button\" variant=\"ghost\" icon=\"eye\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:42",
+      "id": "frontend/src/views/TvShow.vue:JzButton:41",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 50,
+      "line": 49,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "核对归属与季号",
+      "assets": [
+        "match"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"matchConflict && msg === matchConflict && !isChildren\" :disabled=\"busy\" type=\"button\" icon=\"match\" @click=\"openMatchConflictBindings\">"
+    },
+    {
+      "id": "frontend/src/views/TvShow.vue:JzButton:44",
+      "source": "frontend/src/views/TvShow.vue",
+      "line": 54,
       "platforms": [
         "web",
         "mobile-web"
@@ -59843,9 +59885,9 @@
       "source_excerpt": "<JzButton v-if=\"show.tmdb_id || show.match_source\" :disabled=\"busy\" @click=\"confirmMatch\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:43",
+      "id": "frontend/src/views/TvShow.vue:JzButton:45",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 51,
+      "line": 55,
       "platforms": [
         "web",
         "mobile-web"
@@ -59885,9 +59927,9 @@
       "source_excerpt": "<JzButton :disabled=\"busy\" :aria-expanded=\"matchOpen\" @click=\"matchOpen = !matchOpen\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:input:46",
+      "id": "frontend/src/views/TvShow.vue:input:48",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 54,
+      "line": 58,
       "platforms": [
         "web",
         "mobile-web"
@@ -59925,9 +59967,9 @@
       "source_excerpt": "<input v-model=\"nameDraft\" :disabled=\"busy\" required aria-label=\"剧名\" />"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:47",
+      "id": "frontend/src/views/TvShow.vue:JzButton:49",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 55,
+      "line": 59,
       "platforms": [
         "web",
         "mobile-web"
@@ -59965,9 +60007,9 @@
       "source_excerpt": "<JzButton :disabled=\"busy || !nameDraft.trim()\" type=\"submit\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:48",
+      "id": "frontend/src/views/TvShow.vue:JzButton:50",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 56,
+      "line": 60,
       "platforms": [
         "web",
         "mobile-web"
@@ -60004,9 +60046,9 @@
       "source_excerpt": "<JzButton type=\"button\" @click=\"renameOpen = false\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:51",
+      "id": "frontend/src/views/TvShow.vue:JzButton:53",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 59,
+      "line": 63,
       "platforms": [
         "web",
         "mobile-web"
@@ -60045,9 +60087,9 @@
       "source_excerpt": "<JzButton @click=\"bindingsOpen = true\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:input:53",
+      "id": "frontend/src/views/TvShow.vue:input:55",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 61,
+      "line": 65,
       "platforms": [
         "web",
         "mobile-web"
@@ -60085,9 +60127,9 @@
       "source_excerpt": "<input v-model=\"mq\" :disabled=\"busy\" placeholder=\"输入剧名\" aria-label=\"搜索剧集匹配\" @keyup.enter=\"doSearch\" />"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:54",
+      "id": "frontend/src/views/TvShow.vue:JzButton:56",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 62,
+      "line": 66,
       "platforms": [
         "web",
         "mobile-web"
@@ -60127,9 +60169,9 @@
       "source_excerpt": "<JzButton :disabled=\"searching || busy\" @click=\"doSearch\" type=\"button\" icon=\"search\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:60",
+      "id": "frontend/src/views/TvShow.vue:JzButton:62",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 68,
+      "line": 72,
       "platforms": [
         "web",
         "mobile-web"
@@ -60169,9 +60211,9 @@
       "source_excerpt": "<JzButton v-if=\"r.tmdb_id\" :disabled=\"busy\" @click=\"doMatch(r.tmdb_id)\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:61",
+      "id": "frontend/src/views/TvShow.vue:JzButton:63",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 69,
+      "line": 73,
       "platforms": [
         "web",
         "mobile-web"
@@ -60211,9 +60253,9 @@
       "source_excerpt": "<JzButton v-else-if=\"isExternal(r)\" :disabled=\"busy\" @click=\"doMatchExternal(r)\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:RouterLink:71",
+      "id": "frontend/src/views/TvShow.vue:RouterLink:73",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 83,
+      "line": 87,
       "platforms": [
         "web",
         "mobile-web"
@@ -60235,7 +60277,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/TvShow.vue",
-            "line": 627,
+            "line": 656,
             "selector": ".season-card-main",
             "values": {
               "padding-bottom": "var(--jz-gap-s)"
@@ -60255,9 +60297,9 @@
       "source_excerpt": "<router-link :to=\"`/tv/${show.id}/s/${s.season}`\" class=\"season-card-main\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:img:73",
+      "id": "frontend/src/views/TvShow.vue:img:75",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 85,
+      "line": 89,
       "platforms": [
         "web",
         "mobile-web"
@@ -60291,9 +60333,9 @@
       "source_excerpt": "<img v-if=\"seasonPoster(s) && !failedSeasonPosters.has(s.season)\" :src=\"seasonPoster(s)\" loading=\"lazy\" :class=\"{ 'season-uncollected-image': s.collection_state === 'uncollected' }"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:ArtworkPlaceholder:74",
+      "id": "frontend/src/views/TvShow.vue:ArtworkPlaceholder:76",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 88,
+      "line": 92,
       "platforms": [
         "web",
         "mobile-web"
@@ -60317,7 +60359,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/TvShow.vue",
-            "line": 637,
+            "line": 666,
             "selector": ".season-no-poster",
             "values": {
               "width": "100%",
@@ -60337,9 +60379,9 @@
       "source_excerpt": "<ArtworkPlaceholder v-else class=\"season-no-poster\" kind=\"poster\" :label=\"seasonLabel(s.season)\" />"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:AppIcon:77",
+      "id": "frontend/src/views/TvShow.vue:AppIcon:79",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 90,
+      "line": 94,
       "platforms": [
         "web",
         "mobile-web"
@@ -60374,9 +60416,9 @@
       "source_excerpt": "<AppIcon name=\"check\" :size=\"14\" />"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:RouterLink:86",
+      "id": "frontend/src/views/TvShow.vue:RouterLink:88",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 99,
+      "line": 103,
       "platforms": [
         "web",
         "mobile-web"
@@ -60409,9 +60451,9 @@
       "source_excerpt": "<router-link v-for=\"source in otherSources(s)\" :key=\"sourceSeasonPath(source)\" :to=\"sourceSeasonPath(source)\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:97",
+      "id": "frontend/src/views/TvShow.vue:JzButton:99",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 114,
+      "line": 118,
       "platforms": [
         "web",
         "mobile-web"
@@ -60450,9 +60492,9 @@
       "source_excerpt": "<JzButton v-if=\"x.exists\" class=\"mini\" @click=\"playExtra(x)\" type=\"button\" size=\"compact\" icon=\"play\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:106",
+      "id": "frontend/src/views/TvShow.vue:JzButton:108",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 125,
+      "line": 129,
       "platforms": [
         "web",
         "mobile-web"
@@ -60491,9 +60533,9 @@
       "source_excerpt": "<JzButton v-if=\"x.exists\" class=\"mini\" @click=\"playExtra(x)\" type=\"button\" size=\"compact\" icon=\"play\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:RouterLink:109",
+      "id": "frontend/src/views/TvShow.vue:RouterLink:111",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 133,
+      "line": 137,
       "platforms": [
         "web",
         "mobile-web"

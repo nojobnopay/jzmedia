@@ -7,6 +7,7 @@
 """
 import os
 import re
+import sqlite3
 import time
 
 from ._base import DEFAULT_LIBRARY_ID, _attach_media_libraries, _conn, _like_esc, _lock, logger
@@ -35,7 +36,8 @@ __all__ = ['upsert_show', 'upsert_episode', 'upsert_season', 'list_shows', 'get_
            'mark_season_watched', 'similar_shows', 'episode_cast',
            'count_season_episodes', 'count_season_watched', 'count_show_episodes',
            'count_show_watched', 'count_show_review', 'show_season_stats',
-           'TV_META_FIELDS', 'EPISODE_META_FIELDS', 'reconcile_tv_paths']
+           'TV_META_FIELDS', 'EPISODE_META_FIELDS', 'reconcile_tv_paths',
+           'TVShowIdentityConflict', 'ensure_show_identity_available']
 
 import json as _json
 
@@ -75,11 +77,44 @@ def _meta_values(fields: dict, allowed: set) -> tuple[list[str], list]:
     return cols, vals
 
 
+class TVShowIdentityConflict(ValueError):
+    """A metadata change would occupy another show's same-library identity."""
+
+    def __init__(self):
+        super().__init__('当前视频库中已存在同名同年的剧集。请通过“归属与季号”核对目录和季号后预览处理；系统不会自动合并。')
+
+
+def _ensure_show_identity_available(c, old, fields):
+    if old is None:
+        return
+    title = fields.get('title', old['title'])
+    year = fields.get('year', old['year'])
+    # SQLite UNIQUE permits repeated keys when any component is NULL. Query
+    # the real columns so their TEXT/INTEGER affinities also match the write.
+    if title is None or year is None:
+        return
+    # The constraint covers private rows too; expose only a generic conflict,
+    # never the other show's metadata or ID, to the caller.
+    conflict = c.execute('SELECT id FROM main.tv_shows WHERE library_id=? AND title=?'
+                         ' AND year=? AND id<>? LIMIT 1',
+                         (old['library_id'], title, year, old['id'])).fetchone()
+    if conflict:
+        raise TVShowIdentityConflict()
+
+
+def ensure_show_identity_available(show_id: int, **fields) -> None:
+    """Preflight effective metadata without changing ownership or any records."""
+    with _lock, _conn() as c:
+        old = c.execute('SELECT * FROM tv_shows WHERE id=?', (int(show_id),)).fetchone()
+        _ensure_show_identity_available(c, old, fields)
+
+
 def update_show_meta(show_id: int, **fields) -> bool:
     """剧元数据写入（TMDB 镜像/待确认/匹配来源等；allowlist 过滤）。"""
     from ..viewing import policy_metadata, effective_show_classification
     with _lock, _conn() as c:
         old = c.execute("SELECT * FROM tv_shows WHERE id=?", (show_id,)).fetchone()
+        _ensure_show_identity_available(c, old, fields)
         fields.update(policy_metadata("tv", dict(old) if old else {}, fields))
         if old and "tmdb_id" in fields and fields["tmdb_id"] != old["tmdb_id"]:
             # Episode evidence belongs to the previous show identity. Keep its
@@ -96,8 +131,17 @@ def update_show_meta(show_id: int, **fields) -> bool:
         if not cols:
             return False
         sets = ", ".join(f"{c}=?" for c in cols) + ", updated_at=?"
-        cur = c.execute(f"UPDATE tv_shows SET {sets} WHERE id=?",
-                        (*vals, int(time.time()), int(show_id)))
+        try:
+            cur = c.execute(f"UPDATE tv_shows SET {sets} WHERE id=?",
+                            (*vals, int(time.time()), int(show_id)))
+        except sqlite3.IntegrityError as error:
+            # Keep the real UNIQUE constraint as the final authority if a
+            # concurrent writer changes the identity after the preflight.
+            if (getattr(error, 'sqlite_errorcode', None) == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+                    and str(error) == ('UNIQUE constraint failed: tv_shows.library_id, '
+                                       'tv_shows.title, tv_shows.year')):
+                raise TVShowIdentityConflict() from error
+            raise
         if old and fields.get("children_auto_status", old["children_auto_status"]) != old["children_auto_status"]:
             from ..viewing import invalidate_content_access
             invalidate_content_access(c)

@@ -4,10 +4,14 @@ import * as Vue from 'vue'
 import { loadSfc } from './helpers/loadSfc.js'
 import { renderHarness, flush, deferred, nodeText } from './helpers/renderHarness.js'
 import { createTvIngestFlow, useTvIngestFlow } from '../src/useTvIngestFlow.js'
+import { useTvBindings } from '../src/useTvBindings.js'
 
 const bindText = (element, binding) => { element.props.value = binding.value }
 const vue = { ...Vue, vShow: {}, vModelText: { mounted: bindText, updated: bindText }, vModelSelect: {}, vModelCheckbox: {} }
 const blank = { setup: () => () => Vue.h('div') }
+const dialog = { props: ['labelledby'], emits: ['close'], setup: (props, { slots, emit }) => () =>
+  Vue.h('section', { role: 'dialog', 'aria-labelledby': props.labelledby }, [slots.header?.(), slots.default?.(),
+    Vue.h('button', { onClick: () => emit('close') }, '关闭归属弹窗')]) }
 const button = (ui, label) => ui.find(node => node.type === 'button' && nodeText(node).trim() === label)
 const item = (id, metadata = {}) => ({ id, title: '剧集' + id, library_id: 7, tmdb_id: null,
   genres: [], seasons: [], episodes: [], extras: [], episode_count: 2, watched_count: 0, ...metadata })
@@ -33,12 +37,17 @@ async function showPage(t, options = {}) {
     })
   }
   const route = Vue.reactive({ path: options.path || '/tv/1', params: { id: '1' }, query: {} })
+  const viewing = Vue.reactive({ ready: false, mode: 'normal', enabled: false, management_unlocked: false,
+    generation: 0, revision: 0, ...options.viewing })
   const requests = []
   const requestApi = (path, opts = {}) => {
       const request = { path, opts }
       requests.push(request)
       const override = options.api?.(path, opts, request)
       if (override !== undefined) return override
+      if (path === '/api/tv/bindings/directories/refresh') return Promise.resolve({ state: 'done', result: { items: [], shows: [] } })
+      if (path.startsWith('/api/tv/bindings/directories?')) return Promise.resolve({ items: [], shows: [] })
+      if (path.startsWith('/api/tv/bindings/history?')) return Promise.resolve({ items: [] })
       if (['POST', 'PATCH'].includes(opts.method) || path.startsWith('/api/tv/search?')) {
         Object.assign(request, deferred())
         return request.promise
@@ -54,18 +63,22 @@ async function showPage(t, options = {}) {
   const component = await loadSfc(new URL('../src/views/TvShow.vue', import.meta.url), {
     vue, 'vue-router': { useRoute: () => route, useRouter: () => ({ push() {}, replace() {} }) },
     '../api.js': { posterUrl: path => path, scopedArtworkUrl: path => path, api: requestApi },
+    '../viewing.js': { viewing, isChildren: Vue.computed(() => viewing.mode === 'children') },
+    '../useTvBindings.js': { useTvBindings: (libraryId, showId, options) => useTvBindings(libraryId, showId,
+      { ...options, request: requestApi, pollDelay: 0 }) },
+    './JzDialog.vue': { default: dialog }, './HelpLink.vue': { default: blank },
     '../useTvIngestFlow.js': { canAutomaticallyIngest: () => false, useTvIngestFlow: options => useTvIngestFlow({ ...options, flow }) },
     '../libraries.js': { currentMediaId: () => 7, loadLibs: async () => {}, switchMedia: () => true },
     '../useTvCollection.js': { useTvCollection: () => ({ data: Vue.ref(null), error: Vue.ref(''), notice: Vue.ref(''),
       loading: Vue.ref(false), checking: Vue.ref(false), reload() {}, check() {} }) },
     ...Object.fromEntries(['ContentPolicyButton', 'PlayerModal', 'MediaBackdrop', 'MediaOverview', 'SimilarRow',
-      'CastWall', 'CrewRow', 'TvBindingsDialog', 'AiMatchSuggestions']
+      'CastWall', 'CrewRow', 'AiMatchSuggestions']
       .map(name => [`../components/${name}.vue`, { default: blank }])),
   })
   const ui = renderHarness(component)
   environment.pages.push(ui)
   await flush()
-  return { ...ui, route, requests, navigate(id) { route.path = '/tv/' + id; route.params.id = String(id) } }
+  return { ...ui, route, requests, viewing, navigate(id) { route.path = '/tv/' + id; route.params.id = String(id) } }
 }
 async function openMatching(ui, query = '搜索关键词') {
   ;(button(ui, '匹配资料') || button(ui, '重新匹配剧集')).props.onClick()
@@ -73,6 +86,139 @@ async function openMatching(ui, query = '搜索关键词') {
   ui.find(node => node.props['aria-label'] === '搜索剧集匹配').props['onUpdate:modelValue'](query)
   await flush()
 }
+async function submitMatch(ui) {
+  await openMatching(ui)
+  button(ui, '搜索').props.onClick()
+  searches(ui).at(-1).resolve({ items: [{ tmdb_id: 111, title: '目标剧集' }] })
+  await flush()
+  button(ui, '匹配').props.onClick()
+  return writes(ui).at(-1)
+}
+const conflictError = () => Object.assign(new Error('409 本库已有这部剧，请先核对目录归属与季号'),
+  { status: 409, code: 'tv_show_identity_conflict' })
+
+test('TV identity conflicts offer the existing bindings dialog without applying changes', async t => {
+  const ui = await showPage(t)
+  const match = await submitMatch(ui)
+  match.reject(conflictError())
+  await flush()
+  assert.match(ui.text(), /匹配失败：409 本库已有这部剧/)
+  assert.equal(ui.find(node => node.props.role === 'dialog'), undefined, 'conflicts never take focus automatically')
+  const count = ui.requests.length
+  button(ui, '核对归属与季号').props.onClick()
+  await flush()
+  assert.equal(ui.find(node => node.props.role === 'dialog').props['aria-labelledby'], 'tv-binding-title')
+  assert.match(ui.text(), /剧集归属与季号/)
+  assert.deepEqual(ui.requests.slice(count).map(request => [request.path, request.opts.method || 'GET']), [
+    ['/api/tv/bindings/directories?library_id=7&show_id=1', 'GET'],
+    ['/api/tv/bindings/history?library_id=7', 'GET'],
+    ['/api/tv/bindings/directories/refresh', 'POST'],
+  ])
+  assert.deepEqual(JSON.parse(ui.requests.at(-1).opts.body), { library_id: 7, show_id: 1 })
+  assert.deepEqual(writes(ui).map(request => request.path), [
+    '/api/tv/shows/1/match', '/api/tv/bindings/directories/refresh',
+  ], 'opening only starts the existing read-only inventory job, never bindings apply or ingestion')
+  assert.equal(button(ui, '采用此目标与季号建议'), undefined)
+  button(ui, '关闭归属弹窗').props.onClick()
+  await flush()
+  assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+  assert.ok(button(ui, '核对归属与季号'), 'closing keeps the explicit follow-up available')
+})
+
+test('ordinary TV matching failures never offer the identity-conflict action', async t => {
+  const ui = await showPage(t)
+  const match = await submitMatch(ui)
+  match.reject(Object.assign(new Error('500 服务暂时不可用'), { status: 500 }))
+  await flush()
+  assert.match(ui.text(), /匹配失败：500 服务暂时不可用/)
+  assert.equal(button(ui, '核对归属与季号'), undefined)
+  assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+})
+
+test('TV conflict follow-up clears on a successful retry and on an ordinary retry error', async t => {
+  for (const success of [true, false]) {
+    const ui = await showPage(t, { metadata: { tmdb_id: 100, overview: '已有简介' } })
+    const match = await submitMatch(ui)
+    match.reject(conflictError())
+    await flush()
+    assert.ok(button(ui, '核对归属与季号'))
+    button(ui, '匹配').props.onClick()
+    await flush()
+    assert.equal(button(ui, '核对归属与季号'), undefined)
+    const retried = writes(ui).at(-1)
+    if (success) retried.resolve({ media: { artwork: { ok: true } } })
+    else retried.reject(Object.assign(new Error('500 重试失败'), { status: 500 }))
+    await flush()
+    assert.equal(button(ui, '核对归属与季号'), undefined)
+    if (success) {
+      assert.equal(ui.find(node => node.props['aria-label'] === '搜索剧集匹配'), undefined)
+      assert.ok(ui.requests.some(request => request.path === '/api/jobs/tv-ingest'))
+    } else assert.match(ui.text(), /匹配失败：500 重试失败/)
+    ui.app.unmount()
+  }
+})
+
+test('TV conflicts and saved follow-up handlers cannot carry into another route or an unmounted show', async t => {
+  for (const pending of [true, false]) {
+    const ui = await showPage(t)
+    const match = await submitMatch(ui)
+    let followup
+    if (!pending) {
+      match.reject(conflictError())
+      await flush()
+      followup = button(ui, '核对归属与季号').props.onClick
+    }
+    ui.navigate(2)
+    await flush()
+    const count = ui.requests.length
+    if (pending) match.reject(conflictError())
+    else followup()
+    await flush()
+    assert.equal(ui.requests.length, count)
+    assert.match(ui.text(), /剧集2/)
+    assert.doesNotMatch(ui.text(), /本库已有这部剧/)
+    assert.equal(button(ui, '核对归属与季号'), undefined)
+    assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+    ui.app.unmount()
+  }
+  const ui = await showPage(t)
+  const match = await submitMatch(ui)
+  ui.app.unmount()
+  const count = ui.requests.length
+  match.reject(conflictError())
+  await flush()
+  assert.equal(ui.requests.length, count)
+})
+
+test('TV conflict follow-up respects children mode and management-session changes', async t => {
+  for (const change of [state => { state.mode = 'children' }, state => { state.management_unlocked = false },
+    state => { state.revision++ }, state => { state.generation++ }]) {
+    for (const pending of [true, false]) {
+      const ui = await showPage(t, { viewing: { enabled: true, management_unlocked: true } })
+      const match = await submitMatch(ui)
+      let followup
+      if (!pending) {
+        match.reject(conflictError())
+        await flush()
+        followup = button(ui, '核对归属与季号').props.onClick
+        followup()
+        await flush()
+        assert.ok(ui.find(node => node.props.role === 'dialog'))
+      }
+      change(ui.viewing)
+      await flush()
+      const count = ui.requests.length
+      if (pending) match.reject(conflictError())
+      else followup()
+      await flush()
+      assert.equal(ui.requests.length, count)
+      assert.equal(button(ui, '核对归属与季号'), undefined)
+      assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+      assert.doesNotMatch(ui.text(), /本库已有这部剧/)
+      ui.app.unmount()
+    }
+  }
+})
 
 test('TV details accept a trailing slash and keep normal matching/reopening behavior', async t => {
   const ui = await showPage(t, { path: '/tv/1/', metadata: { tmdb_id: 100, overview: '已有简介' } })

@@ -44,7 +44,11 @@ def _coordinated_show_operation(operation):
             episode = store.get_episode(int(params["episode_id"]))
             show = store.get_show_meta(episode["show_id"]) if episode else None
         with tv_ingest.operation_scope([int(show["library_id"])] if show else []):
-            return operation(*args, **kwargs)
+            try:
+                return operation(*args, **kwargs)
+            except store.TVShowIdentityConflict as error:
+                raise HTTPException(409, {'code': 'tv_show_identity_conflict',
+                                          'message': str(error)}) from error
     return run
 
 
@@ -733,6 +737,7 @@ def _apply_tv_cached_offline(show_id: int, tmdb_id: int, cached: dict) -> dict:
     if src.get("title"):
         fields["title"] = str(src["title"])
         fields["sort_title"] = normalize_title(str(src["title"]))
+    store.ensure_show_identity_available(show_id, **fields)
     for key, namer in (("poster_path", tv_persist.tv_poster_name),
                        ("backdrop_path", tv_persist.tv_backdrop_name)):
         try:
@@ -778,6 +783,8 @@ def match_show(show_id: int, body: MatchBody):
                 "tmdb_id": int(tmdb_id), "episodes_matched": 0, "remapped": 0,
                 "media": {"queued": False, "offline": True},
                 "show": _match_show_snapshot(fresh)}
+    meta = tv_match.tv_meta_from_detail(detail)
+    store.ensure_show_identity_available(show_id, title=meta['title'], year=meta['year'])
     local = store.list_episodes(show_id)
     season_details: dict = {}
     failed_seasons: list[int] = []
