@@ -9,6 +9,7 @@ from ... import storage
 from ... import store
 from ... import library_paths
 from ... import playback as _playback
+from ...episode_titles import episode_display_title
 from ...log import get_logger
 logger = get_logger("stream.media")
 from .common import _media_cached_or_probe, _version_source, router
@@ -250,7 +251,11 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
             base.update({"season": int(v.get("season") or 0),
                          "episode": int(v.get("episode") or 0),
                          "episode_end": int(v.get("episode_end") or 0),
-                         "title": v.get("title") or ""})
+                         "title": v.get("title") or "",
+                         "show_title": vm.get("show_title") or "",
+                         "version": store.episode_version(vm.get("file_path")),
+                         "display_title": episode_display_title(
+                             v.get("title"), v.get("episode"), v.get("episode_end"))})
         if src is None:
             items.append({**base, "playable": False, "probe_error": "file missing",
                           "method": "blocked", "reasons": ["unplayable"],

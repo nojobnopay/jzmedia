@@ -197,6 +197,79 @@ def test_deferred_and_ignored_versions_survive_recheck_until_new_file(tv):
         store.tv_ingest.decide(third['preview_id'], [sid], 'ignored')
 
 
+def _canonical_multi_episode_files(tv):
+    lib, root, sid, tid = tv
+    episodes = []
+    for start in (1, 3, 5):
+        rel = (f'测试剧 (2020)/Season 01/'
+               f'测试剧-S01E{start:02d}-E{start + 1:02d}-第 {start}-{start + 1} 集.mkv')
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'isolated-multi-episode-video')
+        for suffix in ('.ass', '.nfo', '.srt'):
+            path.with_suffix(suffix).write_bytes(b'isolated-sidecar')
+        eid = store.upsert_episode(sid, lib['id'], rel, 1, start, episode_end=start + 1)
+        store.update_episode_meta(eid, tmdb_episode_id=10100 + start,
+                                  title=f'第 {start} 集', overview='官方简介', watched=int(start == 1))
+        episodes.append(eid)
+    store.set_tmdb_cache_seasons(tid, {1: season(1, range(1, 7))})
+    return episodes
+
+
+@pytest.mark.parametrize('decision', ['pending', 'deferred', 'ignored'])
+@pytest.mark.parametrize('real_issue', [False, True])
+def test_multi_episode_recheck_replaces_legacy_title_reviews(tv, monkeypatch, decision, real_issue):
+    from app.scanner import tv_organize
+
+    _, root, sid, _ = tv
+    episode_ids = _canonical_multi_episode_files(tv)
+    if real_issue:
+        store.update_episode_meta(episode_ids[-1], needs_review=1)
+    original_files = {p.relative_to(root): p.read_bytes() for p in root.rglob('*') if p.is_file()}
+    keys = ('id', 'file_path', 'season', 'episode', 'episode_end', 'title',
+            'tmdb_episode_id', 'watched', 'needs_review')
+    original_rows = [{key: store.get_episode(eid)[key] for key in keys} for eid in episode_ids]
+
+    def old_target(show_title, ep, ver=0):
+        head = tv_organize._episode_base_title(show_title, ep, ver=ver)
+        title = tv_organize._clean_name(ep.get('title'))
+        return f'{head}-{title}' if title else head
+
+    with monkeypatch.context() as legacy:
+        legacy.setattr(tv_organize, '_target_stem', old_target)
+        legacy.setattr(tv_organize, '_is_canonical_stem', lambda *_a, **_k: False, raising=False)
+        old = prepare(tv, actions=['rename'])
+        assert old['plans'][0]['groups'][0]['episodes'] == 3 - int(real_issue)
+        assert old['plans'][0]['groups'][0]['files'] == 9 - 3 * int(real_issue)
+        if decision != 'pending':
+            store.tv_ingest.decide(old['preview_id'], [sid], decision)
+        assert store.tv_ingest.get_review(sid)['state'] == decision
+
+    with pytest.raises(ValueError, match='变化'):
+        tv_ingest.validate_preview(old['preview_id'])
+
+    monkeypatch.setattr(scanner, 'scan_all', lambda *_a, **_k: pytest.fail('unexpected whole-library scan'))
+    scan_show, scanned = scanner.scan_tv_show, []
+
+    def check_show(show_id, **options):
+        scanned.append(show_id)
+        return scan_show(show_id, **options)
+
+    monkeypatch.setattr(scanner, 'scan_tv_show', check_show)
+    refreshed = tv_ingest.prepare(ids=[sid], actions=['rename'])
+    review = store.tv_ingest.get_review(sid)
+    assert scanned == [sid]
+    assert refreshed['plans'][0]['groups'] == []
+    assert refreshed['auto_prompt'] is False
+    assert review['state'] == ('pending' if real_issue else 'clean')
+    assert review['dirty'] == 0
+    listed = client.get('/api/tv/ingestion-reviews', params={'show_id': sid, 'include_ignored': True}).json()
+    assert listed['count'] == int(real_issue)
+    assert bool(refreshed['plans'][0]['manual']) == real_issue
+    assert {p.relative_to(root): p.read_bytes() for p in root.rglob('*') if p.is_file()} == original_files
+    assert [{key: store.get_episode(eid)[key] for key in keys} for eid in episode_ids] == original_rows
+
+
 def test_preview_rejects_physical_and_metadata_changes(tv):
     _, _, sid, tid = tv
     eid, path = episode(tv)

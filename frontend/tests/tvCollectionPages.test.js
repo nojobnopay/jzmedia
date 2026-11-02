@@ -29,7 +29,7 @@ async function page(t, name, responder = () => undefined) {
   const globals = { window: { addEventListener() {}, removeEventListener() {} }, document: { addEventListener() {}, removeEventListener() {} } }
   const descriptors = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, value })
-  const route = Vue.reactive({ params: name === 'TvShow' ? { id: '41' } : { showId: '41', season: '1' }, path: name === 'TvShow' ? '/tv/41' : '/tv/41/s/1', query: {} })
+  const route = Vue.reactive({ params: name === 'TvShow' ? { id: '41' } : { showId: '41', season: '1', ...(name === 'EpisodeView' ? { epId: '701' } : {}) }, path: name === 'TvShow' ? '/tv/41' : '/tv/41/s/1', query: {} })
   const requests = [], pushed = []
   let player
   const component = await loadSfc(new URL(`../src/views/${name}.vue`, import.meta.url), {
@@ -49,8 +49,8 @@ async function page(t, name, responder = () => undefined) {
     } },
     '../libraries.js': { currentMediaId: () => 7, loadLibs: async () => {}, switchMedia: () => true },
     '../useFocusTrap.js': { useFocusTrap() {} },
-    '../components/PlayerModal.vue': { default: { emits: ['watched', 'ended'], setup(_props, { emit }) {
-      const instance = { emit, active: true }
+    '../components/PlayerModal.vue': { default: { props: ['title', 'versionId', 'kind'], emits: ['watched', 'ended'], setup(props, { emit }) {
+      const instance = { emit, props, active: true }
       player = instance
       Vue.onUnmounted(() => { instance.active = false })
       return () => Vue.h('div', { class: 'test-player' })
@@ -86,6 +86,42 @@ test('show cards include SP and uncollected seasons only after the collection sn
   assert.ok(ui.find(node => node.type === 'a' && node.props.href === '/tv/82/s/3'))
   assert.ok(ui.find(node => node.type === 'img' && node.props.class === 'season-uncollected-image'))
   assert.ok(ui.requests.every(request => request.options?.method !== 'POST'))
+})
+
+test('three combined files render six covered episodes and range-aware playback titles', async t => {
+  const eps = [1, 3, 5].map((number, index) => ({ id: 701 + index, season: 1, episode: number,
+    episode_end: number + 1, title: `第 ${number} 集`, display_title: `第${number}-${number + 1}集`, exists: true }))
+  const ui = await page(t, 'SeasonView', path => path.includes('/seasons/1?') ? {
+    ...local, episode_count: 3, distinct_count: 6, total: 3, episodes: eps,
+  } : undefined)
+  for (const number of [1, 3, 5]) assert.match(ui.text(), new RegExp(`第${number}-${number + 1}集`))
+  assert.match(ui.text(), /选择剧集 6 集/)
+  assert.match(ui.text(), /已加载全部 3 个文件/)
+  assert.doesNotMatch(ui.text(), /第 1 集|第 3 集|第 5 集/)
+  ui.find(node => node.type === 'button' && node.props['aria-label'] === '播放 S01E01-E02').props.onClick({ stopPropagation() {} })
+  await flush()
+  assert.equal(ui.player.props.title, '合成剧集 S01E01-E02 · 第1-2集')
+})
+
+test('single episode detail uses the derived range in its heading, placeholder and player', async t => {
+  const ui = await page(t, 'EpisodeView', path => path === '/api/tv/episodes/701' ? {
+    ...local.episodes[0], show_id: 41, show_title: show.title, episode_end: 2,
+    title: '第 1 集', display_title: '第1-2集',
+  } : undefined)
+  assert.equal(nodeText(ui.find(node => node.type === 'h1')), '第1-2集')
+  assert.match(nodeText(ui.find(node => String(node.props.class).includes('hero-no-still'))), /第1-2集/)
+  button(ui, '播放').props.onClick()
+  await flush()
+  assert.equal(ui.player.props.title, '合成剧集 S01E01-E02 · 第1-2集')
+})
+
+test('show play entry preserves a formal multi-episode title alongside the complete range', async t => {
+  const ui = await page(t, 'TvShow', path => path === '/api/tv/shows/41' ? {
+    ...show, next_episode: { ...local.episodes[0], episode_end: 2, title: '初次交锋', display_title: '初次交锋' },
+  } : undefined)
+  button(ui, '播放下一集 S01E01-E02').props.onClick()
+  await flush()
+  assert.equal(ui.player.props.title, '合成剧集 S01E01-E02 · 初次交锋')
 })
 
 test('an old server keeps local collection counts and explains the missing inventory API', async t => {

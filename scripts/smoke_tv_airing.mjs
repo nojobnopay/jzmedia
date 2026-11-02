@@ -23,6 +23,10 @@ let server, browser, errorCode = '', catalogError = '', collectionScenario = '',
 const demoLibraries = [...libraries, { ...libraries[1], id: 4, name: '修复版' }]
 const sourceShow = { ...shows[0], id: 901, library_id: 4, library_name: '修复版' }
 const localEpisodes = episodes.slice(0, 2).map(episode => ({ ...episode, watched: 0, progress: null }))
+const combinedEpisodes = [1, 3, 5].map((number, index) => ({ ...episodes[index], id: 701 + index,
+  episode: number, episode_end: number + 1, title: `第 ${number} 集`, display_title: `第${number}-${number + 1}集`,
+  watched: 0, progress: null, still_path: index ? episodes[index].still_path : '',
+  file_path: `群岛之间 (2023)/Season 01/群岛之间-S01E${String(number).padStart(2, '0')}-E${String(number + 1).padStart(2, '0')}-第 ${number}-${number + 1} 集.mkv` }))
 function collection(id) {
   const data = tvCollectionFixture(201)
   data.show_id = id; data.checked_at = checkedAt; data.error = errorCode
@@ -34,6 +38,12 @@ function collection(id) {
     sources: season.season === 1 ? [{ show_id: 201, library_id: 2, library_name: '剧集', season: 1, count: 2 },
       { show_id: 901, library_id: 4, library_name: '修复版', season: 1, count: 1 }] : [],
   }))
+  if (collectionScenario === 'combined_files') {
+    Object.assign(data.seasons.find(item => item.season === 1), {
+      official_count: 6, collected_count: 6, local_count: 6, sources: [],
+    })
+    return data
+  }
   if (collectionScenario) {
     const number = collectionScenario === 'source_only' ? 2 : 1
     const season = data.seasons.find(item => item.season === number)
@@ -86,12 +96,24 @@ function mockApi(url, method, body) {
       title: '我们终将再次相遇', air_date: '2026-10-02' }] }], error: '' }
   if (key === '/api/tv/airing/check') { checkedAt++; errorCode = ''; maintenanceRemaining = body?.show_id ? 0 : 1; return status(!!maintenanceRemaining) }
   if (key === '/api/tv/airing/status') { const running = maintenanceRemaining-- > 0; return status(running) }
+  if (collectionScenario === 'combined_files' && key === '/api/tv/recent-played') return { items: [{
+    ...shows[0], id: 201, show_id: 201, season: 1, episode: 1, episode_end: 2,
+    episode_title: '第 1 集', episode_display_title: '第1-2集', subtitle: 'S01E01-E02 · 第1-2集',
+    progress: { version_id: 701, position: 60, duration: 5400, percent: 60 / 5400, remaining_sec: 5340 },
+  }] }
+  if (collectionScenario === 'combined_files') {
+    const combinedEpisode = combinedEpisodes.find(item => key === `/api/tv/episodes/${item.id}`)
+    if (combinedEpisode) return { ...combinedEpisode, previous_episode: null, next_episode: null }
+  }
   let match = key.match(/^\/api\/tv\/shows\/(\d+)\/collection$/)
   if (match) return collection(Number(match[1]))
   match = key.match(/^\/api\/tv\/shows\/(\d+)\/seasons\/(\d+)\/catalog$/)
   if (match) return catalog(Number(match[1]), Number(match[2]))
   if (key === '/api/tv/shows/201' || key === '/api/tv/shows/901') {
     const show = key.endsWith('/901') ? sourceShow : shows[0]
+    if (collectionScenario === 'combined_files') return { ...show, episode_count: 3, watched_count: 0,
+      next_episode: combinedEpisodes[0], episodes: combinedEpisodes,
+      seasons: [{ season: 1, name: '第 1 季', total: 3, distinct: 6, watched_count: 0, versions: 1 }] }
     return { ...show, needs_review: collectionScenario === 'show_review' ? 1 : 0,
       episode_count: 2, watched_count: 0, next_episode: null, episodes: localEpisodes,
       seasons: [1, 2].map(season => ({ season, name: `第 ${season} 季`, poster_path: `posters/show-0-s${season}.svg`,
@@ -100,12 +122,14 @@ function mockApi(url, method, body) {
   match = key.match(/^\/api\/tv\/shows\/(\d+)\/seasons\/([012])$/)
   if (match) {
     const id = Number(match[1]), season = Number(match[2]), alternate = id === 901
-    const seasonEpisodes = season === 1 ? (alternate ? [{ ...episodes[2], id: 603, show_id: 901 }] : localEpisodes) : []
+    const seasonEpisodes = season === 1 ? (collectionScenario === 'combined_files' ? combinedEpisodes
+      : alternate ? [{ ...episodes[2], id: 603, show_id: 901 }] : localEpisodes) : []
+    const distinct = collectionScenario === 'combined_files' && season === 1 ? 6 : seasonEpisodes.length
     return { show_id: id, show_title: shows[0].title, show_year: 2023, show_backdrop_path: shows[0].backdrop_path,
       season, name: season === 0 ? '特别篇（SP）' : `第 ${season} 季`, poster_path: `posters/show-0-s${season}.svg`, overview: shows[0].overview,
-      episode_count: seasonEpisodes.length, distinct_count: seasonEpisodes.length, watched_count: 0,
+      episode_count: seasonEpisodes.length, distinct_count: distinct, watched_count: 0,
       total: seasonEpisodes.length, episodes: seasonEpisodes, has_more: false, next_episode: null, cast: [],
-      versions: seasonEpisodes.length ? [{ version: 1, distinct: seasonEpisodes.length, count: seasonEpisodes.length }] : [] }
+      versions: seasonEpisodes.length ? [{ version: 1, distinct, count: seasonEpisodes.length }] : [] }
   }
   if (key === '/api/tv/episodes/603') return { ...episodes[2], id: 603, show_id: 901, library_id: 4, progress: null }
   const data = fixture.api(url, method, body)
@@ -346,6 +370,29 @@ try {
     await maintenance.getByRole('button', { name: '立即检查播出资料', exact: true }).waitFor()
     await screenshot('maintenance')
     pass('settings maintenance shows progress and readable status without media changes')
+
+    collectionScenario = 'combined_files'
+    await go('/tv/201/s/1')
+    assert.equal(await page.locator('.ep-card').count(), 3)
+    await page.getByRole('heading', { name: '选择剧集 6 集', exact: true }).waitFor()
+    await page.getByText('已加载全部 3 个文件', { exact: true }).waitFor()
+    for (const [index, number] of [1, 3, 5].entries()) {
+      const text = await page.locator('.episode-title').nth(index).innerText()
+      assert.match(text, new RegExp(`S01E0${number}-E0${number + 1}`))
+      assert.match(text, new RegExp(`第${number}-${number + 1}集`))
+      assert.doesNotMatch(text, new RegExp(`第 ${number} 集`))
+    }
+    await screenshot('combined-files-season')
+    await page.locator('.ep-card').first().click()
+    await page.waitForURL('**/tv/201/s/1/e/701')
+    await page.getByRole('heading', { name: '第1-2集', exact: true }).waitFor()
+    assert.match(await page.locator('.hero-no-still').innerText(), /第1-2集/)
+    await screenshot('combined-file-detail')
+    await go('/tv?media=1')
+    await page.locator('.cw-ep').getByText('S01E01-E02 · 第1-2集', { exact: true }).waitFor()
+    await screenshot('combined-file-continue')
+    pass('combined files show full Chinese ranges in season, detail and continue watching while retaining six episodes in three files')
+    collectionScenario = ''
     assert.deepEqual(errors, [], 'Browser errors')
     results.push({ viewport, checks, errors })
     await context.close()

@@ -157,6 +157,7 @@ import EmptyState from '../components/EmptyState.vue'
 import AiMatchSuggestions from '../components/AiMatchSuggestions.vue'
 import { isAiExternalCandidate } from '../aiMatch.js'
 import { followingPlayback } from '../episodePlayback.js'
+import { episodeDisplayTitle } from '../episodeTitles.js'
 import { currentMediaId, loadLibs, switchMedia } from '../libraries.js'
 import { browseReturn } from '../browseHistory.js'
 
@@ -336,10 +337,11 @@ function statusText (s) {
 }
 function play (e) {
   const ver = episodeVersion(e)
+  const title = episodeDisplayTitle(e)
   playing.value = {
     id: e.id,
     kind: 'episode',
-    label: `${show.value.title} ${epNo(e)}${e.title ? ' · ' + e.title : ''}`
+    label: `${show.value.title} ${epNo(e)}${title ? ' · ' + title : ''}`
       + (ver > 1 ? `（V${ver}）` : ''),
   }
 }

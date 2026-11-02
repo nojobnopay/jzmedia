@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .. import config, library_paths, scanner, storage, store, tmdb
+from ..episode_titles import episode_display_title
 from ..log import get_logger
 from ..scanner import tv_match, tv_persist
 from ..scanner.parse import normalize_title
@@ -87,6 +88,8 @@ def _episode_payload(e: dict, progress: dict | None = None,
     远程核验走 `_verify_exists_map`（按父目录分组一次 list，N stat → D list）。
     可选附带断点（`episode_progress_map` 一次查出，避免逐集查询）。"""
     d = dict(e)
+    d["display_title"] = episode_display_title(
+        e.get("title"), e.get("episode"), e.get("episode_end"))
     rel = e.get("file_path") or ""
     d["version"] = store.episode_version(rel)      # 多版本分组（剧详情页/连播）
     d["exists"] = bool(exists) if exists is not None else _local_exists(e)
@@ -1091,7 +1094,9 @@ def episode_next(episode_id: int):
                      "episode_end": int(nxt["episode_end"] or 0),
                      "version": store.episode_version(nxt.get("file_path")),
                      "exists": _local_exists(nxt), "missing": int(nxt.get("missing") or 0),
-                     "title": nxt.get("title") or ""}}
+                     "title": nxt.get("title") or "",
+                     "display_title": episode_display_title(
+                         nxt.get("title"), nxt.get("episode"), nxt.get("episode_end"))}}
 
 
 @router.get("/extras/{extra_id}/blob")

@@ -13,11 +13,11 @@
       <div class="hero-inner">
         <img v-if="ep.still_path" class="hero-still" :src="stillUrl(ep)" alt=""
           @error="ep.still_path = ''" />
-        <ArtworkPlaceholder v-else class="hero-still hero-no-still" kind="poster" :label="ep.title || ep.show_title" />
+        <ArtworkPlaceholder v-else class="hero-still hero-no-still" kind="poster" :label="episodeDisplayTitle(ep) || ep.show_title" />
         <div class="hero-body">
           <div class="hero-heading">
             <p class="eyebrow">{{ ep.show_title }} · {{ epNo(ep) }}</p>
-            <h1>{{ ep.title || epNo(ep) }}</h1>
+            <h1>{{ episodeDisplayTitle(ep) || epNo(ep) }}</h1>
             <HeroRatings :tmdb="ep.tmdb_rating" />
             <div class="meta">
               <span v-if="ep.air_date">{{ ep.air_date }}</span>
@@ -91,6 +91,7 @@ import JzButton from '../components/JzButton.vue'
 
 import EmptyState from '../components/EmptyState.vue'
 import { followingPlayback } from '../episodePlayback.js'
+import { episodeDisplayTitle } from '../episodeTitles.js'
 import PlayerIcon from '../components/PlayerIcon.vue'
 
 import MediaBackdrop from '../components/MediaBackdrop.vue'
@@ -150,7 +151,8 @@ function epNo (e) {
 function stillUrl (e) { return scopedArtworkUrl(`/api/tv/episodes/${e.id}/still`) }
 function playLabel (e) {
   const ver = episodeVersion(e)
-  return `${e.show_title} ${epNo(e)}${e.title ? ' · ' + e.title : ''}`
+  const title = episodeDisplayTitle(e)
+  return `${e.show_title} ${epNo(e)}${title ? ' · ' + title : ''}`
     + (ver > 1 ? `（V${ver}）` : '')
 }
 function play () {

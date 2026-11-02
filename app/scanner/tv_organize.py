@@ -27,6 +27,7 @@ import time
 import uuid
 
 from .. import store
+from ..episode_titles import episode_display_title, numbered_episode_title
 from ..log import get_logger
 from .classify import EXTRAS_DIR_NAMES, _dir_tokens
 from .tv_nfo_link import show_dir_of
@@ -268,13 +269,41 @@ def _target_stem(show_title: str, ep: dict, ver: int = 0) -> str | None:
     head = _episode_base_title(show_title, ep, ver=ver)
     if not head:
         return None
-    ep_title = _clean_name(ep.get("title"))
+    ep_title = _clean_name(episode_display_title(
+        ep.get("title"), ep.get("episode"), ep.get("episode_end")))
     return f"{head}-{ep_title}" if ep_title else head
 
 
 def _strip_part_suffix(stem: str) -> str:
     pm = re.search(r"-part\d+$", stem, re.I)
     return stem[:pm.start()] if pm else stem
+
+
+def _is_canonical_stem(stem: str, show_title: str, ep: dict, ver: int = 0) -> bool:
+    """Accept correct range labels and earlier first-title names under one head."""
+    target = _target_stem(show_title, ep, ver=ver)
+    if not target:
+        return False
+    if stem.casefold() == target.casefold():
+        return True
+    stem = _strip_part_suffix(stem)
+    if stem.casefold() == target.casefold():
+        return True
+    start, end = int(ep.get("episode") or 0), int(ep.get("episode_end") or 0)
+    if end <= start:
+        return False
+    head = _episode_base_title(show_title, ep, ver=ver)
+    if stem.casefold() == head.casefold():
+        suffix = ""
+    elif stem.casefold().startswith(head.casefold() + "-"):
+        suffix = stem[len(head) + 1:]
+    else:
+        return False
+    numbers = numbered_episode_title(suffix)
+    if numbers is not None and numbers[1] is not None:
+        # A range printed in the title must agree even with old upstream data.
+        return numbers == (start, end)
+    return suffix.casefold() == _clean_name(ep.get("title")).casefold()
 
 
 def _abs_rename_pending(episodes: list[dict], show: dict, ver_of: dict) -> bool:
@@ -287,7 +316,8 @@ def _abs_rename_pending(episodes: list[dict], show: dict, ver_of: dict) -> bool:
         stem = os.path.splitext(os.path.basename(str(e.get("file_path") or "")))[0]
         target = _target_stem(show.get("title") or "", e,
                               ver=ver_of.get(int(e.get("id")), 0))
-        if target and _strip_part_suffix(stem).casefold() != target.casefold():
+        if target and not _is_canonical_stem(stem, show.get("title") or "", e,
+                                             ver=ver_of.get(int(e.get("id")), 0)):
             return True
     return False
 
@@ -605,12 +635,8 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
                             if not (show.get("title") or "") else "bad_episode")
                 else:
                     new_base = new_stem + ext
-        if new_base and new_stem:
-            pm = re.search(r"-part\d+$", stem, re.I)
-            if pm and stem[:pm.start()].casefold() == new_stem.casefold():
-                new_base = None      # 已是 Plex 拆分集命名（-partN），保留不动
-        if new_base and new_base.casefold() == base.casefold():
-            new_base = None          # 已是规范名（重复预览/执行幂等）
+        if new_base and _is_canonical_stem(stem, show.get("title") or "", e, ver=idx):
+            new_base = None          # 规范范围名/旧首集名/Plex -partN 均保留
         elif new_base:
             key_dir = final_dir.casefold()
             if (new_base.casefold() in used.get(key_dir, set())

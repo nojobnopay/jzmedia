@@ -4,6 +4,7 @@
 """
 import math
 import time
+from ..episode_titles import episode_display_title
 from ..playback_completion import is_playback_complete
 from ._base import _attach_media_libraries, _attach_versions, _conn, _lock, _row_to_dict
 from .search import _split_ints
@@ -132,7 +133,8 @@ def list_recent_played_tv(limit: int = 20, library_ids=None,
 
     返回项兼容电影行结构：`title`=剧名、`poster_path`=剧海报、`year`=剧年份、
     `progress.version_id`=集 id（可直接续播）；另带 `kind='episode'`、`show_id`、
-    `season/episode/episode_end`、`subtitle`（SxxEyy · 集名）、`episode_title`。
+    `season/episode/episode_end`、`subtitle`（SxxEyy · 展示集名）、
+    `episode_title`（原始集名）、`episode_display_title`（展示集名）。
     默认排除已看完（`tv_episodes.watched` 或剩余阈值），include_finished 全给。"""
     lim = max(1, min(int(limit or 20), 100))
     libs = _split_ints(library_ids) if library_ids is not None else []
@@ -172,6 +174,7 @@ def list_recent_played_tv(limit: int = 20, library_ids=None,
             episode = int(r["episode"] or 0)
             end = int(r["episode_end"] or 0)
             ep_no = f"S{season:02d}E{episode:02d}" + (f"-E{end:02d}" if end else "")
+            display_title = episode_display_title(r["title"], episode, end)
             out.append({
                 "kind": "episode",
                 "id": int(r["show_id"]),
@@ -186,7 +189,8 @@ def list_recent_played_tv(limit: int = 20, library_ids=None,
                 "episode_end": end,
                 "absolute_number": r["absolute_number"],
                 "episode_title": r["title"] or "",
-                "subtitle": ep_no + (f" · {r['title']}" if r["title"] else ""),
+                "episode_display_title": display_title,
+                "subtitle": ep_no + (f" · {display_title}" if display_title else ""),
                 "progress": {
                     "version_id": vid,
                     "position": round(pos, 3),

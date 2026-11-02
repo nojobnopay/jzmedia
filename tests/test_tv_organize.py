@@ -460,6 +460,114 @@ def test_wide_range_canonical_name_not_manual(tv_lib):
     assert plan["total"] == 0 and plan["manual"] == 0, plan
 
 
+def test_paired_episodes_and_sidecars_need_no_renaming(tv_lib):
+    """Three correctly labelled files cover six episodes without twelve moves."""
+    lib, root = tv_lib
+    for start in (1, 3, 5):
+        stem = f"反击-S01E{start:02d}-E{start + 1:02d}-第 {start}-{start + 1} 集"
+        for ext in (".mkv", ".ass", ".nfo", ".chs.srt"):
+            _touch(root, f"反击 (2010)/Season 01/{stem}{ext}")
+    scanner.scan_all(library_id=lib["id"])
+    show = _match_show(lib, title="反击", year=2010)
+    for ep in store.list_episodes(show["id"]):
+        store.update_episode_meta(ep["id"], tmdb_episode_id=900000 + ep["episode"],
+                                  title=f"第 {ep['episode']} 集")
+    before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    for _ in range(2):
+        plan, result = _run(lib)
+        assert plan["total"] == 0 and plan["manual"] == 0, plan
+        assert result["moved"] == result["renamed"] == result["failed"] == 0
+    episodes = store.list_episodes(show["id"])
+    assert len(episodes) == 3
+    assert {n for ep in episodes for n in range(ep["episode"], ep["episode_end"] + 1)} == set(range(1, 7))
+    assert {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()} == before
+
+
+@pytest.mark.parametrize("suffix", ["第1-2集", "第 1 – 2 集", "第1至第2话", "Episodes 1~2",
+                                   "第 1 集", "Episode 1", ""])
+def test_range_names_and_legacy_titles_do_not_trigger_absolute_risk(tv_lib, suffix):
+    lib, root = tv_lib
+    raw_title = suffix if suffix in ("第 1 集", "Episode 1", "") else "第 1 集"
+    stem = "测试剧-S01E01-E02" + (f"-{suffix}" if suffix else "")
+    _touch(root, f"测试剧.2020/Season 01/{stem}.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    show = _match_show(lib)
+    ep = store.list_episodes(show["id"])[0]
+    store.update_episode_meta(ep["id"], tmdb_episode_id=900001, title=raw_title, absolute_number=1)
+    plan = tv_organize.plan_tv_organize(library_ids=[lib["id"]], actions=("rename",))
+    assert plan["total"] == plan["manual"] == plan["absolute"] == 0, plan
+
+
+@pytest.mark.parametrize("title", ["第1-3集", "第2-1集", "第1-1集", "第0-2集"])
+def test_wrong_title_range_is_corrected_even_if_it_matches_upstream_title(tv_lib, title):
+    lib, root = tv_lib
+    _touch(root, f"测试剧.2020/Season 01/测试剧-S01E01-E02-{title}.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    show = _match_show(lib)
+    ep = store.list_episodes(show["id"])[0]
+    store.update_episode_meta(ep["id"], tmdb_episode_id=900001, title=title)
+    plan, result = _run(lib, actions=("rename",))
+    assert plan["counts"]["rename"] == 1 and result["failed"] == 0, plan
+    assert (root / "测试剧.2020/Season 01/测试剧-S01E01-E02-第1-2集.mkv").is_file()
+    assert store.get_episode(ep["id"])["title"] == title
+
+
+@pytest.mark.parametrize("stem", [
+    "别的剧-S01E01-E02-第1-2集", "测试剧-S02E01-E02-第1-2集",
+    "测试剧-S01E01-E03-第1-2集", "测试剧-V2-S01E01-E02-第1-2集",
+    "测试剧-S01E01-第1-2集", "测试剧-S01E01-E02-任意后缀",
+])
+def test_title_compatibility_requires_exact_show_version_and_episode_head(stem):
+    ep = {"season": 1, "episode": 1, "episode_end": 2, "title": "第 1 集"}
+    assert not tv_organize._is_canonical_stem(stem, "测试剧", ep, ver=1)
+
+
+def test_canonical_range_file_moves_without_changing_its_name(tv_lib):
+    lib, root = tv_lib
+    stem = "测试剧-S01E01-E02-第 1-2 集"
+    for ext in (".mkv", ".chs.srt", ".nfo"):
+        _touch(root, f"测试剧.2020/{stem}{ext}")
+    scanner.scan_all(library_id=lib["id"])
+    show = _match_show(lib)
+    ep = store.list_episodes(show["id"])[0]
+    store.update_episode_meta(ep["id"], tmdb_episode_id=900001, title="第 1 集")
+    plan, result = _run(lib, actions=("season", "rename"))
+    assert plan["plans"][0]["rename_count"] == 0, plan
+    assert result["moved"] == 3 and result["failed"] == 0, result
+    for ext in (".mkv", ".chs.srt", ".nfo"):
+        assert (root / f"测试剧.2020/Season 01/{stem}{ext}").is_file()
+    assert tv_organize.plan_tv_organize(library_ids=[lib["id"]], actions=("season", "rename"))["total"] == 0
+
+
+def test_range_versions_and_split_parts_remain_canonical(tv_lib):
+    lib, root = tv_lib
+    names = ["测试剧-S01E01-E02-第 1-2 集-part1", "测试剧-S01E01-E02-第 1-2 集-part2",
+             "测试剧-V2-S01E01-E02-第 1-2 集"]
+    for name in names:
+        _touch(root, f"测试剧.2020/Season 01/{name}.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    show = _match_show(lib)
+    for ep in store.list_episodes(show["id"]):
+        store.update_episode_meta(ep["id"], tmdb_episode_id=900001, title="第 1 集")
+    plan = tv_organize.plan_tv_organize(library_ids=[lib["id"]], actions=("rename",))
+    assert plan["total"] == plan["manual"] == 0, plan
+
+
+def test_newly_organized_paired_episode_uses_range_title(tv_lib):
+    lib, root = tv_lib
+    for ext in (".mkv", ".ass", ".nfo"):
+        _touch(root, f"测试剧.2020/Season 01/Release.S01E01-E02{ext}")
+    scanner.scan_all(library_id=lib["id"])
+    show = _match_show(lib)
+    ep = store.list_episodes(show["id"])[0]
+    store.update_episode_meta(ep["id"], tmdb_episode_id=900001, title="第 1 集")
+    plan, result = _run(lib, actions=("rename",))
+    assert plan["plans"][0]["rename_count"] == 1 and result["failed"] == 0, result
+    for ext in (".mkv", ".ass", ".nfo"):
+        assert (root / f"测试剧.2020/Season 01/测试剧-S01E01-E02-第1-2集{ext}").is_file()
+    assert tv_organize.plan_tv_organize(library_ids=[lib["id"]], actions=("rename",))["total"] == 0
+
+
 def test_absolute_risk_not_reported_when_already_canonical(tv_lib):
     """绝对集号剧正片已全部规范名：不报风险、不需手动（既往已整理不再打扰）。"""
     lib, root = tv_lib

@@ -155,6 +155,7 @@ import { usePlaybackPreviews } from '../usePlaybackPreviews.js'
 import { useCasting } from '../useCasting.js'
 import CastDialog from './CastDialog.vue'
 import { fmtTime as fmt, audioLabel, subLabel } from '../playerLabels.js'
+import { episodePlaybackLabel } from '../episodeTitles.js'
 import { isPlaybackComplete, pickProgressPosition } from '../progress.js'
 import { registerViewingPlaybackCleanup } from '../viewing.js'
 import '../player.css'
@@ -1422,9 +1423,12 @@ watch(err, async message => {
 function playCompatibleVersion() {
   const version = compatibleVersion.value
   if (!version) return
+  const label = props.kind === 'episode' && version.display_title != null && version.show_title
+    ? episodePlaybackLabel(version, version.show_title)
+    : String(version.file_path || '').split('/').pop() || props.title
   pageLifecycle.leave()
   emit('version-change', { id: Number(version.version_id), kind: props.kind,
-    label: String(version.file_path || '').split('/').pop() || props.title })
+    label })
 }
 // 总时长统一用探测值：HLS 增长型清单里 v.duration 只是“已产出片段之和”（如 30s），
 // 用它算剩余会一开播就误判“已看”、存档 duration 也会写坏导致详情页看不到续播。

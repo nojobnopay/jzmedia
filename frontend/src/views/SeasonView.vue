@@ -82,7 +82,7 @@
         <div class="t">
           <div class="episode-title">
             <span class="ep-no">{{ epNo(e) }}</span><span v-if="episodeVersion(e) > 1" class="ver-badge">V{{ episodeVersion(e) }}</span>
-            {{ e.title || '（未匹配集名）' }}
+            {{ episodeDisplayTitle(e) || '（未匹配集名）' }}
             <span v-if="e.needs_review" class="review-badge">未匹配</span>
             <span v-if="e.local_only" class="local-badge">本地集</span>
           </div>
@@ -119,6 +119,7 @@ import JzButton from '../components/JzButton.vue'
 
 import EmptyState from '../components/EmptyState.vue'
 import { followingPlayback } from '../episodePlayback.js'
+import { episodeDisplayTitle } from '../episodeTitles.js'
 import PlayerIcon from '../components/PlayerIcon.vue'
 
 import MediaBackdrop from '../components/MediaBackdrop.vue'
@@ -200,7 +201,8 @@ function openEpisode (id) {
 }
 function playLabel (e) {
   const ver = episodeVersion(e)
-  return `${s.value.show_title} ${epNo(e)}${e.title ? ' · ' + e.title : ''}`
+  const title = episodeDisplayTitle(e)
+  return `${s.value.show_title} ${epNo(e)}${title ? ' · ' + title : ''}`
     + (ver > 1 ? `（V${ver}）` : '')
 }
 function play (e) {

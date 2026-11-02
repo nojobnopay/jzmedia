@@ -15,7 +15,7 @@ function eventTarget() {
 }
 
 async function player(t, { slowCreation = false, p5 = false, blocked = false, versions = [], sessionPlan = null,
-  realCasting = false, direct = false, initialCast = null, mp4 = false, clearCastPositionOnStop = false } = {}) {
+  realCasting = false, direct = false, initialCast = null, mp4 = false, clearCastPositionOnStop = false, kind = 'movie' } = {}) {
   const mounted = [], beforeUnmount = [], unmounted = [], refs = [], requests = [], emitted = [], timers = new Map()
   const copied = []
   const saving = deferred(), creation = deferred(), page = eventTarget()
@@ -91,7 +91,7 @@ async function player(t, { slowCreation = false, p5 = false, blocked = false, ve
   })
   const scope = Vue.effectScope()
   let render
-  scope.run(() => { render = component.setup({ versionId: 1, kind: 'movie', title: '合成影片', preview: false },
+  scope.run(() => { render = component.setup({ versionId: 1, kind, title: '合成影片', preview: false },
     { expose() {}, emit: (name, payload) => emitted.push(payload ? { name, payload } : name) }) })
   refs[1].value = video
   let closed = false
@@ -284,6 +284,26 @@ test('blocked P5 copying offers a selectable URL and the existing compatible ver
   assert.deepEqual(ui.emitted.at(-1), { name: 'version-change',
     payload: { id: 2, kind: 'movie', label: 'compatible.mp4' } })
   assert.equal(ui.requests.filter(request => request.path.endsWith('/sessions')).length, 0)
+})
+
+test('compatible episode replacement uses the derived title and complete range before leaving playback', async t => {
+  const ui = await player(t, { p5: true, blocked: true, kind: 'episode', versions: [{
+    version_id: 2, playable: true, method: 'direct', file_path: '/synthetic/old-first-title.mp4',
+    show_title: '合成剧集', season: 1, episode: 1, episode_end: 2, version: 2,
+    title: '第 1 集', display_title: '第1-2集',
+  }] })
+  button(ui, '播放兼容版本').props.onClick()
+  assert.deepEqual(ui.emitted.at(-1), { name: 'version-change',
+    payload: { id: 2, kind: 'episode', label: '合成剧集 S01E01-E02 · 第1-2集（V2）' } })
+  assert.equal(ui.requests.filter(request => request.path.endsWith('/sessions')).length, 0)
+})
+
+test('compatible episode replacement keeps the filename fallback for an old server', async t => {
+  const ui = await player(t, { p5: true, blocked: true, kind: 'episode',
+    versions: [{ version_id: 2, playable: true, method: 'direct', file_path: '/synthetic/old-server.mp4' }] })
+  button(ui, '播放兼容版本').props.onClick()
+  assert.deepEqual(ui.emitted.at(-1), { name: 'version-change',
+    payload: { id: 2, kind: 'episode', label: 'old-server.mp4' } })
 })
 
 test('a late P5 downgrade heartbeat after exit cannot create another session', async t => {
