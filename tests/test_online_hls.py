@@ -65,6 +65,23 @@ video/main.m3u8
     assert "audio/list.m3u8" not in output and "text.example" not in output
 
 
+def test_legacy_program_id_in_master_is_preserved_with_an_opaque_variant():
+    output, calls = rewrite(b"#EXTM3U\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=800000,RESOLUTION=1080x608\n"
+                            b"child.m3u8?secret=private-secret\n")
+    assert "#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=800000,RESOLUTION=1080x608" in output
+    assert calls == [("https://source.example/redirected/path/child.m3u8?secret=private-secret", "manifest", None)]
+    assert "private-secret" not in output
+
+
+@pytest.mark.parametrize("value", ['"1"', "abc", "-1", "9223372036854775808"])
+def test_legacy_program_id_rejects_non_decimal_or_unbounded_values(value):
+    registrar = Registrar()
+    body = f"#EXTM3U\n#EXT-X-STREAM-INF:PROGRAM-ID={value},BANDWIDTH=800000\nchild.m3u8\n".encode()
+    with pytest.raises(hls.ManifestError):
+        hls.rewrite_manifest(body, BASE, registrar)
+    assert registrar.calls == []
+
+
 def test_map_and_segment_byte_ranges_are_explicit_and_registered_as_inclusive_pairs():
     output, calls = rewrite(media(
         '#EXT-X-MAP:URI="all.mp4",BYTERANGE="10@0"',

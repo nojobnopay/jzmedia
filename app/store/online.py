@@ -8,6 +8,7 @@ import uuid
 from ..online.models import (OnlineEpisode, OnlineItem, OnlineSource,
                              OnlineSourceCreate, OnlineSourcePatch,
                              normalize_external_id)
+from ..online.limits import MAX_CATALOG_ENTRIES
 from . import _base
 
 
@@ -191,7 +192,7 @@ def save_online_catalog(source_id: str, external_id, kind: str, title: str, epis
     URLs are never accepted here. Old episode identities remain available for
     history, but a provider must find them in fresh detail before playback.
     """
-    if not isinstance(episodes, list) or len(episodes) > 2000 or kind == "movie" and episodes:
+    if not isinstance(episodes, list) or len(episodes) > MAX_CATALOG_ENTRIES or kind == "movie" and episodes:
         raise ValueError("invalid online catalogue")
     now = int(time.time())
     candidate = OnlineItem.model_validate({"id": "itm_" + uuid.uuid4().hex, "source_id": source_id,

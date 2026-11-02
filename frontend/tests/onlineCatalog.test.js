@@ -115,7 +115,7 @@ test('catalogue entry-count limits are distinct from body-size limits and never 
   const message = 'https://private.invalid/path?token=private-secret'
   const entries = onlineCatalogError({ code: 'provider_entry_limit', message })
   const body = onlineCatalogError({ code: 'provider_response_limit', message })
-  assert.match(entries, /分集总数超过 2000 集/)
+  assert.match(entries, /播放项数量超过读取上限/)
   assert.match(body, /资料过大/)
   assert.notEqual(entries, body)
   assert.equal(entries.includes(message), false)

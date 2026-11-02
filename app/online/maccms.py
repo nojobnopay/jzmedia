@@ -14,14 +14,13 @@ from ..network.client import create_online_client, NetworkRequestError
 from ..network.guard import NetworkOperation, NetworkOperationError, current_operation, operation_context
 from ..network.targets import TargetPolicy, TargetPolicyError
 from . import api_pool
+from .limits import MAX_CATALOG_ENTRIES, MAX_LINE_ENTRIES
 from .providers import ProviderError
 
 
 MAX_ROWS = 100
 MAX_LINES = 16
-MAX_ENTRIES = 2000
-# A long-running series may use the entire existing detail budget on one line.
-MAX_LINE_ENTRIES = MAX_ENTRIES
+MAX_ENTRIES = MAX_CATALOG_ENTRIES
 MAX_BODY = 2 * 1024**2
 CATEGORY_TIMEOUT_SECONDS = 3.0
 _ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")

@@ -163,7 +163,7 @@ def test_long_series_collapses_only_exact_duplicates_without_reordering():
     assert [entry.label for entry in result.lines[0].entries] == [f"第{i}期" for i in range(1, 601)]
 
 
-@pytest.mark.parametrize("counts", [(2001,), (1000, 1001)])
+@pytest.mark.parametrize("counts", [(2001,), (1601, 1600, 1600, 1600, 1600)])
 def test_episode_count_is_bounded_before_splitting_or_validating_media(monkeypatch, counts):
     def unexpected_entry(*_args, **_kwargs):
         pytest.fail("an over-budget detail must not validate any media URL")
@@ -179,6 +179,23 @@ def test_exact_duplicates_cannot_bypass_the_raw_episode_budget(monkeypatch):
     monkeypatch.setattr(maccms, "_entry", unexpected_entry)
     assert_category(lambda: maccms.parse_detail(SOURCE, series(vod_play_from="main",
         vod_play_url="#".join([f"第1期${HLS}"] * 2001))), "provider_entry_limit")
+
+
+def test_long_series_can_expose_several_complete_lines():
+    entries = "#".join(f"第{i}期${HLS}" for i in range(1, 1301))
+    result = maccms.parse_detail(SOURCE, series(vod_play_from="first$$$second",
+                                                vod_play_url=entries + "$$$" + entries))
+    assert [len(line.entries) for line in result.lines] == [1300, 1300]
+    assert result.lines[0].entries[-1].label == "第1300期"
+    assert result.lines[1].entries[-1].label == "第1300期"
+    assert result.lines[0].id != result.lines[1].id
+
+
+def test_total_episode_budget_accepts_four_full_lines():
+    entries = "#".join(f"第{i}期${HLS}" for i in range(1, 2001))
+    result = maccms.parse_detail(SOURCE, series(vod_play_from="one$$$two$$$three$$$four",
+                                                vod_play_url="$$$".join([entries] * 4)))
+    assert [len(line.entries) for line in result.lines] == [2000, 2000, 2000, 2000]
 
 
 def test_long_series_does_not_assign_an_order_identity_to_duplicate_labels():

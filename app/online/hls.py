@@ -26,7 +26,8 @@ _NO_ARGUMENT = {"#EXT-X-INDEPENDENT-SEGMENTS", "#EXT-X-DISCONTINUITY", "#EXT-X-E
                 "#EXT-X-I-FRAMES-ONLY", "#EXT-X-GAP"}
 _MEDIA_INTEGER = {"#EXT-X-TARGETDURATION", "#EXT-X-MEDIA-SEQUENCE", "#EXT-X-DISCONTINUITY-SEQUENCE"}
 _STREAM_ATTRIBUTES = {"BANDWIDTH", "AVERAGE-BANDWIDTH", "CODECS", "RESOLUTION", "FRAME-RATE",
-                      "HDCP-LEVEL", "AUDIO", "VIDEO", "SUBTITLES", "CLOSED-CAPTIONS", "VIDEO-RANGE"}
+                      "HDCP-LEVEL", "AUDIO", "VIDEO", "SUBTITLES", "CLOSED-CAPTIONS", "VIDEO-RANGE",
+                      "PROGRAM-ID"}
 _MEDIA_ATTRIBUTES = {"TYPE", "URI", "GROUP-ID", "LANGUAGE", "ASSOC-LANGUAGE", "NAME", "DEFAULT",
                      "AUTOSELECT", "FORCED", "INSTREAM-ID", "CHARACTERISTICS", "CHANNELS"}
 _QUOTED_ATTRIBUTES = {"URI", "CODECS", "AUDIO", "VIDEO", "SUBTITLES", "GROUP-ID", "LANGUAGE",
@@ -108,6 +109,11 @@ def _checked_attributes(value, allowed, required=()):
             raise ManifestError("invalid_hls_attributes")
         if attribute.name in {"BANDWIDTH", "AVERAGE-BANDWIDTH"}:
             _integer(attribute.value, positive=True)
+        if attribute.name == "PROGRAM-ID":
+            # Older HLS master playlists may include this decimal identifier.
+            if attribute.quoted:
+                raise ManifestError("invalid_hls_attributes")
+            _integer(attribute.value)
         if attribute.name in {"DEFAULT", "AUTOSELECT", "FORCED", "PRECISE"} and attribute.value not in {"YES", "NO"}:
             raise ManifestError("invalid_hls_attributes")
     return attributes, mapping

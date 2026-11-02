@@ -27,7 +27,7 @@ pytest_plugins = ["test_network_transport"]
 OWNER = "gateway-owner-fixture"
 DATA = bytes(range(100))
 LARGE_DATA = bytes(range(256)) * (8 * 1024 * 1024 // 256) + b"final-mp4-bytes"
-MASTER = (b"#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-STREAM-INF:BANDWIDTH=1000\n"
+MASTER = (b"#EXTM3U\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=1000\n"
           b"child.m3u8?token=media-secret\n")
 CHILD = (b'#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:4\n'
          b'#EXT-X-MAP:URI="asset.bin?init=private-secret",BYTERANGE="4@0"\n'
@@ -337,6 +337,7 @@ def test_hls_nested_manifests_maps_and_explicit_ranges_are_opaque_and_bound(brid
                                                 "x-receiver-token": "receiver-secret", "Authorization": "Bearer server-auth",
                                                 "Cookie": "jz_viewing=watch-secret"})
         assert master.status_code == 200
+        assert "#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=1000" in master.text
         child_path = next(line for line in master.text.splitlines() if line and not line.startswith("#"))
         child = client.get(child_path)
         assert child.status_code == 200

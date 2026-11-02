@@ -220,7 +220,7 @@ test('a buffering callback from a departed session cannot affect a restored play
 test('the actual player distinguishes entry-count limits without exposing an upstream playback URL', async t => {
   const privateMessage = 'https://private.invalid/movie.m3u8?token=private-secret'
   const ui = await player(t, () => grant(), { sessionProblem: Object.assign(new Error(privateMessage), { code: 'provider_entry_limit' }) })
-  assert.match(ui.text(), /分集总数超过 2000 集/)
+  assert.match(ui.text(), /播放项数量超过读取上限/)
   assert.doesNotMatch(ui.text(), /资料过大|private-secret|private\.invalid/)
   assert.equal(ui.video.src, '')
   assert.equal(ui.playCalls(), 0)

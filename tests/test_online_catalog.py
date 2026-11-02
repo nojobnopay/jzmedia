@@ -180,6 +180,27 @@ def test_long_series_refresh_preserves_identity_and_resolves_the_last_episode(en
             assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
 
 
+@pytest.mark.parametrize("line_count,episode_count", [(2, 1300), (4, 2000)])
+def test_multi_line_long_series_persists_and_resolves_both_lines(environment, line_count, episode_count):
+    entries = "#".join(f"第{i}集${HLS}&episode={i}" for i in range(1, episode_count + 1))
+    names = [f"line-{i}" for i in range(line_count)]
+    environment.show.update(vod_play_from="$$$".join(names), type_name="动漫",
+                            vod_play_url="$$$".join([entries] * line_count))
+    response = get_detail(environment, "show-1")
+    assert response.status_code == 200, response.text
+    detail = response.json()
+    assert [len(line["entries"]) for line in detail["lines"]] == [episode_count] * line_count
+    last = [line["entries"][-1]["identity"] for line in detail["lines"]]
+    assert all(last) and last[0]["episode_id"] != last[1]["episode_id"]
+    assert last[0]["line_id"] != last[1]["line_id"]
+    assert providers.resolve(OnlinePlaybackIdentity.model_validate(last[-1])).url == HLS + f"&episode={episode_count}"
+    refreshed = get_detail(environment, "show-1")
+    assert refreshed.status_code == 200, refreshed.text
+    assert [line["entries"][-1]["identity"] for line in refreshed.json()["lines"]] == last
+    with store._base._conn() as connection:
+        assert connection.execute("SELECT count(*) FROM online_episodes").fetchone()[0] == line_count * episode_count
+
+
 def test_duplicate_insertion_and_removal_preserve_episode_identity_and_resolution(environment):
     environment.show.update(vod_play_from="main",
         vod_play_url=f"第1期${MP4}#第2期${HLS}")
@@ -298,6 +319,16 @@ def test_atomic_identity_save_rejects_duplicate_episode_input_before_writes(envi
         online.save_online_catalog(environment.source["id"], "new", "tv", "new", rows)
     with store._base._conn() as connection:
         assert connection.execute("SELECT count(*) FROM online_items").fetchone()[0] == 0
+
+
+def test_atomic_identity_save_rejects_over_budget_before_writes(environment):
+    rows = [{"external_id": f"episode-{i}", "title": "episode"}
+            for i in range(maccms.MAX_ENTRIES + 1)]
+    with pytest.raises(ValueError, match="invalid online catalogue"):
+        online.save_online_catalog(environment.source["id"], "new", "tv", "new", rows)
+    with store._base._conn() as connection:
+        assert connection.execute("SELECT count(*) FROM online_items").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM online_episodes").fetchone()[0] == 0
 
 
 def test_admission_is_global_and_per_owner_with_no_waiting_queue():

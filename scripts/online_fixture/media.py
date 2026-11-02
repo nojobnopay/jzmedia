@@ -89,7 +89,7 @@ def generate_media(root: Path) -> None:
             "low.m3u8",
         ], cwd=variants, check=True, timeout=30)
         (folder / "hls" / "master.m3u8").write_text(
-            '#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-STREAM-INF:BANDWIDTH=900000,RESOLUTION=480x270,'
+            '#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=900000,RESOLUTION=480x270,'
             'CODECS="avc1.42c015,mp4a.40.2"\nvariants/low.m3u8\n', encoding="utf-8")
     marker.write_text(MEDIA_MARKER_TEXT, encoding="utf-8")
 

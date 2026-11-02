@@ -225,10 +225,11 @@ class OnlineModelsTest {
         }
     }
 
-    @Test fun entryBudgetRemainsTwoThousandAcrossAllLines() {
-        assertEquals(2000, OnlineDetail.fromJson(longDetail(1000, 1000)).lines.sumOf { it.entries.size })
+    @Test fun entryBudgetAllowsLongShowsAcrossLinesButKeepsBothLimits() {
+        assertEquals(4000, OnlineDetail.fromJson(longDetail(2000, 2000)).lines.sumOf { it.entries.size })
+        assertEquals(8000, OnlineDetail.fromJson(longDetail(2000, 2000, 2000, 2000)).lines.sumOf { it.entries.size })
         assertThrows(IllegalArgumentException::class.java) { OnlineDetail.fromJson(longDetail(2001)) }
-        assertThrows(IllegalArgumentException::class.java) { OnlineDetail.fromJson(longDetail(1000, 1001)) }
+        assertThrows(IllegalArgumentException::class.java) { OnlineDetail.fromJson(longDetail(2000, 2000, 2000, 2000, 1)) }
         val oversizedLine = longDetail(2001).getJSONArray("lines").getJSONObject(0)
         assertThrows(IllegalArgumentException::class.java) { OnlineLine.fromJson(oversizedLine) }
     }

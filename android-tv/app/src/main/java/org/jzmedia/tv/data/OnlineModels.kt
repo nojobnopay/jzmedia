@@ -9,7 +9,8 @@ private val EPISODE_ID = Regex("ep_[0-9a-f]{32}")
 private val LINE_ID = Regex("ln_[0-9a-f]{32}")
 private val CATALOG_ID = Regex("[A-Za-z0-9_-]{1,128}")
 private val ARTWORK_PATH = Regex("/api/online/catalog/artwork/(src_[0-9a-f]{32})/[0-9a-f]{32}")
-private const val MAX_CATALOG_ENTRIES = 2000
+private const val MAX_LINE_ENTRIES = 2000
+private const val MAX_CATALOG_ENTRIES = 8000
 internal val ONLINE_OPAQUE = Regex("[A-Za-z0-9_-]{32,128}")
 internal val ONLINE_SCOPE = Regex("[0-9a-f]{64}")
 
@@ -152,7 +153,7 @@ data class OnlineEntry(val label: String, val identity: OnlineIdentity?, val tra
 }
 data class OnlineLine(val id: String, val label: String, val entries: List<OnlineEntry>) {
     companion object { fun fromJson(value: JSONObject) = OnlineLine(value.string("id").also { require(LINE_ID.matches(it)) },
-        value.string("label", 512), value.list("entries", MAX_CATALOG_ENTRIES).map(OnlineEntry::fromJson)) }
+        value.string("label", 512), value.list("entries", MAX_LINE_ENTRIES).map(OnlineEntry::fromJson)) }
 }
 data class OnlineAttribution(val label: String, val url: String) {
     companion object { fun fromJson(value: JSONObject) = OnlineAttribution(value.string("label", 512), value.string("url", 2048)) }
