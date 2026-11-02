@@ -6,6 +6,7 @@ upstream header policy. Tests can replace resolve() with an isolated provider.
 
 from dataclasses import dataclass, field
 import math
+import re
 
 from ..network.headers import HeaderPolicy
 from .models import OnlinePlaybackIdentity
@@ -19,7 +20,8 @@ class ProviderError(RuntimeError):
                             "provider_rate_limited", "provider_auth_failed", "provider_not_found",
                             "provider_network_error", "provider_timeout", "provider_cancelled",
                             "provider_ambiguous_identity", "provider_line_required", "provider_line_not_found",
-                            "provider_media_unsupported", "provider_episode_not_found", "provider_catalog_busy"}:
+                            "provider_media_unsupported", "provider_page_unsupported", "provider_page_invalid",
+                            "provider_episode_not_found", "provider_catalog_busy"}:
             category = "provider_resolution_failed"
         self.category = category
         super().__init__(category)
@@ -33,6 +35,7 @@ class ResolvedPlayback:
     duration_seconds: float | None = None
     header_policy: HeaderPolicy | None = field(default=None, repr=False)
     source_fingerprint: str | None = field(default=None, repr=False)
+    media_policy_fingerprint: str | None = field(default=None, repr=False)
 
     def __post_init__(self):
         duration = self.duration_seconds
@@ -43,7 +46,10 @@ class ResolvedPlayback:
                 or self.header_policy is not None and not isinstance(self.header_policy, HeaderPolicy)
                 or self.source_fingerprint is not None and (not isinstance(self.source_fingerprint, str)
                                                            or not self.source_fingerprint
-                                                           or len(self.source_fingerprint) > 65536)):
+                                                           or len(self.source_fingerprint) > 65536)
+                or self.media_policy_fingerprint is not None and (
+                    not isinstance(self.media_policy_fingerprint, str)
+                    or re.fullmatch(r"[0-9a-f]{64}", self.media_policy_fingerprint) is None)):
             raise ProviderError("invalid_provider_result")
 
 
