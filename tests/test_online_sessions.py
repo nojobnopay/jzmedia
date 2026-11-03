@@ -510,3 +510,32 @@ def test_prefetch_limits_are_finite_and_bounded(field, value):
 
 def test_zero_prefetch_window_disables_only_speculative_downloads():
     assert SessionLimits(prefetch_seconds=0).prefetch_seconds == 0
+
+
+def test_touch_refreshes_idle_without_taking_or_cancelling_upstream_slots(registry, clock):
+    session = create(registry)
+    background = [registry.acquire(session, 10, background=True) for _ in range(2)]
+    clock.now += 1
+    before = registry.stats()
+    registry.touch(session)
+    assert session.last_activity == clock.now
+    assert registry.stats() == before
+    assert all(not lease.cancelled.is_set() for lease in background)
+    for lease in background:
+        lease.close()
+    clock.now += 9  # Past the original idle deadline, within the refreshed one.
+    registry.check(session)
+
+
+def test_touch_does_not_extend_hard_expiry_or_revive_closed_sessions(registry, clock):
+    session = create(registry)
+    deadline = session.expires_monotonic
+    clock.now += 9
+    registry.touch(session)
+    clock.now += 9
+    registry.touch(session)
+    assert session.expires_monotonic == deadline
+    clock.now = deadline
+    with pytest.raises(SessionError, match="^session_closed$"):
+        registry.touch(session)
+    assert session.cancelled.is_set() and registry.stats()["sessions"] == 0

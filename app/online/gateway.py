@@ -3,7 +3,7 @@
 The upstream context manager, private-log ContextVars and socket I/O all stay
 on one worker. Passthrough uses a two-chunk backpressure queue and holds its
 lease until both sides finish. Cached HLS downloads own upstream byte leases;
-each cache delivery separately holds a zero-byte lease while sending.
+complete-cache delivery holds its bounded cache ticket while sending.
 """
 
 import asyncio
@@ -316,8 +316,9 @@ async def _foreground(request, registry, session, acquire, *, deadline):
 
 
 class _CachedResponse(StreamingResponse):
-    def __init__(self, cache, ticket, lease, data, *, selected=None, restricted=False):
-        self.cache, self.ticket, self.lease = cache, ticket, lease
+    def __init__(self, cache, ticket, registry, session, data, *, deadline, selected=None, restricted=False):
+        self.cache, self.ticket = cache, ticket
+        self.registry, self.session, self.deadline = registry, session, deadline
         self._released = False
         start, end = 0, len(data.body)
         status, headers = data.status, dict(data.headers)
@@ -334,7 +335,9 @@ class _CachedResponse(StreamingResponse):
         async def chunks():
             try:
                 for position in range(start, end, CHUNK_BYTES):
-                    lease.check()
+                    registry.check(session)
+                    if time.monotonic() >= deadline:
+                        raise GatewayError("request_timeout", 504)
                     yield data.body[position:min(end, position + CHUNK_BYTES)]
             finally:
                 self.release()
@@ -344,7 +347,6 @@ class _CachedResponse(StreamingResponse):
     def release(self):
         if not self._released:
             self._released = True
-            self.lease.close()
             self.cache.release(self.ticket)
 
     async def __call__(self, scope, receive, send):
@@ -360,10 +362,10 @@ class _CachedResponse(StreamingResponse):
 async def _cached_response(request, registry, session, resource, selected, *, deadline):
     cache = _media_cache(registry)
     ticket = None
-    lease = None
     try:
         ticket = await _foreground(request, registry, session, lambda: cache.demand(session, resource),
                                    deadline=deadline)
+        registry.touch(session)
         future = ticket.future
         while not future.done():
             registry.check(session)
@@ -373,18 +375,16 @@ async def _cached_response(request, registry, session, resource, selected, *, de
                 raise GatewayError("request_cancelled", 410)
             await asyncio.sleep(.02)
         data = future.result()
+        registry.check(session)
         if time.monotonic() >= deadline:
             raise GatewayError("request_timeout", 504)
-        lease = await _foreground(request, registry, session,
-                                  lambda: registry.acquire(session, 0, kind=resource.kind), deadline=deadline)
         # Download and cached delivery share this HTTP request's absolute
         # deadline; completing the download must not restart the 45s budget.
-        lease.deadline = min(lease.deadline, deadline)
-        return _CachedResponse(cache, ticket, lease, data, selected=selected,
+        # The ticket already bounds delivery waiters and pins their payload;
+        # taking another upstream lease here would cancel useful lookahead.
+        return _CachedResponse(cache, ticket, registry, session, data, deadline=deadline, selected=selected,
                                restricted=resource.byte_range is not None)
     except BaseException:
-        if lease is not None:
-            lease.close()
         if ticket is not None:
             cache.release(ticket)
         raise

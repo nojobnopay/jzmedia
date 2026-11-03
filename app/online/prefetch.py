@@ -364,5 +364,6 @@ class CacheStore:
                     "download_seconds": round(self._download_seconds, 6),
                     "failures": self._failures, "cancelled": self._cancelled,
                     "entries": len(self._entries),
+                    "waiters": sum(entry.waiters for entry in self._entries.values()),
                     "active": sum(not entry.future.done() for entry in self._entries.values()),
                     "timelines": len(self._timelines)}

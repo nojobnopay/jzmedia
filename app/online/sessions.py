@@ -317,6 +317,14 @@ class SessionRegistry:
             if not self._live_locked(session):
                 raise SessionError("session_closed")
 
+    def touch(self, session):
+        """Keep an admitted cached read alive without taking an upstream slot."""
+        self.check(session)
+        with self._lock:
+            if not self._live_locked(session):
+                raise SessionError("session_closed")
+            session.last_activity = self._clock()
+
     def sessions(self):
         """Return a bounded snapshot for application access/source rechecks."""
         self.sweep()
