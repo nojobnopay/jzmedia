@@ -39,6 +39,20 @@ class ManifestError(ValueError):
 
 
 @dataclass(frozen=True)
+class MediaSegment:
+    """One ordered media entry containing only registered session paths.
+
+    Gaps remain in the timeline so their duration is not lost; consumers must
+    skip downloading entries marked ``gap``.
+    """
+
+    path: str
+    duration: float
+    init_path: str | None = None
+    gap: bool = False
+
+
+@dataclass(frozen=True)
 class _Attribute:
     name: str
     value: str
@@ -366,18 +380,28 @@ def _plan(body, base_url):
     return result
 
 
-def rewrite_manifest(body: bytes, base_url: str, register) -> bytes:
+def rewrite_manifest(body: bytes, base_url: str, register, *, on_media=None) -> bytes:
     """Rewrite validated VOD references via ``register(url, kind=, byte_range=)``.
 
     ``byte_range`` is an inclusive ``(start, end)`` pair. The callback must return
     an opaque same-origin absolute path. It must enforce source target policy;
     this parser never opens sockets. On callback failure the gateway must roll
     back/revoke the session's partially registered references.
+
+    After all references and the complete output pass validation, ``on_media``
+    may receive an ordered tuple of ``MediaSegment`` entries. Master and
+    I-frame-only playlists do not publish a media timeline. Registration alone
+    must not start prefetch work: later references can still fail validation.
     """
     plan = _plan(body, base_url)
     if not callable(register):
         raise ManifestError("invalid_hls_registrar")
+    if on_media is not None and not callable(on_media):
+        raise ManifestError("invalid_hls_media_callback")
     lines, total = [], 0
+    segments = []
+    duration, init_path, gap = 0.0, None, False
+    collect_media = on_media is not None and "#EXT-X-I-FRAMES-ONLY" not in plan
 
     def path(reference):
         result = register(reference.url, kind=reference.kind, byte_range=reference.byte_range)
@@ -389,12 +413,23 @@ def rewrite_manifest(body: bytes, base_url: str, register) -> bytes:
     for node in plan:
         if isinstance(node, str):
             line = node
+            if collect_media:
+                if node.startswith("#EXTINF:"):
+                    duration = float(node.removeprefix("#EXTINF:").partition(",")[0])
+                elif node == "#EXT-X-GAP":
+                    gap = True
         elif isinstance(node, _Reference):
             line = path(node)
+            if collect_media and node.kind == "segment":
+                segments.append(MediaSegment(line, duration, init_path, gap))
+                gap = False
         else:
             attributes = node.attributes
             if node.reference is not None:
-                attributes = _replace(attributes, "URI", path(node.reference))
+                reference_path = path(node.reference)
+                attributes = _replace(attributes, "URI", reference_path)
+                if collect_media and node.tag == "#EXT-X-MAP":
+                    init_path = reference_path
             line = node.tag + ":" + ",".join(
                 f'{item.name}="{item.value}"' if item.quoted else f"{item.name}={item.value}"
                 for item in attributes)
@@ -402,4 +437,7 @@ def rewrite_manifest(body: bytes, base_url: str, register) -> bytes:
         if total > OUTPUT_BYTES:
             raise ManifestError("hls_output_size_limit")
         lines.append(line)
-    return ("\n".join(lines) + "\n").encode("utf-8")
+    rewritten = ("\n".join(lines) + "\n").encode("utf-8")
+    if collect_media and segments:
+        on_media(tuple(segments))
+    return rewritten

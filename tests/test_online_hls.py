@@ -251,3 +251,120 @@ def test_registrar_policy_failure_is_preserved_for_gateway_revocation():
 
     with pytest.raises(RejectedTarget, match="^fixed_target_error$"):
         hls.rewrite_manifest(media("#EXTINF:6,", "one.ts"), BASE, reject)
+
+
+def test_media_callback_publishes_ordered_session_paths_only_after_all_registration():
+    registrar = Registrar()
+    published = []
+
+    def on_media(segments):
+        assert len(registrar.calls) == 3
+        assert isinstance(segments, tuple)
+        published.append(segments)
+
+    body = media("#EXTINF:5.125,title", "third.ts", "#EXT-X-DISCONTINUITY",
+                 "#EXTINF:1.75,", "first.ts", "#EXTINF:2,", "second.ts")
+    output = hls.rewrite_manifest(body, BASE, registrar, on_media=on_media)
+    prefix = "/api/online/sessions/opaque-session/resources/"
+    assert published == [(hls.MediaSegment(prefix + "r1", 5.125),
+                          hls.MediaSegment(prefix + "r2", 1.75),
+                          hls.MediaSegment(prefix + "r3", 2.0))]
+    assert output == hls.rewrite_manifest(body, BASE, Registrar())
+
+
+def test_media_callback_keeps_repeated_resource_entries_in_play_order():
+    segments = []
+    output = hls.rewrite_manifest(
+        media("#EXTINF:6,", "same.ts", "#EXTINF:1.5,", "same.ts"), BASE,
+        lambda *_args, **_kwargs: "/api/online/sessions/opaque-session/resources/repeated",
+        on_media=segments.append,
+    )
+    assert len(segments) == 1 and len(segments[0]) == 2
+    assert segments[0][0].path == segments[0][1].path
+    assert [segment.duration for segment in segments[0]] == [6.0, 1.5]
+    assert output.count(segments[0][0].path.encode()) == 2
+
+
+def test_media_callback_tracks_map_switches_and_explicit_byte_range_resources():
+    registrar = Registrar()
+    published = []
+    hls.rewrite_manifest(media(
+        "#EXTINF:1,", "first.ts",
+        '#EXT-X-MAP:URI="all.mp4",BYTERANGE="10@0"',
+        "#EXTINF:6,", "#EXT-X-BYTERANGE:100@10", "all.mp4",
+        "#EXTINF:2.25,", "#EXT-X-BYTERANGE:50", "all.mp4",
+        '#EXT-X-MAP:URI="all.mp4",BYTERANGE="5"',
+        "#EXTINF:3,", "#EXT-X-BYTERANGE:40", "all.mp4",
+    ), BASE, registrar, on_media=published.append)
+    prefix = "/api/online/sessions/opaque-session/resources/"
+    assert published == [(hls.MediaSegment(prefix + "r1", 1.0),
+                          hls.MediaSegment(prefix + "r3", 6.0, prefix + "r2"),
+                          hls.MediaSegment(prefix + "r4", 2.25, prefix + "r2"),
+                          hls.MediaSegment(prefix + "r6", 3.0, prefix + "r5"))]
+    assert [call[1:] for call in registrar.calls] == [
+        ("segment", None), ("map", (0, 9)), ("segment", (10, 109)),
+        ("segment", (110, 159)), ("map", (10, 14)), ("segment", (160, 199)),
+    ]
+
+
+@pytest.mark.parametrize("gap_before_duration", [False, True])
+def test_media_callback_marks_gaps_without_losing_duration_or_following_segments(gap_before_duration):
+    published = []
+    gap_lines = (["#EXT-X-GAP", "#EXTINF:2.5,"] if gap_before_duration
+                 else ["#EXTINF:2.5,", "#EXT-X-GAP"])
+    hls.rewrite_manifest(media(
+        "#EXTINF:6,", "first.ts", *gap_lines, "missing.ts", "#EXTINF:4,", "last.ts",
+    ), BASE, Registrar(), on_media=published.append)
+    assert [segment.gap for segment in published[0]] == [False, True, False]
+    assert [segment.duration for segment in published[0]] == [6.0, 2.5, 4.0]
+    assert sum(segment.duration for segment in published[0]) == 12.5
+
+
+@pytest.mark.parametrize("body", [
+    b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=100\nvideo.m3u8\n",
+    b'#EXTM3U\n#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=100,URI="iframe.m3u8"\n',
+    media("#EXT-X-I-FRAMES-ONLY", "#EXTINF:6,", "#EXT-X-BYTERANGE:100@0", "iframe.mp4"),
+])
+def test_master_and_iframe_playlists_never_publish_prefetch_timeline(body):
+    published = []
+    output = hls.rewrite_manifest(body, BASE, Registrar(), on_media=published.append)
+    assert isinstance(output, bytes)
+    assert published == []
+
+
+def test_invalid_manifest_never_registers_or_publishes_partial_timeline():
+    registrar = Registrar()
+    published = []
+    with pytest.raises(hls.ManifestError):
+        hls.rewrite_manifest(media("#EXTINF:6,", "safe.ts", "#EXTINF:NaN,", "invalid.ts"),
+                             BASE, registrar, on_media=published.append)
+    assert registrar.calls == [] and published == []
+
+
+@pytest.mark.parametrize("failure", ["policy", "path", "output"])
+def test_late_rewrite_failure_never_publishes_partial_timeline(failure, monkeypatch):
+    registrar = Registrar()
+    published = []
+
+    def register(url, **kwargs):
+        result = registrar(url, **kwargs)
+        if len(registrar.calls) == 2:
+            if failure == "policy":
+                raise RuntimeError("fixed_target_error")
+            if failure == "path":
+                return "https://invalid.example/resource"
+        return result
+
+    if failure == "output":
+        monkeypatch.setattr(hls, "OUTPUT_BYTES", 150)
+    with pytest.raises((hls.ManifestError, RuntimeError)):
+        hls.rewrite_manifest(media("#EXTINF:6,", "first.ts", "#EXTINF:3,", "second.ts"),
+                             BASE, register, on_media=published.append)
+    assert len(registrar.calls) == 2 and published == []
+
+
+def test_invalid_media_callback_is_rejected_before_registration():
+    registrar = Registrar()
+    with pytest.raises(hls.ManifestError, match="^invalid_hls_media_callback$"):
+        hls.rewrite_manifest(media("#EXTINF:6,", "one.ts"), BASE, registrar, on_media=True)
+    assert registrar.calls == []

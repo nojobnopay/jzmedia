@@ -1,8 +1,9 @@
-"""Bounded byte passthrough with one worker owning each upstream lifecycle.
+"""Bounded online delivery with complete HLS caching and streaming fallback.
 
 The upstream context manager, private-log ContextVars and socket I/O all stay
-on one worker. A two-chunk queue applies downstream backpressure; registry
-leases limit the number of workers and remain held until both sides finish.
+on one worker. Passthrough uses a two-chunk backpressure queue and holds its
+lease until both sides finish. Cached HLS downloads own upstream byte leases;
+each cache delivery separately holds a zero-byte lease while sending.
 """
 
 import asyncio
@@ -11,6 +12,7 @@ from contextvars import copy_context
 from dataclasses import dataclass
 import re
 import threading
+import time
 
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
@@ -18,6 +20,7 @@ from ..network.client import NetworkRequestError
 from ..network.guard import NetworkOperation, NetworkOperationError
 from . import health
 from .hls import ManifestError, rewrite_manifest
+from .prefetch import CacheStore, CacheUnavailable, CachedSegment
 from .sessions import CHUNK_BYTES, SessionError
 
 
@@ -211,6 +214,132 @@ def _submit(worker):
         _executor.submit(context.run, worker)
 
 
+def _fetch_segment(session, resource, lease):
+    """Read one complete validated segment; the cache owns the upstream lease."""
+    operation = NetworkOperation(lease.deadline, lease.cancelled, attach=lease.attach)
+    observation = health.begin_media(session.client, "bytes")
+    cap = lease._registry.response_limit(resource.kind)
+    selected = requested_range(None, cap, resource.byte_range)
+    headers = {"Range": selected.header} if selected is not None else {}
+    try:
+        with session.client.guarded_stream("GET", resource.url, operation=operation, headers=headers) as response:
+            status, safe_headers, length = _metadata(response, resource, selected, cap, "GET")
+            lease._registry._media_cache.set_length(session, resource, lease, length)
+            body = bytearray()
+            for chunk in response.iter_raw():
+                lease.consume(len(chunk))
+                body.extend(chunk)
+                if len(body) > length:
+                    raise GatewayError("upstream_length_mismatch")
+            if len(body) != length:
+                raise GatewayError("upstream_length_mismatch")
+            lease.check()
+            result = CachedSegment(status, safe_headers, bytes(body))
+        health.finish_observation(observation)
+        return result
+    except Exception as error:
+        health.finish_observation(observation, error)
+        raise _failure(error) from None
+    finally:
+        operation.close()
+
+
+def _media_cache(registry):
+    return registry.cached_media(lambda: CacheStore(registry, _fetch_segment, _submit))
+
+
+async def _foreground(request, registry, session, acquire):
+    """Let cancelled speculative workers drain before taking their slots."""
+    deadline = time.monotonic() + min(2.0, registry.limits.request_seconds)
+    while True:
+        registry.check(session)
+        if await request.is_disconnected():
+            raise GatewayError("request_cancelled", 410)
+        try:
+            return acquire()
+        except SessionError as error:
+            if error.category != "prefetch_busy":
+                raise
+            if time.monotonic() >= deadline:
+                raise SessionError("request_limit") from None
+            await asyncio.sleep(.02)
+
+
+class _CachedResponse(StreamingResponse):
+    def __init__(self, cache, ticket, lease, data, *, selected=None, restricted=False):
+        self.cache, self.ticket, self.lease = cache, ticket, lease
+        self._released = False
+        start, end = 0, len(data.body)
+        status, headers = data.status, dict(data.headers)
+        if selected is not None and not restricted:
+            total = len(data.body)
+            start = max(0, total - selected.end) if selected.start is None else selected.start
+            end = total if selected.start is None else min(total, selected.end + 1)
+            if start >= total:
+                raise GatewayError("range_not_satisfiable", 416, {"Content-Range": f"bytes */{total}"})
+            status = 206
+            headers["Content-Range"] = f"bytes {start}-{end - 1}/{total}"
+            headers["Content-Length"] = str(end - start)
+
+        async def chunks():
+            try:
+                for position in range(start, end, CHUNK_BYTES):
+                    lease.check()
+                    yield data.body[position:min(end, position + CHUNK_BYTES)]
+            finally:
+                self.release()
+
+        super().__init__(chunks(), status_code=status, headers=headers)
+
+    def release(self):
+        if not self._released:
+            self._released = True
+            self.lease.close()
+            self.cache.release(self.ticket)
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            try:
+                await self.body_iterator.aclose()
+            finally:
+                self.release()
+
+
+async def _cached_response(request, registry, session, resource, selected):
+    cache = _media_cache(registry)
+    ticket = None
+    lease = None
+    deadline = time.monotonic() + registry.limits.request_seconds
+    try:
+        ticket = await _foreground(request, registry, session, lambda: cache.demand(session, resource))
+        future = ticket.future
+        while not future.done():
+            registry.check(session)
+            if time.monotonic() >= deadline:
+                raise GatewayError("request_timeout", 504)
+            if await request.is_disconnected():
+                raise GatewayError("request_cancelled", 410)
+            await asyncio.sleep(.02)
+        data = future.result()
+        if time.monotonic() >= deadline:
+            raise GatewayError("request_timeout", 504)
+        lease = await _foreground(request, registry, session,
+                                  lambda: registry.acquire(session, 0, kind=resource.kind))
+        # Download and cached delivery share this HTTP request's absolute
+        # deadline; completing the download must not restart the 45s budget.
+        lease.deadline = min(lease.deadline, deadline)
+        return _CachedResponse(cache, ticket, lease, data, selected=selected,
+                               restricted=resource.byte_range is not None)
+    except BaseException:
+        if lease is not None:
+            lease.close()
+        if ticket is not None:
+            cache.release(ticket)
+        raise
+
+
 class _Transfer:
     def __init__(self, registry, session, resource, method, headers, selected, lease):
         self.registry, self.session, self.resource = registry, session, resource
@@ -304,7 +433,9 @@ class _Transfer:
                         return self.registry.register(self.session, url, kind, byte_range=byte_range).path(self.session.id)
 
                     try:
-                        body = rewrite_manifest(bytes(content), str(response.url), register)
+                        body = rewrite_manifest(bytes(content), str(response.url), register,
+                                                on_media=lambda segments: _media_cache(self.registry).remember(
+                                                    self.session, self.resource.id, segments))
                     except Exception:
                         # A later URI may fail target or resource validation
                         # after earlier references were registered. Revoke the
@@ -417,10 +548,24 @@ async def stream_response(request, registry, session, resource):
                 raise GatewayError("invalid_if_range", 416)
             if not manifest:
                 headers["If-Range"] = value
+        if request.method == "GET" and resource.kind in {"segment", "map"} and "if-range" not in request.headers:
+            try:
+                return await _cached_response(request, registry, session, resource, selected)
+            except CacheUnavailable:
+                # Cache pressure never makes an otherwise streamable resource
+                # fail. Preserve the bounded passthrough path as a fallback.
+                pass
+            except GatewayError as error:
+                # A small valid Range can address a segment larger than the
+                # whole-segment cache/download cap. Preserve that Range path.
+                if (error.category != "response_byte_limit" or selected is None
+                        or resource.byte_range is not None):
+                    raise
         # Unknown manifest lengths may need one final raw chunk to detect an
         # overrun. Reserve and charge it too; it is never sent or parsed.
         reserve = cap + CHUNK_BYTES if resource.kind == "manifest" else cap
-        lease = registry.acquire(session, 0 if request.method == "HEAD" else reserve, kind=resource.kind)
+        lease = await _foreground(request, registry, session, lambda: registry.acquire(
+            session, 0 if request.method == "HEAD" else reserve, kind=resource.kind))
         transfer = _Transfer(registry, session, resource, request.method, headers, selected, lease)
         try:
             _submit(transfer.run)

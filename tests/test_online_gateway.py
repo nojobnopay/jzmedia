@@ -175,6 +175,7 @@ def upstream():
 @pytest.fixture
 def bridge(source, upstream):
     limits = SessionLimits(ttl_seconds=60, idle_seconds=30, request_seconds=3,
+                           prefetch_seconds=0,
                            max_session_bytes=1024**2, max_reserved_bytes=512 * 1024,
                            max_mp4_response_bytes=32, max_segment_response_bytes=32,
                            max_manifest_bytes=2048, max_subtitle_bytes=2048)

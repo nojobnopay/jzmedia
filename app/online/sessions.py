@@ -51,10 +51,17 @@ class SessionLimits:
     max_resources: int = 4096
     max_global_resources: int = 16384
     max_resource_url_bytes: int = 16 * 1024**2
+    prefetch_seconds: float = 90.0
+    prefetch_max_segments: int = 24
+    prefetch_session_bytes: int = 64 * 1024**2
+    prefetch_global_bytes: int = 128 * 1024**2
+    prefetch_max_entries: int = 256
 
     def __post_init__(self):
         for definition in fields(self):
             value = getattr(self, definition.name)
+            if definition.name == "prefetch_seconds" and type(value) in {int, float} and value == 0:
+                continue
             valid = (type(value) in {int, float} and math.isfinite(value) and value > 0
                      if definition.name.endswith("seconds") else type(value) is int and value > 0)
             if not valid:
@@ -133,10 +140,11 @@ class Lease:
     forgets interruption hooks without invoking them, preserving keepalive.
     """
 
-    def __init__(self, registry, session, reserved, deadline):
+    def __init__(self, registry, session, reserved, deadline, *, background=False):
         self._registry, self.session = registry, session
         self.reserved_bytes, self.consumed_bytes = reserved, 0
         self.deadline = deadline
+        self.background = background
         self.cancelled = threading.Event()
         self._callbacks = {}
         self._closed = False
@@ -202,6 +210,14 @@ class SessionRegistry:
         self._cancelled_pending = set()
         self._source_active = Counter()
         self._reserved = self._resource_count = self._resource_bytes = self._consumed = 0
+        self._media_cache = None
+
+    def cached_media(self, factory):
+        """Lazily attach one bounded cache, without starting I/O under the lock."""
+        with self._lock:
+            if self._media_cache is None:
+                self._media_cache = factory()
+            return self._media_cache
 
     def response_limit(self, kind):
         return self.limits.response_limit(kind)
@@ -348,7 +364,7 @@ class SessionRegistry:
                 raise SessionError("resource_not_found")
             return resource
 
-    def acquire(self, session, reserve_bytes, *, kind=None):
+    def acquire(self, session, reserve_bytes, *, kind=None, background=False):
         maximum = self.response_limit(kind) if kind is not None else max(
             self.limits.max_mp4_response_bytes, self.limits.max_segment_response_bytes,
             self.limits.max_manifest_bytes, self.limits.max_subtitle_bytes)
@@ -360,25 +376,57 @@ class SessionRegistry:
         if type(reserve_bytes) is not int or not 0 <= reserve_bytes <= maximum:
             raise SessionError("response_byte_limit")
         self.check(session)
+        callbacks = []
+        failure = None
         with self._lock:
             if not self._live_locked(session):
                 raise SessionError("session_closed")
-            if (len(self._leases) >= self.limits.max_active
-                    or self._source_active[session.source_id] >= self.limits.max_source_active
-                    or len(session._leases) >= self.limits.max_session_active):
-                raise SessionError("request_limit")
-            if (session.bytes_consumed + session.bytes_reserved + reserve_bytes > self.limits.max_session_bytes
-                    or self._reserved + reserve_bytes > self.limits.max_reserved_bytes):
-                raise SessionError("byte_budget_exhausted")
-            now = self._clock()
-            lease = Lease(self, session, reserve_bytes, min(now + self.limits.request_seconds,
-                                                           session.expires_monotonic))
-            self._leases[id(lease)] = session._leases[id(lease)] = lease
-            self._source_active[session.source_id] += 1
-            self._reserved += reserve_bytes
-            session.bytes_reserved += reserve_bytes
-            session.last_activity = now
-            return lease
+            session_full = len(session._leases) >= self.limits.max_session_active
+            source_full = self._source_active[session.source_id] >= self.limits.max_source_active
+            global_full = len(self._leases) >= self.limits.max_active
+            session_budget = session.bytes_consumed + session.bytes_reserved + reserve_bytes > self.limits.max_session_bytes
+            global_budget = self._reserved + reserve_bytes > self.limits.max_reserved_bytes
+            if session_full or source_full or global_full or session_budget or global_budget:
+                failure = "byte_budget_exhausted" if session_budget or global_budget else "request_limit"
+                if not background:
+                    # Preemption interrupts I/O but never releases its slot early.
+                    # The asynchronous caller retries only this transient case.
+                    for active in self._leases.values():
+                        relevant = ((session_full or session_budget) and active.session is session
+                                    or source_full and active.session.source_id == session.source_id
+                                    or global_full or global_budget)
+                        if active.background and relevant:
+                            callbacks.extend(self._abort_locked(active, "request_cancelled"))
+                            failure = "prefetch_busy"
+            elif background and (
+                    len(self._leases) >= max(0, self.limits.max_active - 1)
+                    or self._source_active[session.source_id] >= max(0, self.limits.max_source_active - 1)
+                    or any(active.background and active.cancelled.is_set() for active in self._leases.values())):
+                # Keep capacity for demand on another session/source. While a
+                # preemption drains, speculative jobs cannot reclaim the slot.
+                failure = "request_limit"
+            if failure is not None:
+                lease = None
+            else:
+                now = self._clock()
+                lease = Lease(self, session, reserve_bytes, min(now + self.limits.request_seconds,
+                                                               session.expires_monotonic), background=background)
+                self._leases[id(lease)] = session._leases[id(lease)] = lease
+                self._source_active[session.source_id] += 1
+                self._reserved += reserve_bytes
+                session.bytes_reserved += reserve_bytes
+                session.last_activity = now
+        _run_callbacks(callbacks)
+        if failure is not None:
+            raise SessionError(failure)
+        return lease
+
+    def promote(self, lease):
+        self.check_lease(lease)
+        with self._lock:
+            if lease._closed or lease.cancelled.is_set():
+                raise SessionError(lease._reason)
+            lease.background = False
 
     def check_lease(self, lease):
         self.sweep()
@@ -466,6 +514,8 @@ class SessionRegistry:
         self._resource_bytes -= sum(len(r.url.encode("utf-8")) for r in session._resources.values())
         session._resources.clear()
         session._resource_keys.clear()
+        if self._media_cache is not None:
+            callbacks.append(lambda: self._media_cache.close_session(session))
         self._clients.discard(id(session.client))
         callbacks.append(session.client.close)
         return callbacks

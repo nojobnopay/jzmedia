@@ -430,3 +430,83 @@ def test_cleanup_continues_after_a_broken_interrupt_callback(registry):
 def test_limits_require_finite_positive_values(field, value):
     with pytest.raises(SessionError, match="^invalid_session_limits$"):
         SessionLimits(**{field: value})
+
+
+def test_foreground_preempts_background_without_releasing_its_worker_slot(registry):
+    session = create(registry)
+    first = registry.acquire(session, 10, background=True)
+    second = registry.acquire(session, 10, background=True)
+    interrupted = []
+    first.attach(lambda: interrupted.append("first"))
+    second.attach(lambda: interrupted.append("second"))
+    with pytest.raises(SessionError, match="^prefetch_busy$"):
+        registry.acquire(session, 10)
+    assert interrupted == ["first", "second"]
+    assert registry.stats()["active_requests"] == 2
+    assert registry.stats()["reserved_bytes"] == 20
+    with pytest.raises(SessionError, match="^request_limit$"):
+        registry.acquire(session, 10, background=True)
+    first.close()
+    second.close()
+    with registry.acquire(session, 10) as demanded:
+        assert not demanded.background
+        assert registry.stats()["active_requests"] == 1
+
+
+def test_demand_promotes_shared_prefetch_and_preserves_its_io(registry):
+    session = create(registry)
+    shared = registry.acquire(session, 10, background=True)
+    speculative = registry.acquire(session, 10, background=True)
+    registry.promote(shared)
+    with pytest.raises(SessionError, match="^prefetch_busy$"):
+        registry.acquire(session, 0)
+    assert not shared.cancelled.is_set()
+    assert speculative.cancelled.is_set()
+    speculative.close()
+    with registry.acquire(session, 0):
+        shared.check()
+    shared.close()
+
+
+@pytest.mark.parametrize("field", ["max_active", "max_source_active"])
+def test_background_leaves_aggregate_capacity_for_other_foreground_sessions(clock, limits, field):
+    registry = SessionRegistry(replace(limits, **{field: 2}), clock=clock)
+    first = create(registry)
+    second = create(registry, owner=OTHER_OWNER)
+    try:
+        background = registry.acquire(first, 10, background=True)
+        with pytest.raises(SessionError, match="^request_limit$"):
+            registry.acquire(first, 10, background=True)
+        with registry.acquire(second, 10):
+            assert not background.cancelled.is_set()
+        background.close()
+    finally:
+        registry.close_all()
+
+
+def test_session_close_clears_attached_cache_outside_registry_lock(registry):
+    session = create(registry)
+    closed = []
+
+    def close_session(current):
+        closed.append((current.id, registry.stats()["sessions"]))
+
+    cache = SimpleNamespace(close_session=close_session)
+    assert registry.cached_media(lambda: cache) is cache
+    assert registry.cached_media(lambda: pytest.fail("cache initialized twice")) is cache
+    registry.close(session.id, OWNER)
+    registry.close_all()
+    assert closed == [(session.id, 0)]
+
+
+@pytest.mark.parametrize("field,value", [("prefetch_seconds", -1), ("prefetch_seconds", True),
+                                       ("prefetch_seconds", float("nan")),
+                                       ("prefetch_session_bytes", 0), ("prefetch_global_bytes", False),
+                                       ("prefetch_max_segments", 1.5), ("prefetch_max_entries", -1)])
+def test_prefetch_limits_are_finite_and_bounded(field, value):
+    with pytest.raises(SessionError, match="^invalid_session_limits$"):
+        SessionLimits(**{field: value})
+
+
+def test_zero_prefetch_window_disables_only_speculative_downloads():
+    assert SessionLimits(prefetch_seconds=0).prefetch_seconds == 0

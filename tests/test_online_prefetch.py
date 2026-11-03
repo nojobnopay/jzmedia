@@ -1,0 +1,608 @@
+"""Real, isolated HLS origin reads exercise the two-reader prefetch cache."""
+
+import asyncio
+from dataclasses import replace
+from http.server import BaseHTTPRequestHandler
+import re
+import threading
+import time
+from types import SimpleNamespace
+from urllib.parse import urlsplit
+
+from fastapi import FastAPI, Request
+from fastapi.testclient import TestClient
+import pytest
+from starlette.requests import ClientDisconnect
+
+from app.network.client import create_client
+from app.network.policy import resolve_online_policy
+from app.online import gateway
+from app.online.models import OnlinePlaybackIdentity
+from app.online.sessions import SessionError, SessionLimits, SessionRegistry
+from test_network_transport import LoopbackPolicy, logical_url, running_server
+
+
+pytest_plugins = ["test_network_transport"]
+OWNER = "prefetch-owner-fixture"
+SEGMENTS = [bytes([index]) * 2048 for index in range(10)]
+RANGE_BODY = bytes(range(64))
+
+
+def wait_until(predicate, timeout=2):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(.01)
+    return predicate()
+
+
+@pytest.fixture
+def prefetch_origin():
+    records, gates, truncated, threads = [], {}, set(), []
+    stopping = threading.Event()
+    lock = threading.Lock()
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(3)
+
+        def log_message(self, *_args):
+            pass
+
+        def do_HEAD(self):
+            self.respond(True)
+
+        def do_GET(self):
+            self.respond(False)
+
+        def respond(self, head):
+            path = urlsplit(self.path).path
+            with lock:
+                records.append({"path": path, "method": self.command,
+                                "range": self.headers.get("Range"),
+                                "if_range": self.headers.get("If-Range")})
+            if path == "/vod.m3u8":
+                lines = ["#EXTM3U", "#EXT-X-TARGETDURATION:4"]
+                for index in range(len(SEGMENTS)):
+                    lines.extend(["#EXTINF:4,", f"segments/{index}.ts?signature=fixture-secret"])
+                body = ("\n".join([*lines, "#EXT-X-ENDLIST"]) + "\n").encode()
+                mime = "application/vnd.apple.mpegurl"
+            elif path == "/ranges.m3u8":
+                body = (b'#EXTM3U\n#EXT-X-TARGETDURATION:4\n'
+                        b'#EXT-X-MAP:URI="asset.bin",BYTERANGE="4@0"\n'
+                        b'#EXTINF:4,\n#EXT-X-BYTERANGE:8@4\nasset.bin\n'
+                        b'#EXTINF:4,\n#EXT-X-BYTERANGE:8\nasset.bin\n#EXT-X-ENDLIST\n')
+                mime = "application/vnd.apple.mpegurl"
+            elif path == "/asset.bin":
+                body, mime = RANGE_BODY, "application/octet-stream"
+            else:
+                match = re.fullmatch(r"/segments/([0-9]+)\.ts", path)
+                if not match or int(match[1]) >= len(SEGMENTS):
+                    self.send_error(404)
+                    return
+                body, mime = SEGMENTS[int(match[1])], "video/mp2t"
+            status, extra = 200, {}
+            raw_range = self.headers.get("Range")
+            if raw_range:
+                first, last = raw_range.removeprefix("bytes=").split("-", 1)
+                start, end = int(first), min(int(last), len(body) - 1)
+                total = len(body)
+                body = body[start:end + 1]
+                status, extra = 206, {"Content-Range": f"bytes {start}-{end}/{total}"}
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("ETag", '"prefetch-fixture-v1"')
+                for name, value in extra.items():
+                    self.send_header(name, value)
+                self.end_headers()
+                if head:
+                    return
+                gate = gates.get(path)
+                if gate is not None:
+                    while not gate.wait(.02):
+                        if stopping.is_set():
+                            return
+                if path in truncated:
+                    self.wfile.write(body[:7])
+                    self.wfile.flush()
+                    self.close_connection = True
+                    return
+                self.wfile.write(body)
+                self.wfile.flush()
+            except OSError:
+                self.close_connection = True
+
+    with running_server(Handler) as url:
+        try:
+            yield SimpleNamespace(url=url, records=records, gates=gates, truncated=truncated,
+                                  threads=threads)
+        finally:
+            stopping.set()
+            for gate in gates.values():
+                gate.set()
+            for thread in threads:
+                thread.join(timeout=3)
+            assert all(not thread.is_alive() for thread in threads)
+
+
+@pytest.fixture
+def prefetch_bridge(source, prefetch_origin):
+    registries = []
+    limits = SessionLimits(ttl_seconds=60, idle_seconds=30, request_seconds=4,
+                           max_segment_response_bytes=64 * 1024,
+                           max_manifest_bytes=8192, max_session_bytes=8 * 1024**2,
+                           max_reserved_bytes=2 * 1024**2, prefetch_seconds=8,
+                           prefetch_max_segments=2, prefetch_session_bytes=1024**2,
+                           prefetch_global_bytes=2 * 1024**2)
+
+    def make(path="/vod.m3u8", **changes):
+        registry = SessionRegistry(replace(limits, **changes))
+        registries.append(registry)
+        reader = create_client(resolve_online_policy(source, "media"),
+                               targets=LoopbackPolicy(source, ["127.0.0.1"]))
+        session = registry.create(OnlinePlaybackIdentity(source_id=source, item_id="itm_" + "e" * 32,
+                                                         kind="movie"), OWNER, reader,
+                                  prefetch_origin.url + path, "hls")
+        app = FastAPI()
+
+        async def relay(request, sid, rid=None):
+            try:
+                owner = request.headers.get("x-fixture-owner", OWNER)
+                current = registry.get(sid, owner)
+                resource = current.entry if rid is None else registry.resource(current, rid)
+                return await gateway.stream_response(request, registry, current, resource)
+            except SessionError as error:
+                return gateway.error_response(error)
+
+        @app.api_route("/api/online/sessions/{sid}/media", methods=["GET", "HEAD"])
+        async def media(request: Request, sid: str):
+            return await relay(request, sid)
+
+        @app.api_route("/api/online/sessions/{sid}/resources/{rid}", methods=["GET", "HEAD"])
+        async def resource(request: Request, sid: str, rid: str):
+            return await relay(request, sid, rid)
+
+        return SimpleNamespace(registry=registry, session=session, app=app,
+                               url=session.descriptor.media_url)
+
+    gateway.start_workers()
+    try:
+        yield make
+    finally:
+        for registry in registries:
+            registry.close_all()
+        for gate in prefetch_origin.gates.values():
+            gate.set()
+        drained = wait_until(lambda: all(registry.stats()["active_requests"] == 0 for registry in registries))
+        gateway.shutdown_workers()
+        assert drained, "prefetch workers must return all request slots and reservations"
+
+
+def playlist(client, harness):
+    response = client.get(harness.url)
+    assert response.status_code == 200, response.text
+    assert "fixture-secret" not in response.text
+    return re.findall(r"^(/api/online/sessions/[^\n]+)$", response.text, re.MULTILINE)
+
+
+def segment_reads(origin, index=None):
+    prefix = "/segments/" if index is None else f"/segments/{index}.ts"
+    return [row for row in origin.records if row["method"] == "GET" and row["path"].startswith(prefix)]
+
+
+def fetch_later(client, path, origin):
+    done, result = threading.Event(), {}
+
+    def run():
+        try:
+            result["response"] = client.get(path)
+        except BaseException as error:
+            result["error"] = error
+        finally:
+            done.set()
+
+    thread = threading.Thread(target=run, name="isolated-prefetch-client", daemon=True)
+    origin.threads.append(thread)
+    thread.start()
+    return done, result
+
+
+def assert_segment(result, index):
+    assert "error" not in result, result.get("error")
+    response = result["response"]
+    assert response.status_code == 200
+    assert response.content == SEGMENTS[index]
+
+
+def test_manifest_and_head_do_not_start_speculative_media_reads(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge()
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        assert not segment_reads(prefetch_origin)
+        before = harness.registry.stats()["consumed_bytes"]
+        response = client.head(paths[0])
+        assert response.status_code == 200 and response.content == b""
+        assert not segment_reads(prefetch_origin)
+        assert harness.registry.stats()["consumed_bytes"] == before
+
+
+def test_completed_segment_is_reused_without_second_origin_read_or_byte_charge(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge(prefetch_seconds=0)
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        first = client.get(paths[0])
+        charged = harness.registry.stats()["consumed_bytes"]
+        second = client.get(paths[0])
+        assert first.status_code == second.status_code == 200
+        assert first.content == second.content == SEGMENTS[0]
+        for name in ("content-type", "content-length", "etag"):
+            assert first.headers[name] == second.headers[name]
+        assert second.headers["cache-control"] == "no-store"
+        assert len(segment_reads(prefetch_origin, 0)) == 1
+        assert harness.registry.stats()["consumed_bytes"] == charged
+
+
+def test_simultaneous_demand_for_same_segment_joins_one_origin_read(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge(prefetch_seconds=0)
+    gate = prefetch_origin.gates["/segments/0.ts"] = threading.Event()
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        first_done, first = fetch_later(client, paths[0], prefetch_origin)
+        assert wait_until(lambda: len(segment_reads(prefetch_origin, 0)) == 1)
+        second_done, second = fetch_later(client, paths[0], prefetch_origin)
+        assert not first_done.wait(.05) and not second_done.is_set()
+        gate.set()
+        assert first_done.wait(2) and second_done.wait(2)
+        assert_segment(first, 0)
+        assert_segment(second, 0)
+        assert len(segment_reads(prefetch_origin, 0)) == 1
+
+
+def test_two_origin_reads_overlap_and_out_of_order_completion_keeps_correct_bytes(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge()
+    gate0 = prefetch_origin.gates["/segments/0.ts"] = threading.Event()
+    gate1 = prefetch_origin.gates["/segments/1.ts"] = threading.Event()
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        first_done, first = fetch_later(client, paths[0], prefetch_origin)
+        assert wait_until(lambda: len(segment_reads(prefetch_origin)) >= 2)
+        assert not first_done.is_set()
+        # The later piece may finish first; its body must never satisfy piece 0.
+        gate1.set()
+        second_done, second = fetch_later(client, paths[1], prefetch_origin)
+        assert second_done.wait(2)
+        assert_segment(second, 1)
+        assert not first_done.is_set()
+        gate0.set()
+        assert first_done.wait(2)
+        assert_segment(first, 0)
+        assert len(segment_reads(prefetch_origin, 1)) == 1
+
+
+def test_seek_replaces_blocked_lookahead_without_waiting_for_old_origin_reads(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge()
+    prefetch_origin.gates["/segments/1.ts"] = threading.Event()
+    prefetch_origin.gates["/segments/2.ts"] = threading.Event()
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        assert client.get(paths[0]).content == SEGMENTS[0]
+        assert wait_until(lambda: len(segment_reads(prefetch_origin, 1)) == 1)
+        done, result = fetch_later(client, paths[7], prefetch_origin)
+        assert done.wait(2), "seek demand must preempt obsolete blocked lookahead"
+        assert_segment(result, 7)
+        assert wait_until(lambda: any(row["path"] == "/segments/8.ts" for row in segment_reads(prefetch_origin)))
+        assert not segment_reads(prefetch_origin, 4), "seek must not download the gap sequentially"
+
+
+def test_background_failure_does_not_break_current_segment_or_poison_next_demand(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge()
+    prefetch_origin.truncated.add("/segments/1.ts")
+    with TestClient(harness.app, raise_server_exceptions=False) as client:
+        paths = playlist(client, harness)
+        assert client.get(paths[0]).content == SEGMENTS[0]
+        assert wait_until(lambda: len(segment_reads(prefetch_origin, 1)) >= 1)
+        assert wait_until(lambda: harness.registry.stats()["active_requests"] == 0)
+        prefetch_origin.truncated.clear()
+        recovered = client.get(paths[1])
+        assert recovered.status_code == 200 and recovered.content == SEGMENTS[1]
+        assert len(segment_reads(prefetch_origin, 1)) >= 2
+
+
+def test_fixed_byte_ranges_and_initialization_maps_keep_separate_cached_bodies(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge("/ranges.m3u8", prefetch_seconds=0)
+    with TestClient(harness.app) as client:
+        manifest = client.get(harness.url)
+        assert manifest.status_code == 200
+        paths = re.findall(r"/api/online/sessions/[A-Za-z0-9_/-]+", manifest.text)
+        assert len(paths) == 3
+        for path, (start, end) in zip(paths, [(0, 3), (4, 11), (12, 19)]):
+            first, cached = client.get(path), client.get(path)
+            assert first.status_code == cached.status_code == 206
+            assert first.content == cached.content == RANGE_BODY[start:end + 1]
+            assert cached.headers["content-range"] == f"bytes {start}-{end}/64"
+        reads = [row for row in prefetch_origin.records if row["path"] == "/asset.bin"]
+        assert [row["range"] for row in reads] == ["bytes=0-3", "bytes=4-11", "bytes=12-19"]
+        bad = client.get(paths[1], headers={"Range": "bytes=0-7"})
+        assert bad.status_code == 416
+        assert len([row for row in prefetch_origin.records if row["path"] == "/asset.bin"]) == 3
+
+
+def test_custom_range_and_if_range_bypass_full_resource_cache(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge(prefetch_seconds=0)
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        assert client.get(paths[0]).content == SEGMENTS[0]
+        ranged = client.get(paths[0], headers={"Range": "bytes=2-7", "If-Range": '"prefetch-fixture-v1"'})
+        assert ranged.status_code == 206 and ranged.content == SEGMENTS[0][2:8]
+        assert client.get(paths[0]).content == SEGMENTS[0]
+        reads = segment_reads(prefetch_origin, 0)
+        assert len(reads) == 2
+        assert reads[-1]["range"] == "bytes=2-7"
+        assert reads[-1]["if_range"] == '"prefetch-fixture-v1"'
+
+
+@pytest.mark.parametrize("requested,start,end", [("bytes=2-7", 2, 7), ("bytes=2040-", 2040, 2047),
+                                                  ("bytes=-8", 2040, 2047)])
+def test_normal_segment_ranges_are_sliced_from_complete_cached_bytes(prefetch_bridge, prefetch_origin,
+                                                                    requested, start, end):
+    harness = prefetch_bridge(prefetch_seconds=0)
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        assert client.get(paths[0]).content == SEGMENTS[0]
+        before = harness.registry.stats()["consumed_bytes"]
+        response = client.get(paths[0], headers={"Range": requested})
+        assert response.status_code == 206
+        assert response.content == SEGMENTS[0][start:end + 1]
+        assert response.headers["content-range"] == f"bytes {start}-{end}/2048"
+        assert int(response.headers["content-length"]) == end - start + 1
+        assert len(segment_reads(prefetch_origin, 0)) == 1
+        assert harness.registry.stats()["consumed_bytes"] == before
+
+
+def test_unsatisfied_cached_segment_range_reports_actual_length_without_origin_read(prefetch_bridge,
+                                                                                  prefetch_origin):
+    harness = prefetch_bridge(prefetch_seconds=0)
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        assert client.get(paths[0]).content == SEGMENTS[0]
+        response = client.get(paths[0], headers={"Range": "bytes=2048-2050"})
+        assert response.status_code == 416
+        assert response.headers["content-range"] == "bytes */2048"
+        assert len(segment_reads(prefetch_origin, 0)) == 1
+
+
+def test_small_range_remains_available_when_complete_segment_exceeds_response_cap(prefetch_bridge,
+                                                                                prefetch_origin):
+    harness = prefetch_bridge(prefetch_seconds=0, max_segment_response_bytes=1024)
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        response = client.get(paths[0], headers={"Range": "bytes=4-11"})
+        assert response.status_code == 206 and response.content == SEGMENTS[0][4:12]
+        assert response.headers["content-range"] == "bytes 4-11/2048"
+        assert client.get(paths[0]).status_code == 413
+        assert harness.registry._media_cache.stats()["entries"] == 0
+
+
+def test_cached_bytes_still_require_owner_and_live_session(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge(prefetch_seconds=0)
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        assert client.get(paths[0]).content == SEGMENTS[0]
+        stranger = client.get(paths[0], headers={"x-fixture-owner": "another-device"})
+        assert stranger.status_code == 404
+        harness.registry.close(harness.session.id, OWNER)
+        assert client.get(paths[0]).status_code == 404
+        assert len(segment_reads(prefetch_origin, 0)) == 1
+        assert harness.registry.stats()["active_requests"] == 0
+
+
+@pytest.mark.parametrize("revocation", ["source", "feature", "viewing_generation"])
+def test_production_routes_revoke_warm_cache_before_returning_media(source, prefetch_bridge,
+                                                                  prefetch_origin, monkeypatch, revocation):
+    from app.config import settings
+    from app.main import app
+    from app.online import providers, service
+    from app.store import online
+
+    monkeypatch.setattr(settings, "jzmedia_token", "")
+    online.update_online_source(source, {"enabled": True, "allowed_hosts": ["fixture.test"]})
+    online.update_online_settings(True)
+    item = online.upsert_online_item(source, "warm-cache-film", "movie", "Isolated cache film")
+    identity = {"source_id": source, "item_id": item["id"], "kind": "movie"}
+    registry = SessionRegistry(SessionLimits(prefetch_seconds=0))
+    monkeypatch.setattr(service, "registry", registry)
+    monkeypatch.setattr(providers, "resolve", lambda _identity: providers.ResolvedPlayback(
+        logical_url(prefetch_origin.url, "fixture.test") + "/vod.m3u8", "hls"))
+
+    def factory(source_id, purpose, *, header_policy=None):
+        return create_client(resolve_online_policy(source_id, purpose),
+                             targets=LoopbackPolicy(source_id, ["fixture.test"],
+                                                    resolver=lambda _host, _port: ("127.0.0.1",)),
+                             header_policy=header_policy)
+
+    monkeypatch.setattr(service, "create_online_client", factory)
+    # prefetch_bridge starts the real gateway pool without app/scanner lifespan.
+    client = TestClient(app)
+    try:
+        assert client.get("/api/viewing/session").status_code == 200
+        creation = client.post("/api/online/sessions", json=identity)
+        assert creation.status_code == 201, creation.text
+        manifest = client.get(creation.json()["media_url"])
+        assert manifest.status_code == 200
+        path = re.findall(r"^(/api/online/sessions/[^\n]+)$", manifest.text, re.MULTILINE)[0]
+        assert client.get(path).content == SEGMENTS[0]
+        assert client.get(path).content == SEGMENTS[0]
+        assert len(segment_reads(prefetch_origin, 0)) == 1
+        if revocation == "source":
+            changed = client.patch(f"/api/online/sources/{source}", json={"enabled": False})
+        elif revocation == "feature":
+            changed = client.patch("/api/online/settings", json={"enabled": False})
+        else:
+            changed = client.post("/api/viewing/lock")
+            service.sweep()
+        assert changed.status_code == 200, changed.text
+        rejected = client.get(path)
+        assert rejected.status_code in {401, 404, 410, 503}
+        assert rejected.content != SEGMENTS[0]
+        assert rejected.headers["cache-control"] == "no-store"
+        assert len(segment_reads(prefetch_origin, 0)) == 1
+        assert registry.stats()["sessions"] == 0
+    finally:
+        registry.close_all()
+        client.close()
+
+
+def test_closing_session_interrupts_blocked_prefetch_and_returns_reservations(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge()
+    prefetch_origin.gates["/segments/1.ts"] = threading.Event()
+    prefetch_origin.gates["/segments/2.ts"] = threading.Event()
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        assert client.get(paths[0]).content == SEGMENTS[0]
+        assert wait_until(lambda: harness.registry.stats()["active_requests"] > 0)
+        harness.registry.close(harness.session.id, OWNER)
+        assert wait_until(lambda: harness.registry.stats()["active_requests"] == 0)
+        assert harness.registry.stats()["reserved_bytes"] == 0
+        assert harness.registry.stats()["sessions"] == 0
+
+
+def asgi_scope(path):
+    return {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "method": "GET", "scheme": "http", "path": path, "raw_path": path.encode(),
+            "query_string": b"", "root_path": "", "headers": [],
+            "client": ("127.0.0.1", 12345), "server": ("testserver", 80), "http_version": "1.1"}
+
+
+def test_disconnect_while_waiting_for_segment_cancels_its_only_download(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge(prefetch_seconds=0)
+    prefetch_origin.gates["/segments/0.ts"] = threading.Event()
+    with TestClient(harness.app) as client:
+        path = playlist(client, harness)[0]
+    sent = []
+
+    async def run():
+        disconnected = False
+
+        async def receive():
+            if disconnected:
+                return {"type": "http.disconnect"}
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        task = asyncio.create_task(harness.app(asgi_scope(path), receive, send))
+        deadline = time.monotonic() + 2
+        while not segment_reads(prefetch_origin, 0):
+            assert time.monotonic() < deadline
+            await asyncio.sleep(.01)
+        disconnected = True
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(run())
+    assert any(message["type"] == "http.response.start" and message["status"] == 410 for message in sent)
+    assert wait_until(lambda: harness.registry.stats()["active_requests"] == 0)
+    assert harness.registry.stats()["reserved_bytes"] == 0
+    assert harness.registry._media_cache.stats()["entries"] == 0
+
+
+def test_cached_response_send_disconnect_releases_delivery_lease_and_cache_waiter(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge(prefetch_seconds=0)
+    with TestClient(harness.app) as client:
+        path = playlist(client, harness)[0]
+        assert client.get(path).content == SEGMENTS[0]
+
+    async def run():
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            if message["type"] == "http.response.body" and message.get("body"):
+                raise OSError("isolated cached-media receiver disconnected")
+
+        with pytest.raises(ClientDisconnect):
+            await harness.app(asgi_scope(path), receive, send)
+
+    asyncio.run(run())
+    assert harness.registry.stats()["active_requests"] == 0
+    assert len(segment_reads(prefetch_origin, 0)) == 1
+    harness.registry.close(harness.session.id, OWNER)
+    assert harness.registry._media_cache.stats()["entries"] == 0
+
+
+def test_one_disconnected_waiter_does_not_abort_another_waiters_shared_download(prefetch_bridge,
+                                                                             prefetch_origin):
+    harness = prefetch_bridge(prefetch_seconds=0)
+    gate = prefetch_origin.gates["/segments/0.ts"] = threading.Event()
+    with TestClient(harness.app) as client:
+        path = playlist(client, harness)[0]
+        other_done, other = fetch_later(client, path, prefetch_origin)
+        assert wait_until(lambda: len(segment_reads(prefetch_origin, 0)) == 1)
+
+        async def run():
+            disconnected = False
+
+            async def receive():
+                if disconnected:
+                    return {"type": "http.disconnect"}
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            async def send(_message):
+                pass
+
+            task = asyncio.create_task(harness.app(asgi_scope(path), receive, send))
+            deadline = time.monotonic() + 2
+            while harness.registry._media_cache.stats()["merged"] < 1:
+                assert time.monotonic() < deadline
+                await asyncio.sleep(.01)
+            disconnected = True
+            await asyncio.wait_for(task, timeout=2)
+
+        asyncio.run(run())
+        assert not other_done.is_set()
+        assert len(segment_reads(prefetch_origin, 0)) == 1
+        gate.set()
+        assert other_done.wait(2)
+        assert_segment(other, 0)
+        assert harness.registry._media_cache.stats()["entries"] == 1
+
+
+def test_three_foreground_segments_keep_two_origin_reader_cap(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge(prefetch_seconds=0)
+    gate0 = prefetch_origin.gates["/segments/0.ts"] = threading.Event()
+    gate1 = prefetch_origin.gates["/segments/1.ts"] = threading.Event()
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        first_done, first = fetch_later(client, paths[0], prefetch_origin)
+        second_done, second = fetch_later(client, paths[1], prefetch_origin)
+        assert wait_until(lambda: len(segment_reads(prefetch_origin)) == 2)
+        third_done, third = fetch_later(client, paths[2], prefetch_origin)
+        assert third_done.wait(3)
+        assert "error" not in third
+        assert third["response"].status_code == 429
+        assert not segment_reads(prefetch_origin, 2)
+        assert harness.registry.stats()["active_requests"] == 2
+        gate0.set()
+        gate1.set()
+        assert first_done.wait(2) and second_done.wait(2)
+        assert_segment(first, 0)
+        assert_segment(second, 1)
+        assert wait_until(lambda: harness.registry.stats()["active_requests"] == 0)
+
+
+def test_speculation_respects_byte_budget_without_failing_current_demand(prefetch_bridge, prefetch_origin):
+    # Enough to reserve the manifest and one segment, but not two media readers.
+    harness = prefetch_bridge(max_reserved_bytes=80 * 1024)
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        response = client.get(paths[0])
+        assert response.status_code == 200 and response.content == SEGMENTS[0]
+        assert wait_until(lambda: harness.registry.stats()["active_requests"] == 0)
+        assert harness.registry.stats()["reserved_bytes"] == 0
+        assert harness.registry.stats()["consumed_bytes"] <= 8192 + 3 * len(SEGMENTS[0])
