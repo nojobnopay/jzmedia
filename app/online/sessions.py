@@ -219,6 +219,13 @@ class SessionRegistry:
                 self._media_cache = factory()
             return self._media_cache
 
+    def maintain_prefetch(self):
+        """Pump only an existing cache, outside the registry/cache lock order."""
+        with self._lock:
+            cache = self._media_cache
+        if cache is not None:
+            cache.maintain()
+
     def response_limit(self, kind):
         return self.limits.response_limit(kind)
 

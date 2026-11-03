@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import replace
+import hashlib
 from http.server import BaseHTTPRequestHandler
 import re
 import threading
@@ -18,6 +19,7 @@ from app.network.client import create_client
 from app.network.policy import resolve_online_policy
 from app.online import gateway
 from app.online.models import OnlinePlaybackIdentity
+from app.online.prefetch import CacheStore
 from app.online.sessions import SessionError, SessionLimits, SessionRegistry
 from test_network_transport import LoopbackPolicy, logical_url, running_server
 
@@ -312,6 +314,82 @@ def test_background_failure_does_not_break_current_segment_or_poison_next_demand
         recovered = client.get(paths[1])
         assert recovered.status_code == 200 and recovered.content == SEGMENTS[1]
         assert len(segment_reads(prefetch_origin, 1)) >= 2
+
+
+def test_truncated_near_segment_recovers_in_background_before_foreground_cache_hit(prefetch_bridge,
+                                                                                 prefetch_origin, monkeypatch):
+    harness = prefetch_bridge()
+    clock = SimpleNamespace(now=1000.0)
+    counts = {"active": 0, "peak": 0}
+    errors = []
+    lock = threading.Lock()
+    original_fetch, original_failure = gateway._fetch_segment, gateway._failure
+
+    def observed_failure(error):
+        result = original_failure(error)
+        with lock:
+            errors.append(result.category)
+        return result
+
+    def observed_fetch(session, resource, lease):
+        with lock:
+            counts["active"] += 1
+            counts["peak"] = max(counts["peak"], counts["active"])
+        try:
+            return original_fetch(session, resource, lease)
+        finally:
+            with lock:
+                counts["active"] -= 1
+
+    monkeypatch.setattr(gateway, "_failure", observed_failure)
+    cache = harness.registry.cached_media(lambda: CacheStore(harness.registry, observed_fetch, gateway._submit,
+                                                             clock=lambda: clock.now))
+    gate = prefetch_origin.gates["/segments/0.ts"] = threading.Event()
+    prefetch_origin.truncated.add("/segments/1.ts")
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        manifest_bytes = harness.registry.stats()["consumed_bytes"]
+        first_done, first = fetch_later(client, paths[0], prefetch_origin)
+        assert wait_until(lambda: "network_request_failed" in errors and cache.stats()["retry_pending"] == 1)
+        assert not first_done.is_set()
+        assert len(segment_reads(prefetch_origin, 1)) == 1
+        assert not segment_reads(prefetch_origin, 2), "A cooling near hole must precede speculative far work"
+        assert harness.registry.stats()["consumed_bytes"] == manifest_bytes + 7
+        prefetch_origin.truncated.clear()
+        gate.set()
+        assert first_done.wait(2)
+        assert_segment(first, 0)
+        assert hashlib.sha256(first["response"].content).digest() == hashlib.sha256(SEGMENTS[0]).digest()
+        assert wait_until(lambda: harness.registry.stats()["active_requests"] == 0)
+
+        clock.now += .5
+        harness.registry.maintain_prefetch()
+        assert len(segment_reads(prefetch_origin, 1)) == 1
+        clock.now += .5
+        harness.registry.maintain_prefetch()
+        assert wait_until(lambda: cache.stats()["prefetch_completed"] == 2
+                          and harness.registry.stats()["active_requests"] == 0)
+        assert len(segment_reads(prefetch_origin, 1)) == 2
+        assert len(segment_reads(prefetch_origin, 2)) == 1
+        assert cache.stats()["automatic_retries"] == 1
+        assert cache.stats()["retry_pending"] == 0
+        # The failed prefix is charged once; complete cache delivery adds no upstream bytes.
+        assert harness.registry.stats()["consumed_bytes"] == manifest_bytes + 7 + sum(map(len, SEGMENTS[:3]))
+        assert cache.stats()["download_bytes"] == sum(map(len, SEGMENTS[:3]))
+        hits = cache.stats()["hits"]
+        for index in (1, 2):
+            response = client.get(paths[index])
+            assert response.status_code == 200
+            assert hashlib.sha256(response.content).digest() == hashlib.sha256(SEGMENTS[index]).digest()
+        assert cache.stats()["hits"] == hits + 2
+        assert len(segment_reads(prefetch_origin, 1)) == 2
+        assert len(segment_reads(prefetch_origin, 2)) == 1
+        assert counts["peak"] == 2
+        harness.registry.close(harness.session.id, OWNER)
+        assert wait_until(lambda: harness.registry.stats()["active_requests"] == 0)
+        assert harness.registry.stats()["reserved_bytes"] == 0
+        assert cache.stats()["entries"] == cache.stats()["bytes"] == cache.stats()["waiters"] == 0
+        assert cache.stats()["retry_pending"] == cache.stats()["retry_used"] == 0
 
 
 def test_fixed_byte_ranges_and_initialization_maps_keep_separate_cached_bodies(prefetch_bridge, prefetch_origin):

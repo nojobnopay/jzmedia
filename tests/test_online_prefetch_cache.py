@@ -5,7 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.network.client import NetworkRequestError
 from app.network.targets import TargetPolicy
+from app.online.gateway import GatewayError
 from app.online.hls import MediaSegment
 from app.online.models import OnlinePlaybackIdentity
 from app.online.prefetch import CacheStore, CacheUnavailable, CachedSegment
@@ -25,13 +27,15 @@ class Client:
 
 
 class Harness:
-    def __init__(self, **overrides):
+    def __init__(self, *, clock=None, **overrides):
         defaults = dict(max_segment_response_bytes=8, prefetch_session_bytes=64,
                         prefetch_global_bytes=128, max_session_bytes=4096,
                         max_reserved_bytes=1024, max_session_active=8)
-        self.registry = SessionRegistry(replace(SessionLimits(), **(defaults | overrides)))
+        timing = {} if clock is None else {"clock": clock}
+        self.registry = SessionRegistry(replace(SessionLimits(), **(defaults | overrides)), **timing)
         self.jobs, self.reads, self.failures = [], [], set()
-        self.cache = self.registry.cached_media(lambda: CacheStore(self.registry, self.fetch, self.jobs.append))
+        self.cache = self.registry.cached_media(lambda: CacheStore(self.registry, self.fetch, self.jobs.append,
+                                                                  **timing))
 
     def session(self, name="one"):
         identity = OnlinePlaybackIdentity(source_id=SOURCE, item_id="itm_" + "b" * 32, kind="movie")
@@ -60,6 +64,51 @@ class Harness:
                 return
             self.run()
         pytest.fail("unbounded background scheduling")
+
+
+class RetryClock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+class RetryHarness(Harness):
+    def __init__(self, **overrides):
+        self.clock = RetryClock()
+        self.errors = {}
+        super().__init__(clock=self.clock, **({"max_session_active": 2} | overrides))
+
+    def fetch(self, session, resource, lease):
+        errors = self.errors.get(resource.id)
+        if errors:
+            self.reads.append((session.id, resource.id, lease.background))
+            lease.consume(2)  # Bytes read before a failed body remain charged.
+            raise errors.pop(0)
+        return super().fetch(session, resource, lease)
+
+    def maintain_after(self, seconds):
+        self.clock.advance(seconds)
+        self.registry.maintain_prefetch()
+
+
+@pytest.fixture
+def retry_factory():
+    harnesses = []
+
+    def create(**overrides):
+        result = RetryHarness(**overrides)
+        harnesses.append(result)
+        return result
+
+    yield create
+    for result in harnesses:
+        result.registry.close_all()
+        result.drain()
 
 
 @pytest.fixture
@@ -189,6 +238,298 @@ def test_background_failure_has_no_automatic_retry_and_foreground_can_retry(harn
     assert retry.future.result().body == b"data" and len(harness.reads) == 3
     harness.cache.release(first)
     harness.cache.release(retry)
+
+
+@pytest.mark.parametrize("error_type,category", [
+    (GatewayError, "network_timeout"),
+    (GatewayError, "network_request_failed"),
+    (GatewayError, "operation_timeout"),
+    (NetworkRequestError, "network_request_failed"),
+])
+def test_transient_near_segment_recovers_after_cooldown_before_foreground_demand(retry_factory,
+                                                                                error_type, category):
+    harness = retry_factory()
+    session = harness.session()
+    resources = harness.resources(session, 4)
+    harness.remember(session, resources)
+    harness.errors[resources[1].id] = [error_type(category)]
+    first = harness.cache.demand(session, resources[0])
+    harness.drain()
+    harness.cache.release(first)
+    assert [read[1] for read in harness.reads] == [resources[0].id, resources[1].id]
+    assert harness.cache.stats()["retry_pending"] == 1
+    assert harness.registry.stats()["consumed_bytes"] == 6
+    assert harness.registry.stats()["reserved_bytes"] == 0
+
+    harness.maintain_after(.5)
+    assert not harness.jobs, "A cooling near segment must keep the far tail from taking its lane"
+    harness.maintain_after(.5)
+    assert len(harness.jobs) == harness.cache.stats()["active"] == 2
+    assert harness.registry.stats()["active_requests"] == 2
+    assert harness.registry.stats()["reserved_bytes"] == 16
+    assert harness.cache.stats()["bytes"] == 20  # Complete current body plus two reservations.
+    harness.drain()
+    assert [read[1] for read in harness.reads] == [
+        resources[0].id, resources[1].id, resources[1].id, resources[2].id, resources[3].id]
+    before = harness.registry.stats()["consumed_bytes"]
+    recovered = harness.cache.demand(session, resources[1])
+    assert recovered.cached and recovered.future.result().body == b"data"
+    harness.cache.release(recovered)
+    assert harness.registry.stats()["consumed_bytes"] == before == 18
+    assert harness.cache.stats()["download_bytes"] == 16
+    assert harness.cache.stats()["bytes"] == 16
+    assert harness.cache.stats()["waiters"] == harness.cache.stats()["active"] == 0
+    assert harness.cache.stats()["retry_pending"] == 0
+    assert harness.cache.stats()["automatic_retries"] == 1
+    assert harness.registry.stats()["active_requests"] == harness.registry.stats()["reserved_bytes"] == 0
+
+
+def test_persistent_transient_failure_gets_only_one_extra_background_attempt(retry_factory):
+    harness = retry_factory()
+    session = harness.session()
+    resources = harness.resources(session, 2)
+    harness.remember(session, resources)
+    harness.errors[resources[1].id] = [GatewayError("network_timeout") for _ in range(4)]
+    first = harness.cache.demand(session, resources[0])
+    harness.drain()
+    harness.cache.release(first)
+    harness.maintain_after(1)
+    harness.drain()
+    for _ in range(4):
+        harness.maintain_after(2)
+        harness.drain()
+    assert [read[1] for read in harness.reads].count(resources[1].id) == 2
+    assert harness.cache.stats()["automatic_retries"] == 1
+    assert harness.cache.stats()["retry_pending"] == 0
+    assert harness.cache.stats()["failures"] == 2
+    assert harness.registry.stats()["consumed_bytes"] == 8
+    assert harness.registry.stats()["active_requests"] == harness.registry.stats()["reserved_bytes"] == 0
+
+
+@pytest.mark.parametrize("error", [
+    GatewayError("proxy_connection_failed"), GatewayError("online_upstream_status"),
+    GatewayError("unsupported_upstream_content_type"), GatewayError("upstream_length_mismatch"),
+    GatewayError("target_host_not_allowed"), GatewayError("response_byte_limit"),
+    SessionError("request_limit"), SessionError("request_cancelled"), SessionError("request_timeout"),
+    RuntimeError("network_timeout"),
+])
+def test_non_transient_failures_never_get_automatic_background_retries(retry_factory, error):
+    harness = retry_factory()
+    session = harness.session()
+    resources = harness.resources(session, 2)
+    harness.remember(session, resources)
+    harness.errors[resources[1].id] = [error]
+    first = harness.cache.demand(session, resources[0])
+    harness.drain()
+    harness.cache.release(first)
+    harness.maintain_after(5)
+    harness.drain()
+    assert [read[1] for read in harness.reads].count(resources[1].id) == 1
+    assert harness.cache.stats()["automatic_retries"] == harness.cache.stats()["retry_pending"] == 0
+
+
+def test_foreground_recovery_clears_pending_without_waiting_for_cooldown(retry_factory):
+    harness = retry_factory()
+    session = harness.session()
+    resources = harness.resources(session, 2)
+    harness.remember(session, resources)
+    harness.errors[resources[1].id] = [GatewayError("network_request_failed")]
+    first = harness.cache.demand(session, resources[0])
+    harness.drain()
+    harness.cache.release(first)
+    assert harness.cache.stats()["retry_pending"] == 1
+    foreground = harness.cache.demand(session, resources[1])
+    assert harness.cache.stats()["retry_pending"] == 0
+    harness.drain()
+    assert foreground.future.result().body == b"data"
+    harness.cache.release(foreground)
+    harness.maintain_after(3)
+    assert len(harness.reads) == 3
+    assert harness.reads[-1][2] is False
+    assert harness.cache.stats()["automatic_retries"] == 0
+
+
+def test_foreground_recovery_and_cache_eviction_do_not_replenish_spent_retry_budget(retry_factory):
+    harness = retry_factory(prefetch_seconds=10, prefetch_session_bytes=12, prefetch_global_bytes=24)
+    session = harness.session()
+    resources = harness.resources(session, 4)
+    harness.remember(session, resources)
+    harness.errors[resources[1].id] = [GatewayError("network_timeout"), GatewayError("network_timeout")]
+    first = harness.cache.demand(session, resources[0])
+    harness.drain()
+    harness.cache.release(first)
+    harness.maintain_after(1)
+    harness.drain()
+    foreground = harness.cache.demand(session, resources[1])
+    harness.drain()
+    assert foreground.future.result().body == b"data"
+    harness.cache.release(foreground)
+    assert harness.cache.stats()["retry_used"] == 1
+
+    # Two actual seeks and bounded cache pressure evict the recovered near body.
+    far = harness.cache.demand(session, resources[3])
+    harness.drain()
+    harness.cache.release(far)
+    harness.errors[resources[1].id] = [GatewayError("network_request_failed")]
+    back = harness.cache.demand(session, resources[0])
+    harness.drain()
+    harness.cache.release(back)
+    harness.maintain_after(5)
+    harness.drain()
+    near_reads = [read for read in harness.reads if read[1] == resources[1].id]
+    assert [read[2] for read in near_reads] == [True, True, False, True]
+    assert harness.cache.stats()["automatic_retries"] == harness.cache.stats()["retry_used"] == 1
+    assert harness.cache.stats()["retry_pending"] == 0
+
+
+@pytest.mark.parametrize("retirement", ["seek", "manifest", "close", "expiry"])
+def test_retired_retry_windows_never_restart_downloads(retry_factory, retirement):
+    harness = retry_factory(idle_seconds=10)
+    session = harness.session()
+    resources = harness.resources(session, 4)
+    harness.remember(session, resources)
+    harness.errors[resources[1].id] = [GatewayError("network_timeout")]
+    first = harness.cache.demand(session, resources[0])
+    harness.drain()
+    harness.cache.release(first)
+    assert harness.cache.stats()["retry_pending"] == 1
+    if retirement == "seek":
+        seek = harness.cache.demand(session, resources[-1])
+        harness.drain()
+        harness.cache.release(seek)
+    elif retirement == "manifest":
+        harness.remember(session, resources[-2:])
+    elif retirement == "close":
+        harness.registry.close(session.id, session.owner)
+    else:
+        harness.clock.advance(11)
+        harness.registry.sweep()
+    harness.maintain_after(2)
+    harness.drain()
+    assert [read[1] for read in harness.reads].count(resources[1].id) == 1
+    assert harness.cache.stats()["retry_pending"] == 0
+    assert harness.cache.stats()["automatic_retries"] == 0
+    if retirement in {"close", "expiry"}:
+        assert harness.cache.stats()["bytes"] == harness.cache.stats()["entries"] == 0
+        assert harness.cache.stats()["retry_used"] == harness.cache.stats()["timelines"] == 0
+    assert harness.registry.stats()["active_requests"] == harness.registry.stats()["reserved_bytes"] == 0
+
+
+def test_cancelled_background_transient_error_does_not_schedule_recovery(retry_factory):
+    harness = retry_factory()
+    session = harness.session()
+    resources = harness.resources(session, 2)
+    harness.remember(session, resources)
+    first = harness.cache.demand(session, resources[0])
+    harness.run()
+    harness.cache.release(first)
+
+    def cancelled_fetch(current, resource, lease):
+        harness.reads.append((current.id, resource.id, lease.background))
+        lease.abort()
+        raise GatewayError("network_timeout")
+
+    harness.cache.fetch = cancelled_fetch
+    harness.drain()
+    harness.maintain_after(3)
+    harness.drain()
+    assert [read[1] for read in harness.reads].count(resources[1].id) == 1
+    assert harness.cache.stats()["cancelled"] == 1
+    assert harness.cache.stats()["retry_pending"] == harness.cache.stats()["automatic_retries"] == 0
+    assert harness.registry.stats()["active_requests"] == harness.registry.stats()["reserved_bytes"] == 0
+
+
+def test_promoted_map_failure_does_not_add_a_second_foreground_retry_policy(retry_factory):
+    harness = retry_factory()
+    session = harness.session()
+    resources = harness.resources(session, 2)
+    init = harness.resources(session, 1, prefix="init", kind="map")[0]
+    harness.cache.remember(session, "main", (
+        MediaSegment(resources[0].path(session.id), 10),
+        MediaSegment(resources[1].path(session.id), 10, init.path(session.id)),
+    ))
+    harness.errors[init.id] = [GatewayError("network_timeout")]
+    first = harness.cache.demand(session, resources[0])
+    harness.run()
+    promoted = harness.cache.demand(session, init)
+    assert promoted._entry.prefetched and not promoted._entry.lease.background
+    harness.drain()
+    with pytest.raises(GatewayError, match="^network_timeout$"):
+        promoted.future.result()
+    harness.cache.release(promoted)
+    harness.cache.release(first)
+    harness.maintain_after(2)
+    harness.drain()
+    assert [read[1] for read in harness.reads].count(init.id) == 1
+    assert harness.cache.stats()["retry_pending"] == harness.cache.stats()["automatic_retries"] == 0
+
+
+def test_retry_admission_respects_existing_slots_and_spends_budget_only_after_admission(retry_factory):
+    harness = retry_factory()
+    session = harness.session()
+    resources = harness.resources(session, 2)
+    harness.remember(session, resources)
+    harness.errors[resources[1].id] = [GatewayError("network_timeout")]
+    first = harness.cache.demand(session, resources[0])
+    harness.drain()
+    harness.cache.release(first)
+    leases = [harness.registry.acquire(session, 8, kind="segment") for _ in range(2)]
+    try:
+        harness.maintain_after(1)
+        assert not harness.jobs
+        assert harness.cache.stats()["retry_pending"] == 1
+        assert harness.cache.stats()["retry_used"] == 0
+        assert harness.registry.stats()["active_requests"] == 2
+        assert harness.registry.stats()["reserved_bytes"] == 16
+    finally:
+        for lease in leases:
+            lease.close()
+    harness.registry.maintain_prefetch()
+    assert len(harness.jobs) == 1
+    harness.drain()
+    assert harness.cache.stats()["automatic_retries"] == 1
+    assert harness.registry.stats()["consumed_bytes"] == 10
+    assert harness.registry.stats()["active_requests"] == harness.registry.stats()["reserved_bytes"] == 0
+
+
+def test_retry_cannot_bypass_session_byte_budget(retry_factory):
+    harness = retry_factory(max_session_bytes=12)
+    session = harness.session()
+    resources = harness.resources(session, 2)
+    harness.remember(session, resources)
+    harness.errors[resources[1].id] = [GatewayError("network_timeout")]
+    first = harness.cache.demand(session, resources[0])
+    harness.drain()
+    harness.cache.release(first)
+    harness.maintain_after(1)
+    harness.maintain_after(1)
+    assert not harness.jobs
+    assert len(harness.reads) == 2
+    assert harness.registry.stats()["consumed_bytes"] == 6
+    assert harness.registry.stats()["reserved_bytes"] == 0
+    assert harness.cache.stats()["automatic_retries"] == 0
+
+
+def test_queued_retry_keeps_existing_request_deadline(retry_factory):
+    harness = retry_factory()
+    session = harness.session()
+    resources = harness.resources(session, 2)
+    harness.remember(session, resources)
+    harness.errors[resources[1].id] = [GatewayError("network_timeout")]
+    first = harness.cache.demand(session, resources[0])
+    harness.drain()
+    harness.cache.release(first)
+    harness.maintain_after(1)
+    retry = harness.cache._entries[(session.id, resources[1].id)]
+    assert retry.lease.deadline == min(session.expires_monotonic,
+                                       harness.clock.now + harness.registry.limits.request_seconds)
+    harness.clock.advance(harness.registry.limits.request_seconds + 1)
+    harness.drain()
+    harness.registry.maintain_prefetch()
+    assert len(harness.reads) == 2, "Expired queued work must not open a new upstream read"
+    assert harness.cache.stats()["automatic_retries"] == 1
+    assert harness.cache.stats()["retry_pending"] == 0
+    assert harness.registry.stats()["active_requests"] == harness.registry.stats()["reserved_bytes"] == 0
 
 
 def test_capacity_reserves_full_response_and_holds_live_delivery_bytes_until_release():

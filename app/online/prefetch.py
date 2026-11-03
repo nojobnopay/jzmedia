@@ -13,6 +13,10 @@ import time
 from .sessions import SessionError
 
 
+_RETRYABLE_ERRORS = frozenset({"network_timeout", "network_request_failed", "operation_timeout"})
+_RETRY_COOLDOWN_SECONDS = 1.0
+
+
 @dataclass(frozen=True)
 class CachedSegment:
     status: int
@@ -50,8 +54,11 @@ class Ticket:
 
 
 class CacheStore:
-    def __init__(self, registry, fetch, submit):
+    def __init__(self, registry, fetch, submit, *, clock=time.monotonic):
+        if not callable(clock):
+            raise ValueError("invalid_cache_clock")
         self.registry, self.fetch, self.submit = registry, fetch, submit
+        self._clock = clock
         limits = registry.limits
         self._seconds = getattr(limits, "prefetch_seconds", 90.0)
         self._segment_limit = getattr(limits, "prefetch_max_segments", 24)
@@ -65,6 +72,12 @@ class CacheStore:
         self._timelines = OrderedDict()
         self._windows = OrderedDict()
         self._failed = set()
+        # Pending retries only belong to current windows. The spent budget is
+        # session-long and bounded by the registry's resource inventory, so a
+        # foreground recovery or seek cannot give a key infinite BG attempts.
+        self._retry_at = {}
+        self._retried = set()
+        self._automatic_retries = 0
         self._foreground_until = 0.0
         self._hits = self._misses = self._merged = self._completed = 0
         self._download_bytes = self._failures = self._cancelled = 0
@@ -80,7 +93,11 @@ class CacheStore:
             if session.cancelled.is_set():
                 return
             key = session.id, manifest_id
-            self._timelines[key] = (session, tuple(segments))
+            segments = tuple(segments)
+            previous = self._timelines.get(key)
+            if previous is not None and previous[1] != segments:
+                self._windows.pop(key, None)
+            self._timelines[key] = (session, segments)
             self._timelines.move_to_end(key)
             # Repeated references cannot grow metadata independently of the
             # registry's resource budget, even when every manifest reuses URLs.
@@ -95,6 +112,7 @@ class CacheStore:
                                if not session_full or value[0] is session)
                 self._timelines.pop(removed)
                 self._windows.pop(removed, None)
+            self._retire_retries_locked()
 
     def _discard_locked(self, entry):
         if self._entries.get(entry.key) is entry:
@@ -123,6 +141,10 @@ class CacheStore:
     def _desired_locked(self):
         return {key for window in self._windows.values() for key in window}
 
+    def _retire_retries_locked(self):
+        wanted = self._desired_locked()
+        self._retry_at = {key: due for key, due in self._retry_at.items() if key in wanted}
+
     def _anchor_locked(self, session, resource):
         if resource.kind != "segment":
             return
@@ -147,6 +169,7 @@ class CacheStore:
             desired.append((session.id, self._resource_id(segment.path)))
         self._windows[timeline_key] = tuple(dict.fromkeys(desired))
         self._windows.move_to_end(timeline_key)
+        self._retire_retries_locked()
         wanted = self._desired_locked()
         for entry in list(self._entries.values()):
             if (entry.session is session and not entry.future.done() and not entry.waiters
@@ -211,10 +234,11 @@ class CacheStore:
             self._anchor_locked(session, resource)
             key = session.id, resource.id
             self._failed.discard(key)
+            self._retry_at.pop(key, None)
             entry = self._entries.get(key)
             if entry is not None:
                 if entry.obsolete or entry.lease.cancelled.is_set():
-                    self._foreground_until = time.monotonic() + .5
+                    self._foreground_until = self._clock() + .5
                     raise SessionError("prefetch_busy")
                 cached = entry.future.done()
                 if not cached and entry.lease.background:
@@ -230,7 +254,7 @@ class CacheStore:
                         self.registry.check(session)
                         entry.obsolete = True
                         entry.lease.abort()
-                        self._foreground_until = time.monotonic() + .5
+                        self._foreground_until = self._clock() + .5
                         raise SessionError("prefetch_busy") from None
                 self._hits += int(cached)
                 self._merged += int(not cached)
@@ -239,7 +263,7 @@ class CacheStore:
                 try:
                     entry = self._new_locked(session, resource, False)
                 except (SessionError, CacheUnavailable):
-                    self._foreground_until = time.monotonic() + .5
+                    self._foreground_until = self._clock() + .5
                     raise
                 self._misses += 1
                 cached = False
@@ -273,6 +297,8 @@ class CacheStore:
                     self._timelines.pop(key, None)
                     self._windows.pop(key, None)
             self._failed = {key for key in self._failed if key[0] != session.id}
+            self._retry_at = {key: due for key, due in self._retry_at.items() if key[0] != session.id}
+            self._retried = {key for key in self._retried if key[0] != session.id}
             for entry in list(self._entries.values()):
                 if entry.session is session:
                     entry.obsolete = True
@@ -289,7 +315,7 @@ class CacheStore:
                 self._finish(entry, error=error)
 
     def _run(self, entry):
-        entry.started = time.monotonic()
+        entry.started = self._clock()
         try:
             entry.lease.check()
             result = self.fetch(entry.session, entry.resource, entry.lease)
@@ -307,10 +333,12 @@ class CacheStore:
             if entry.obsolete or entry.session.cancelled.is_set() or entry.lease.cancelled.is_set():
                 error = error or SessionError("request_cancelled")
             if error is None:
+                self._failed.discard(entry.key)
+                self._retry_at.pop(entry.key, None)
                 entry.reserved = len(result.body)
                 self._completed += int(entry.prefetched)
                 self._download_bytes += len(result.body)
-                self._download_seconds += max(0.0, time.monotonic() - entry.started)
+                self._download_seconds += max(0.0, self._clock() - entry.started)
                 entry.future.set_result(result)
             else:
                 cancelled = (entry.obsolete or entry.session.cancelled.is_set()
@@ -320,14 +348,26 @@ class CacheStore:
                 self._discard_locked(entry)
                 if entry.prefetched and not entry.obsolete and not entry.session.cancelled.is_set():
                     self._failed.add(entry.key)
+                    if (entry.lease.background and not cancelled
+                            and getattr(error, "category", None) in _RETRYABLE_ERRORS
+                            and entry.key not in self._retried and entry.key in self._desired_locked()):
+                        self._retry_at[entry.key] = self._clock() + _RETRY_COOLDOWN_SECONDS
+                    else:
+                        self._retry_at.pop(entry.key, None)
                 entry.future.set_exception(error)
         entry.lease.close()
+        self._pump()
+
+    def maintain(self):
+        """Existing application maintenance supplies wakeups; never a timer."""
         self._pump()
 
     def _pump(self):
         launch = []
         with self._lock:
-            if time.monotonic() < self._foreground_until:
+            self._retire_retries_locked()
+            now = self._clock()
+            if now < self._foreground_until:
                 return
             attempted = set()
             for timeline_key, window in list(self._windows.items()):
@@ -336,8 +376,17 @@ class CacheStore:
                     continue
                 session = remembered[0]
                 for key in window:
-                    if key in attempted or key in self._entries or key in self._failed:
+                    if key in attempted or key in self._entries:
                         continue
+                    retry = key in self._failed
+                    if retry:
+                        due = self._retry_at.get(key)
+                        if due is None:
+                            continue
+                        if now < due:
+                            # Keep useful in-flight reads, but do not spend a
+                            # free lane far beyond a temporarily missing head.
+                            break
                     attempted.add(key)
                     active = [entry for entry in self._entries.values()
                               if entry.session is session and not entry.future.done()]
@@ -353,6 +402,11 @@ class CacheStore:
                         entry = self._new_locked(session, resource, True)
                     except (SessionError, CacheUnavailable):
                         break
+                    if retry:
+                        self._retried.add(key)
+                        self._retry_at.pop(key, None)
+                        self._failed.discard(key)
+                        self._automatic_retries += 1
                     launch.append(entry)
         self._launch(launch)
 
@@ -366,4 +420,6 @@ class CacheStore:
                     "entries": len(self._entries),
                     "waiters": sum(entry.waiters for entry in self._entries.values()),
                     "active": sum(not entry.future.done() for entry in self._entries.values()),
+                    "retry_pending": len(self._retry_at), "retry_used": len(self._retried),
+                    "automatic_retries": self._automatic_retries,
                     "timelines": len(self._timelines)}

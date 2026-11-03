@@ -24,6 +24,10 @@ async def _maintain():
             await run_in_threadpool(service.registry.close_all)
             _logger.warning("online session access check failed; sessions revoked")
         try:
+            await run_in_threadpool(service.registry.maintain_prefetch)
+        except Exception:
+            _logger.warning("online media prefetch maintenance unavailable")
+        try:
             await run_in_threadpool(api_pool.sweep)
         except Exception:
             await run_in_threadpool(api_pool.clear)
