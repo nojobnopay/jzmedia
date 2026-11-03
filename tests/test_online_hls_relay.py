@@ -310,8 +310,12 @@ def test_four_active_requests_have_a_bounded_queue_and_metrics_stay_available(qu
         futures = [pool.submit(client.get, path) for _ in range(4)]
         try:
             assert entered.wait(1)
-            futures.extend(pool.submit(client.get, path) for _ in range(queued))
-            assert wait_for_metric(relay, "queued", queued)["active"] == 4
+            # Confirm admission before opening the next connection. A burst
+            # can overflow the HTTP listener backlog and test TCP retransmit
+            # timing instead of the relay's bounded request queue.
+            for expected in range(1, queued + 1):
+                futures.append(pool.submit(client.get, path))
+                assert wait_for_metric(relay, "queued", expected)["active"] == 4
             assert client.get(base + "/metrics").json()["active"] == 4
             if queued == 8:
                 assert client.get(path).status_code == 429
