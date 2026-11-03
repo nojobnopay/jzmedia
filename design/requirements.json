@@ -31758,7 +31758,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2253,
+            "line": 2257,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -31873,7 +31873,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2233,
+            "line": 2237,
             "selector": ".player-video, .freeze-frame",
             "values": {
               "width": "100%",
@@ -31918,7 +31918,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2253,
+            "line": 2257,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -31927,7 +31927,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2268,
+            "line": 2272,
             "selector": ".player-corner-controls :deep(.player-corner-btn)",
             "values": {
               "width": "44px",
@@ -31936,7 +31936,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2273,
+            "line": 2277,
             "selector": ".player-corner-btn.connected::after",
             "values": {
               "width": "6px",
@@ -32052,7 +32052,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2253,
+            "line": 2257,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -32061,7 +32061,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2268,
+            "line": 2272,
             "selector": ".player-corner-controls :deep(.player-corner-btn)",
             "values": {
               "width": "44px",
@@ -32070,7 +32070,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2273,
+            "line": 2277,
             "selector": ".player-corner-btn.connected::after",
             "values": {
               "width": "6px",
@@ -32492,7 +32492,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2294,
+            "line": 2298,
             "selector": ".error-copy-url",
             "values": {
               "width": "100%",
@@ -32545,7 +32545,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2243,
+            "line": 2247,
             "selector": ".center-play",
             "values": {
               "width": "var(--pause-size)",
@@ -32711,7 +32711,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2253,
+            "line": 2257,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -32827,7 +32827,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2253,
+            "line": 2257,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -32943,7 +32943,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2253,
+            "line": 2257,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -48102,7 +48102,7 @@
       ],
       "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
       "classification": "shared design component",
-      "source_excerpt": "<ArtworkPlaceholder v-else class=\"hero-still hero-no-still\" kind=\"poster\" :label=\"ep.title || ep.show_title\" />"
+      "source_excerpt": "<ArtworkPlaceholder v-else class=\"hero-still hero-no-still\" kind=\"poster\" :label=\"episodeDisplayTitle(ep) || ep.show_title\" />"
     },
     {
       "id": "frontend/src/views/EpisodeView.vue:AppIcon:24",
@@ -58050,7 +58050,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/TvShow.vue",
-            "line": 656,
+            "line": 658,
             "selector": ".season-card-main",
             "values": {
               "padding-bottom": "var(--jz-gap-s)"
@@ -58132,7 +58132,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/TvShow.vue",
-            "line": 666,
+            "line": 668,
             "selector": ".season-no-poster",
             "values": {
               "width": "100%",

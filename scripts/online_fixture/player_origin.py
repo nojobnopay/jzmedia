@@ -2,10 +2,12 @@
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import subprocess
 import threading
 from urllib.parse import unquote, urlsplit
 
 from scripts.online_fixture.media import byte_range, generate_media, validate_fixture_root
+from scripts.preview_onboarding import installed_binary
 
 
 MARKER = ".online-player-fixture"
@@ -35,6 +37,20 @@ def prepare_media(value):
     (extras / "encrypted.m3u8").write_text(
         '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n'
         '#EXTINF:4,\nsecret-segment.ts\n#EXT-X-ENDLIST\n', encoding="utf-8")
+    retries = extras / "retry-hls"
+    retries.mkdir(exist_ok=True)
+    # Twelve short, real fragments let browser checks recover from more than
+    # six independent network failures without lengthening or encoding a film.
+    subprocess.run([
+        str(installed_binary("ffmpeg")), "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+        "-i", str(root / "media" / "ep-1" / "movie.mp4"), "-c", "copy", "-f", "hls",
+        "-hls_time", "2", "-hls_playlist_type", "vod", "-hls_list_size", "0",
+        "-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", "init.mp4",
+        "-hls_segment_filename", "part-%03d.m4s", "low.m3u8",
+    ], cwd=retries, check=True, timeout=30)
+    (retries / "master.m3u8").write_text(
+        '#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-STREAM-INF:BANDWIDTH=900000,RESOLUTION=480x270,'
+        'CODECS="avc1.42c015,mp4a.40.2"\nlow.m3u8\n', encoding="utf-8")
     marker.write_text(MARKER_TEXT)
     return root
 

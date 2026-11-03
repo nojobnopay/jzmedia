@@ -369,3 +369,54 @@ def test_zero_length_can_release_cache_reservation_without_releasing_upstream_le
     assert not ticket.future.done()
     harness.cache.release(ticket)
     harness.drain()
+
+
+@pytest.mark.parametrize("category", ["request_cancelled", "request_timeout"])
+def test_promotion_preemption_race_retries_same_resource_without_releasing_worker_early(harness, category):
+    session = harness.session()
+    resources = harness.resources(session, 3)
+    harness.remember(session, resources)
+    first = harness.cache.demand(session, resources[0])
+    entry = harness.cache._entries[(session.id, resources[1].id)]
+    promote = harness.registry.promote
+
+    def preempt_then_promote(lease):
+        lease.abort(category)
+        promote(lease)
+
+    harness.registry.promote = preempt_then_promote
+    with pytest.raises(SessionError, match="^prefetch_busy$"):
+        harness.cache.demand(session, resources[1])
+    assert entry.obsolete and entry.waiters == 0 and not entry.future.done()
+    assert harness.registry.stats()["active_requests"] == 2
+    assert harness.registry.stats()["reserved_bytes"] == 16
+    harness.run(1)  # The cancelled worker actually exits; only now release its slot.
+    assert harness.registry.stats()["active_requests"] == 1
+    harness.registry.promote = promote
+    retry = harness.cache.demand(session, resources[1])
+    assert retry.future is not entry.future
+    harness.drain()
+    assert retry.future.result().body == b"data"
+    assert [read[1] for read in harness.reads].count(resources[1].id) == 1
+    harness.cache.release(first)
+    harness.cache.release(retry)
+
+
+def test_session_revocation_during_promotion_is_not_hidden_as_prefetch_retry(harness):
+    session = harness.session()
+    resources = harness.resources(session, 3)
+    harness.remember(session, resources)
+    first = harness.cache.demand(session, resources[0])
+    promote = harness.registry.promote
+
+    def close_then_promote(lease):
+        harness.registry.close(session.id, session.owner)
+        promote(lease)
+
+    harness.registry.promote = close_then_promote
+    with pytest.raises(SessionError, match="^session_closed$"):
+        harness.cache.demand(session, resources[1])
+    assert session.cancelled.is_set()
+    harness.cache.release(first)
+    harness.drain()
+    assert harness.registry.stats()["active_requests"] == 0

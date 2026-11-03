@@ -606,3 +606,277 @@ def test_speculation_respects_byte_budget_without_failing_current_demand(prefetc
         assert wait_until(lambda: harness.registry.stats()["active_requests"] == 0)
         assert harness.registry.stats()["reserved_bytes"] == 0
         assert harness.registry.stats()["consumed_bytes"] <= 8192 + 3 * len(SEGMENTS[0])
+
+
+class ForegroundRequest:
+    async def is_disconnected(self):
+        return False
+
+
+def gateway_clock(monkeypatch, step, on_sleep):
+    """Advance gateway deadlines only; keep asyncio's actual event loop clock."""
+    clock = SimpleNamespace(now=time.monotonic())
+    real_sleep = asyncio.sleep
+
+    class AsyncClock:
+        def __getattr__(self, name):
+            return getattr(asyncio, name)
+
+        async def sleep(self, _duration):
+            clock.now += step
+            on_sleep()
+            await real_sleep(0)
+
+    monkeypatch.setattr(gateway, "time", SimpleNamespace(monotonic=lambda: clock.now))
+    monkeypatch.setattr(gateway, "asyncio", AsyncClock())
+    return clock
+
+
+def test_cached_delivery_waits_for_cancelled_background_more_than_two_seconds(monkeypatch):
+    from test_online_prefetch_cache import Harness
+
+    harness = Harness(max_session_active=2)
+    session = harness.session()
+    resources = harness.resources(session, 6)
+    harness.remember(session, resources)
+    first = harness.cache.demand(session, resources[0])
+    harness.run()
+    harness.run()
+    harness.cache.release(first)
+    old = [entry for entry in harness.cache._entries.values() if not entry.future.done()]
+    assert len(old) == 2 and harness.registry.stats()["active_requests"] == 2
+    waits = 0
+
+    def drain_later():
+        nonlocal waits
+        waits += 1
+        assert all(entry.lease.cancelled.is_set() for entry in old)
+        if waits < 3:
+            assert harness.registry.stats()["active_requests"] == 2
+            assert harness.registry.stats()["reserved_bytes"] == 16
+        if waits == 3:
+            harness.run()
+            harness.run()
+
+    clock = gateway_clock(monkeypatch, 1.0, drain_later)
+    started = clock.now
+
+    async def run():
+        response = await gateway._cached_response(ForegroundRequest(), harness.registry, session,
+                                                  resources[1], None, deadline=started + 45)
+        assert response.status_code == 200
+        assert b"".join([chunk async for chunk in response.body_iterator]) == b"data"
+
+    try:
+        asyncio.run(run())
+        assert clock.now - started == 3
+        assert all(entry.lease._closed for entry in old)
+        assert harness.cache.stats()["active"] <= 2
+    finally:
+        harness.registry.close_all()
+        harness.drain()
+
+
+def test_foreground_preemption_wait_stops_at_original_http_deadline(monkeypatch):
+    from test_online_prefetch_cache import Harness
+
+    harness = Harness()
+    session = harness.session()
+    attempts = 0
+
+    def busy():
+        nonlocal attempts
+        attempts += 1
+        raise SessionError("prefetch_busy")
+
+    clock = gateway_clock(monkeypatch, 10.0, lambda: None)
+    started = clock.now
+
+    async def run():
+        with pytest.raises(SessionError, match="^request_timeout$"):
+            await gateway._foreground(ForegroundRequest(), harness.registry, session, busy,
+                                      deadline=started + 45)
+
+    try:
+        asyncio.run(run())
+        assert attempts == 5
+        assert harness.registry.stats()["active_requests"] == 0
+        assert not harness.registry._foreground_waits._tickets
+    finally:
+        harness.registry.close_all()
+
+
+def test_download_and_cached_send_keep_one_absolute_http_deadline(monkeypatch):
+    from test_online_prefetch_cache import Harness
+
+    harness = Harness(max_session_active=2)
+    session = harness.session()
+    resource = harness.resources(session, 1)[0]
+    waits = 0
+
+    def finish_later():
+        nonlocal waits
+        waits += 1
+        if waits == 3:
+            harness.run()
+
+    clock = gateway_clock(monkeypatch, 10.0, finish_later)
+    started = clock.now
+    harness.registry._clock = lambda: clock.now
+
+    async def run():
+        response = await gateway._cached_response(ForegroundRequest(), harness.registry, session,
+                                                  resource, None, deadline=started + 45)
+        assert clock.now == started + 30
+        assert response.lease.deadline == started + 45
+        clock.now = started + 46
+        with pytest.raises(SessionError, match="^request_timeout$"):
+            async for _chunk in response.body_iterator:
+                pytest.fail("Delivery must stop when the original HTTP deadline expires")
+
+    try:
+        asyncio.run(run())
+        assert harness.registry.stats()["active_requests"] == 0
+    finally:
+        harness.registry.close_all()
+        harness.drain()
+
+
+def test_session_close_interrupts_preemption_wait_without_using_remaining_deadline(monkeypatch):
+    from test_online_prefetch_cache import Harness
+
+    harness = Harness()
+    session = harness.session()
+
+    def close_session():
+        harness.registry.close(session.id, session.owner)
+
+    clock = gateway_clock(monkeypatch, 1.0, close_session)
+    started = clock.now
+
+    def busy():
+        raise SessionError("prefetch_busy")
+
+    async def run():
+        with pytest.raises(SessionError, match="^session_closed$"):
+            await gateway._foreground(ForegroundRequest(), harness.registry, session, busy,
+                                      deadline=started + 45)
+
+    asyncio.run(run())
+    assert clock.now - started == 1
+    assert not harness.registry._foreground_waits._tickets
+
+
+def test_many_foreground_requests_cannot_queue_unbounded_behind_background_workers(monkeypatch):
+    from test_online_prefetch_cache import Harness
+
+    harness = Harness(max_session_active=2)
+    session = harness.session()
+    background = [harness.registry.acquire(session, 8, kind="segment", background=True) for _ in range(2)]
+
+    async def run():
+        gate = asyncio.Event()
+        real_asyncio = asyncio
+
+        class PausedAsync:
+            def __getattr__(self, name):
+                return getattr(real_asyncio, name)
+
+            async def sleep(self, _duration):
+                await gate.wait()
+
+        monkeypatch.setattr(gateway, "asyncio", PausedAsync())
+        deadline = time.monotonic() + 45
+        tasks = [asyncio.create_task(gateway._foreground(
+            ForegroundRequest(), harness.registry, session,
+            lambda: harness.registry.acquire(session, 0, kind="segment"), deadline=deadline)) for _ in range(12)]
+        await asyncio.sleep(0)
+        rejected = [task for task in tasks if task.done()]
+        assert len(rejected) == 10
+        assert all(isinstance(task.exception(), SessionError) and task.exception().category == "request_limit"
+                   for task in rejected)
+        assert len(harness.registry._foreground_waits._tickets) == 2
+        assert harness.registry.stats()["active_requests"] == 2
+        assert harness.registry.stats()["reserved_bytes"] == 16
+        assert all(lease.cancelled.is_set() and not lease._closed for lease in background)
+        for lease in background:
+            lease.close()  # Simulate the workers' actual finally cleanup.
+        gate.set()
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        admitted = [result for result in results if not isinstance(result, Exception)]
+        assert len(admitted) == 2
+        assert not harness.registry._foreground_waits._tickets
+        assert harness.registry.stats()["active_requests"] == 2
+        for lease in admitted:
+            lease.close()
+
+    try:
+        asyncio.run(run())
+        assert harness.registry.stats()["active_requests"] == 0
+    finally:
+        for lease in background:
+            lease.close()
+        harness.registry.close_all()
+
+
+def test_cancelled_foreground_wait_releases_queue_registration_but_not_background_slot(monkeypatch):
+    from test_online_prefetch_cache import Harness
+
+    harness = Harness(max_session_active=2)
+    session = harness.session()
+    background = [harness.registry.acquire(session, 8, kind="segment", background=True) for _ in range(2)]
+
+    async def run():
+        blocked = asyncio.Event()
+        real_asyncio = asyncio
+
+        class PausedAsync:
+            def __getattr__(self, name):
+                return getattr(real_asyncio, name)
+
+            async def sleep(self, _duration):
+                await blocked.wait()
+
+        monkeypatch.setattr(gateway, "asyncio", PausedAsync())
+        task = asyncio.create_task(gateway._foreground(
+            ForegroundRequest(), harness.registry, session,
+            lambda: harness.registry.acquire(session, 0, kind="segment"), deadline=time.monotonic() + 45))
+        await asyncio.sleep(0)
+        assert len(harness.registry._foreground_waits._tickets) == 1
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not harness.registry._foreground_waits._tickets
+        assert harness.registry.stats()["active_requests"] == 2
+
+    try:
+        asyncio.run(run())
+    finally:
+        for lease in background:
+            lease.close()
+        harness.registry.close_all()
+
+
+def test_foreground_wait_registration_bounds_source_global_and_closed_session_entries():
+    class Session:
+        def __init__(self, source):
+            self.source_id = source
+            self.cancelled = threading.Event()
+
+    state = gateway._ForegroundWaits()
+    limits = SimpleNamespace(max_active=3, max_source_active=2, max_session_active=2)
+    one, two, three, other, last = [Session(source) for source in ("a", "a", "a", "b", "c")]
+    tokens = [state.claim(one, limits), state.claim(two, limits)]
+    with pytest.raises(SessionError, match="^request_limit$"):
+        state.claim(three, limits)
+    tokens.append(state.claim(other, limits))
+    with pytest.raises(SessionError, match="^request_limit$"):
+        state.claim(last, limits)
+    one.cancelled.set()
+    tokens.append(state.claim(last, limits))
+    assert len(state._tickets) == 3
+    with pytest.raises(SessionError, match="^session_closed$"):
+        state.claim(one, limits)
+    for token in tokens:
+        state.release(token)
+    assert not state._tickets

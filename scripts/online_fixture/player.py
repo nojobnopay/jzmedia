@@ -63,7 +63,9 @@ class FixtureState:
         online_store.update_online_settings(True)
         self.source_id = source["id"]
         movie_specs = (("movie-mp4", "合成电影 · MP4", "mp4", "ep-1/movie.mp4"),
-                       ("movie-hls", "合成电影 · HLS", "hls", "ep-1/hls/master.m3u8"))
+                       ("movie-hls", "合成电影 · HLS", "hls", "ep-1/hls/master.m3u8"),
+                       ("movie-hls-retries", "合成电影 · HLS 短片重试", "hls",
+                        "scenarios/retry-hls/master.m3u8"))
         for key, title, transport, asset in movie_specs:
             item = online_store.upsert_online_item(self.source_id, key, "movie", title)
             identity = OnlinePlaybackIdentity(source_id=self.source_id, item_id=item["id"], kind="movie")
@@ -127,9 +129,11 @@ class FixtureState:
         with closing(_base._conn()) as connection:
             counts = {table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                       for table in ("movies", "tv_episodes", "playback_progress")}
+        cache = self.registry._media_cache
         return {"registry": self.registry.stats(), "origin_calls": origin_calls, "api_calls": api_calls,
                 "created_sessions": list(created), "released_sessions": [sid for sid in created if sid not in active],
-                "pending_resolutions": pending, "local_rows": counts}
+                "pending_resolutions": pending, "local_rows": counts,
+                "media_cache": cache.stats() if cache is not None else {"active": 0, "entries": 0, "bytes": 0}}
 
 
 @contextmanager

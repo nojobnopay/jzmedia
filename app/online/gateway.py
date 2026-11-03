@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import re
 import threading
 import time
+import weakref
 
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
@@ -41,6 +42,7 @@ MP4_OPEN_RANGE_BYTES = 1024 * 1024
 _executor = None
 _executor_lock = threading.Lock()
 _accepting = True
+_foreground_wait_creation_lock = threading.Lock()
 
 
 class GatewayError(RuntimeError):
@@ -248,21 +250,69 @@ def _media_cache(registry):
     return registry.cached_media(lambda: CacheStore(registry, _fetch_segment, _submit))
 
 
-async def _foreground(request, registry, session, acquire):
+class _ForegroundWaits:
+    """Bound HTTP waiters without reserving or releasing upstream I/O slots."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._tickets = {}
+
+    def claim(self, session, limits):
+        with self._lock:
+            live = []
+            for key, reference in list(self._tickets.items()):
+                owner = reference()
+                if owner is None or owner.cancelled.is_set():
+                    self._tickets.pop(key)
+                else:
+                    live.append(owner)
+            if session.cancelled.is_set():
+                raise SessionError("session_closed")
+            if (len(live) >= limits.max_active
+                    or sum(owner is session for owner in live) >= limits.max_session_active
+                    or sum(owner.source_id == session.source_id for owner in live) >= limits.max_source_active):
+                raise SessionError("request_limit")
+            ticket = object()
+            self._tickets[ticket] = weakref.ref(session)
+            return ticket
+
+    def release(self, ticket):
+        with self._lock:
+            self._tickets.pop(ticket, None)
+
+
+def _foreground_waits(registry):
+    with _foreground_wait_creation_lock:
+        state = getattr(registry, "_foreground_waits", None)
+        if state is None:
+            state = _ForegroundWaits()
+            registry._foreground_waits = state
+        return state
+
+
+async def _foreground(request, registry, session, acquire, *, deadline):
     """Let cancelled speculative workers drain before taking their slots."""
-    deadline = time.monotonic() + min(2.0, registry.limits.request_seconds)
-    while True:
-        registry.check(session)
-        if await request.is_disconnected():
-            raise GatewayError("request_cancelled", 410)
-        try:
-            return acquire()
-        except SessionError as error:
-            if error.category != "prefetch_busy":
-                raise
-            if time.monotonic() >= deadline:
-                raise SessionError("request_limit") from None
-            await asyncio.sleep(.02)
+    waits = ticket = None
+    try:
+        while True:
+            registry.check(session)
+            if await request.is_disconnected():
+                raise GatewayError("request_cancelled", 410)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise SessionError("request_timeout")
+            try:
+                return acquire()
+            except SessionError as error:
+                if error.category != "prefetch_busy":
+                    raise
+                if ticket is None:
+                    waits = _foreground_waits(registry)
+                    ticket = waits.claim(session, registry.limits)
+                await asyncio.sleep(min(.02, remaining))
+    finally:
+        if ticket is not None:
+            waits.release(ticket)
 
 
 class _CachedResponse(StreamingResponse):
@@ -307,13 +357,13 @@ class _CachedResponse(StreamingResponse):
                 self.release()
 
 
-async def _cached_response(request, registry, session, resource, selected):
+async def _cached_response(request, registry, session, resource, selected, *, deadline):
     cache = _media_cache(registry)
     ticket = None
     lease = None
-    deadline = time.monotonic() + registry.limits.request_seconds
     try:
-        ticket = await _foreground(request, registry, session, lambda: cache.demand(session, resource))
+        ticket = await _foreground(request, registry, session, lambda: cache.demand(session, resource),
+                                   deadline=deadline)
         future = ticket.future
         while not future.done():
             registry.check(session)
@@ -326,7 +376,7 @@ async def _cached_response(request, registry, session, resource, selected):
         if time.monotonic() >= deadline:
             raise GatewayError("request_timeout", 504)
         lease = await _foreground(request, registry, session,
-                                  lambda: registry.acquire(session, 0, kind=resource.kind))
+                                  lambda: registry.acquire(session, 0, kind=resource.kind), deadline=deadline)
         # Download and cached delivery share this HTTP request's absolute
         # deadline; completing the download must not restart the 45s budget.
         lease.deadline = min(lease.deadline, deadline)
@@ -522,6 +572,7 @@ async def stream_response(request, registry, session, resource):
     """Relay one registered resource, with no caller-supplied upstream URL."""
     transfer = None
     lease = None
+    deadline = time.monotonic() + registry.limits.request_seconds
     try:
         cap = registry.response_limit(resource.kind)
         if len(request.headers.getlist("range")) > 1 or len(request.headers.getlist("if-range")) > 1:
@@ -550,7 +601,7 @@ async def stream_response(request, registry, session, resource):
                 headers["If-Range"] = value
         if request.method == "GET" and resource.kind in {"segment", "map"} and "if-range" not in request.headers:
             try:
-                return await _cached_response(request, registry, session, resource, selected)
+                return await _cached_response(request, registry, session, resource, selected, deadline=deadline)
             except CacheUnavailable:
                 # Cache pressure never makes an otherwise streamable resource
                 # fail. Preserve the bounded passthrough path as a fallback.
@@ -565,7 +616,8 @@ async def stream_response(request, registry, session, resource):
         # overrun. Reserve and charge it too; it is never sent or parsed.
         reserve = cap + CHUNK_BYTES if resource.kind == "manifest" else cap
         lease = await _foreground(request, registry, session, lambda: registry.acquire(
-            session, 0 if request.method == "HEAD" else reserve, kind=resource.kind))
+            session, 0 if request.method == "HEAD" else reserve, kind=resource.kind), deadline=deadline)
+        lease.deadline = min(lease.deadline, deadline)
         transfer = _Transfer(registry, session, resource, request.method, headers, selected, lease)
         try:
             _submit(transfer.run)

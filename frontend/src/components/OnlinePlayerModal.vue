@@ -123,7 +123,7 @@ let resumeApplied = false
 let frameHandle = null, frameVideo = null, resizeObserver = null
 let hideTimer = null, hintTimer = null, seekTimer = null, startupTimer = null, surfaceTimer = null
 let bufferTimer = null, bufferTicket = 0, lastMediaTime = 0
-let overlayAtPointerDown = true, presentedFrames = 0, networkErrors = 0, renewals = 0, lastRenewal = -Infinity
+let overlayAtPointerDown = true, presentedFrames = 0, renewals = 0, lastRenewal = -Infinity
 let diagnosing = false
 const errors = []
 const identityKey = computed(() => { try { return onlineIdentityKey(props.onlineIdentity) } catch { return '' } })
@@ -260,9 +260,9 @@ function watchFrames(video, gen) {
   }
   frameHandle = video.requestVideoFrameCallback(frame)
 }
-function policy() {
+function policy(maxTimeToFirstByteMs = 10000, maxLoadTimeMs = 30000) {
   const retry = () => ({ maxNumRetry: 2, retryDelayMs: 500, maxRetryDelayMs: 1000 })
-  return { default: { maxTimeToFirstByteMs: 10000, maxLoadTimeMs: 30000,
+  return { default: { maxTimeToFirstByteMs, maxLoadTimeMs,
     timeoutRetry: retry(), errorRetry: retry() } }
 }
 async function mountSource(video, result, gen, signal) {
@@ -291,7 +291,10 @@ async function mountSource(video, result, gen, signal) {
   const player = hls = new Hls({ autoStartLoad: false, debug: false, startPosition: pendingStart,
     maxBufferLength: 30, maxMaxBufferLength: 60, backBufferLength: 30, maxBufferSize: 30 * 1024 ** 2,
     nudgeMaxRetry: 1, maxLiveSyncPlaybackRate: 1,
-    manifestLoadPolicy: policy(), playlistLoadPolicy: policy(), fragLoadPolicy: policy(), keyLoadPolicy: policy() })
+    // The gateway validates a complete fragment before sending cached bytes.
+    // Its 45s request budget may precede response headers, including init data.
+    manifestLoadPolicy: policy(), playlistLoadPolicy: policy(),
+    fragLoadPolicy: policy(45000, 50000), keyLoadPolicy: policy() })
   const active = () => current(gen, video) && hls === player && !signal.aborted
   player.on(Hls.Events.MANIFEST_PARSED, () => {
     if (!active()) return
@@ -317,8 +320,9 @@ async function mountSource(video, result, gen, signal) {
       fail('initial_gap_recovery_limit', '视频起点无法稳定播放，请选择其他来源或设备')
       return
     }
-    if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.details !== 'aborted') networkErrors++
-    if (!data.fatal && networkErrors < 6) return
+    // hls.js bounds retries per fragment and resets after successful buffering.
+    // Recovered failures across a long session must not exhaust a second budget.
+    if (!data.fatal) return
     if ([404, 410].includes(Number(data.response?.code)) && renew()) return
     if ([401, 403].includes(Number(data.response?.code))) {
       void refreshViewing().catch(() => {})
@@ -340,7 +344,7 @@ async function load({ start = position.value, paused: keepPaused = false, recove
   detachMedia()
   descriptor.value = null; transport.value = ''; engine.value = ''
   error.value = ''; hint.value = ''; booting.value = true; needGesture.value = false
-  firstFrame.value = false; startupGapRecoveries.value = 0; presentedFrames = 0; networkErrors = 0
+  firstFrame.value = false; startupGapRecoveries.value = 0; presentedFrames = 0
   audios.value = []; subtitles.value = []; audioIndex.value = 0; subtitleIndex.value = -1
   buffered.value = []; dragging.value = false; endedOnce = false; diagnosing = false; resumeApplied = false
   if (!recovering) { renewals = 0; lastRenewal = -Infinity }

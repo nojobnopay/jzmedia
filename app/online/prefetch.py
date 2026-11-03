@@ -218,7 +218,20 @@ class CacheStore:
                     raise SessionError("prefetch_busy")
                 cached = entry.future.done()
                 if not cached and entry.lease.background:
-                    self.registry.promote(entry.lease)
+                    try:
+                        self.registry.promote(entry.lease)
+                    except SessionError as error:
+                        if error.category not in {"request_cancelled", "request_timeout"}:
+                            raise
+                        # Another foreground request can preempt this lease
+                        # after our cancellation check. Retry the same resource
+                        # once its worker exits, but never revive a closed or
+                        # expired session or release its slot ahead of cleanup.
+                        self.registry.check(session)
+                        entry.obsolete = True
+                        entry.lease.abort()
+                        self._foreground_until = time.monotonic() + .5
+                        raise SessionError("prefetch_busy") from None
                 self._hits += int(cached)
                 self._merged += int(not cached)
                 self._entries.move_to_end(key)

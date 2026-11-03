@@ -40,6 +40,17 @@ def prepared(tmp_path):
     (scenarios / 'encrypted.m3u8').write_text(
         '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n'
         '#EXTINF:4,\nsecret.ts\n#EXT-X-ENDLIST\n')
+    retries = scenarios / 'retry-hls'
+    retries.mkdir()
+    (retries / 'master.m3u8').write_text(
+        '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\nlow.m3u8\n')
+    (retries / 'init.mp4').write_bytes(b'retry-init')
+    lines = ['#EXTM3U', '#EXT-X-TARGETDURATION:2', '#EXT-X-MAP:URI="init.mp4"']
+    for index in range(12):
+        name = f'part-{index:03d}.m4s'
+        (retries / name).write_bytes(f'retry-fragment-{index:02d}'.encode())
+        lines.extend(['#EXTINF:2,', name])
+    (retries / 'low.m3u8').write_text('\n'.join([*lines, '#EXT-X-ENDLIST', '']))
     return root
 
 
@@ -72,8 +83,9 @@ def test_fixture_root_guard_refuses_production_or_unmarked_paths(tmp_path):
 def test_catalog_has_stable_formal_identities_and_only_temporary_empty_local_tables(client):
     first = client.get('/api/fixture/catalog').json()
     assert first == client.get('/api/fixture/catalog').json()
-    assert [row['key'] for row in first['items']] == ['movie-mp4', 'movie-hls', 'episode-1', 'episode-2']
-    assert [row['identity']['kind'] for row in first['items']] == ['movie', 'movie', 'episode', 'episode']
+    assert [row['key'] for row in first['items']] == [
+        'movie-mp4', 'movie-hls', 'movie-hls-retries', 'episode-1', 'episode-2']
+    assert [row['identity']['kind'] for row in first['items']] == ['movie', 'movie', 'movie', 'episode', 'episode']
     assert first['api_token'] == FIXTURE_TOKEN
     assert all('fixture.invalid' not in str(row) for row in first['items'])
     metrics = client.get('/api/fixture/metrics').json()
@@ -119,6 +131,31 @@ def test_scenarios_are_fixed_one_shot_and_can_expire_active_sessions(client):
     assert client.post('/api/fixture/scenario', json={'expire_sessions': True}).status_code == 200
     assert client.get(descriptor['media_url']).status_code == 404
     assert client.post('/api/fixture/scenario', json={'next_mode': 'arbitrary', 'url': 'http://localhost'}).status_code == 422
+
+
+def test_retry_fixture_has_twelve_ordered_two_second_fragments_and_releases_cache(client):
+    descriptor = create(client, 'movie-hls-retries')
+    assert descriptor['transport'] == 'hls' and descriptor['duration_seconds'] == 24
+    master = client.get(descriptor['media_url'])
+    variant = next(line for line in master.text.splitlines() if line and not line.startswith('#'))
+    media = client.get(variant)
+    assert media.status_code == 200 and media.text.count('#EXTINF:2,') == 12
+    paths = [line for line in media.text.splitlines() if line and not line.startswith('#')]
+    assert len(paths) == len(set(paths)) == 12
+    for index in (0, 6, 11):
+        response = client.get(paths[index])
+        assert response.status_code == 200 and response.content == f'retry-fragment-{index:02d}'.encode()
+        assert response.headers['content-type'] == 'video/iso.segment'
+    assert client.delete(f"/api/online/sessions/{descriptor['session_id']}").status_code == 204
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        metrics = client.get('/api/fixture/metrics').json()
+        if not metrics['registry']['active_requests']:
+            break
+        time.sleep(.01)
+    assert metrics['registry']['sessions'] == metrics['registry']['active_requests'] == 0
+    assert metrics['registry']['reserved_bytes'] == 0
+    assert metrics['media_cache']['active'] == metrics['media_cache']['entries'] == metrics['media_cache']['bytes'] == 0
 
 
 def test_delayed_provider_is_bounded_and_still_uses_fixed_identity(client):

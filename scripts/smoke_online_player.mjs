@@ -19,11 +19,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_player.mjs [--demo] [--case matrix|lifecycle|failures|all]')
+    console.log('Usage: node scripts/smoke_online_player.mjs [--demo] [--case matrix|lifecycle|failures|network-retries|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'lifecycle', 'failures', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'lifecycle', 'failures', 'network-retries', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-player-'))
 const output = path.join(root, 'output/playwright/online-player')
 const dist = path.join(work, 'dist')
@@ -536,6 +536,98 @@ async function failures() {
   await backendChildren('after-failures')
 }
 
+async function networkRetries() {
+  for (const mode of ['intermittent', 'continuous', 'delayed-first-byte']) {
+    phase = { name: `network-retries-${mode}`, expectedHttp: mode !== 'delayed-first-byte' }
+    const { context, page } = await newPage()
+    const observed = { segments: [], attempts: new Map(), failures: [], recovered: [], delayed: [] }
+    try {
+      await context.route('**/api/online/sessions/*/resources/*', async route => {
+        const resource = new URL(route.request().url()).pathname
+        const index = observed.segments.indexOf(resource)
+        if (index >= 0) {
+          const attempt = (observed.attempts.get(resource) || 0) + 1
+          observed.attempts.set(resource, attempt)
+          const reject = mode === 'intermittent' && index >= 1 && index <= 8 && attempt === 1
+            || mode === 'continuous' && index === 2
+          if (reject) {
+            observed.failures.push({ index, attempt, media: await readPlayer(page) })
+            await route.fulfill({ status: 502, contentType: 'application/json',
+              body: JSON.stringify({ code: 'network_request_failed', detail: 'Isolated temporary source failure' }) })
+            return
+          }
+          if (mode === 'delayed-first-byte' && index === 0 && attempt === 1) {
+            const started = performance.now()
+            await delay(11500)
+            observed.delayed.push({ index, attempt, delayMs: Math.round(performance.now() - started) })
+          }
+        }
+        const response = await route.fetch()
+        if ((response.headers()['content-type'] || '').includes('mpegurl')) {
+          const body = await response.text()
+          if (body.includes('#EXTINF:')) observed.segments = body.split('\n')
+            .filter(line => line.startsWith('/api/online/sessions/'))
+        }
+        await route.fulfill({ response })
+        if (index >= 0 && response.ok()) observed.recovered.push({ index,
+          attempt: observed.attempts.get(resource), media: await readPlayer(page) })
+      })
+      const before = await metrics()
+      await open(page, 'movie-hls-retries')
+      assert.ok(observed.segments.length >= 10, 'Retry fixture has enough independent real media fragments')
+      if (mode === 'intermittent') {
+        await until(() => observed.recovered.filter(item => item.index >= 1 && item.index <= 8).length === 8,
+          'Eight separate fragment failures must each recover through real HLS loading', 18000)
+        assert.equal(observed.failures.length, 8)
+        for (let index = 1; index <= 8; index++) {
+          assert.equal(observed.attempts.get(observed.segments[index]), 2,
+            `Fragment ${index} retries once and succeeds`)
+        }
+        const advancingFailures = observed.failures.filter(item => item.media.frames > 0)
+        assert.ok(advancingFailures.length >= 6, 'Recovered network errors occur after actual decoded frames')
+        assert.ok(advancingFailures.at(-1).media.time > advancingFailures[0].media.time + 1,
+          'Actual playback advances between intermittent source failures')
+        const state = await snapshot(page)
+        assert.equal(state.activeHls, true, 'Recoverable failures never stop the HLS engine')
+        assert.ok(state.sessionId && state.firstFrame)
+        assert.equal(await page.getByRole('alert').count(), 0)
+        await advancing(page, 2)
+        const after = await metrics()
+        assert.equal(after.created_sessions.length - before.created_sessions.length, 1,
+          'Recovering fragment requests does not rebuild the online session')
+      } else if (mode === 'continuous') {
+        await page.getByRole('alert').waitFor()
+        assert.match(await page.getByRole('alert').innerText(), /视频加载失败/)
+        assert.ok(await page.getByRole('button', { name: '重新加载', exact: true }).isVisible())
+        const state = await snapshot(page)
+        assert.equal(state.activeHls, false)
+        assert.equal(state.sessionId, null)
+        assert.equal(observed.failures.length, 3, 'The failing fragment stops after the two configured retries')
+        await delay(700)
+        assert.equal(observed.failures.length, 3, 'Fatal failure never starts an unbounded retry loop')
+        await idle('Fatal HLS error releases the actual online session and downloads')
+      } else {
+        assert.equal(observed.delayed.length, 1)
+        assert.ok(observed.delayed[0].delayMs >= 11000, 'Real fragment headers arrive after the former 10s timeout')
+        assert.equal(observed.attempts.get(observed.segments[0]), 1,
+          'A progressing server-side fragment download is not aborted and restarted at 10s')
+        await advancing(page)
+        assert.equal(await page.getByRole('alert').count(), 0)
+        assert.equal((await snapshot(page)).activeHls, true)
+        assert.equal((await metrics()).created_sessions.length - before.created_sessions.length, 1)
+      }
+      const release = await closePlayer(page)
+      assert.equal(release.metrics.media_cache.active, 0)
+      assert.equal(release.metrics.media_cache.entries, 0)
+      assert.equal(release.metrics.media_cache.bytes, 0)
+      passed({ case: phase.name, fragmentCount: observed.segments.length,
+        failures: observed.failures, recovered: observed.recovered, delayed: observed.delayed, releaseMs: release.releaseMs,
+        registryAfterClose: release.metrics.registry, cacheAfterClose: release.metrics.media_cache })
+    } finally { await closeContext(context) }
+  }
+  await backendChildren('after-network-retries')
+}
+
 try {
   await mkdir(output, { recursive: true })
   for (const file of [
@@ -565,6 +657,7 @@ try {
     if (selectedCase === 'all' || selectedCase === 'matrix') await matrix()
     if (selectedCase === 'all' || selectedCase === 'lifecycle') await lifecycle()
     if (selectedCase === 'all' || selectedCase === 'failures') await failures()
+    if (selectedCase === 'all' || selectedCase === 'network-retries') await networkRetries()
     report.finalMetrics = (await idle()).metrics
     assert.ok(!report.finalMetrics.origin_calls.some(call => call.app_credentials), 'Application credentials never reach the source')
     assert.deepEqual(report.errors, [], 'No browser runtime, Vue or unexpected console errors')
