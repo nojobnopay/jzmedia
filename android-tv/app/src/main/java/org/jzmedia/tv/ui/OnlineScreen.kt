@@ -50,6 +50,7 @@ import org.jzmedia.tv.data.OnlineEntry
 import org.jzmedia.tv.data.OnlineIdentity
 import org.jzmedia.tv.data.OnlineLibraryEntry
 import org.jzmedia.tv.data.onlineErrorMessage
+import org.jzmedia.tv.data.onlineHostError
 import org.jzmedia.tv.playback.OnlinePlaybackRequest
 import org.jzmedia.tv.playback.playbackTime
 import java.security.MessageDigest
@@ -72,7 +73,8 @@ private class OnlineRequestSlot {
 @Composable
 fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                  state: OnlineScreenState = remember(api) { OnlineScreenState() },
-                 onPlay: (OnlinePlaybackRequest) -> Unit, back: () -> Unit) {
+                 onPlay: (OnlinePlaybackRequest) -> Unit, back: () -> Unit,
+                 onRequestManagement: ((Boolean) -> Unit) -> Unit = { done -> done(false) }) {
     val online = remember(api) { OnlineApi(api) }
     val scope = rememberCoroutineScope()
     val lifetime = remember(state, api) { state.attach() }
@@ -82,6 +84,7 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
     val libraryRead = remember { OnlineRequestSlot() }
     val healthRead = remember { OnlineRequestSlot() }
     val playRead = remember { OnlineRequestSlot() }
+    val hostRead = remember { OnlineRequestSlot() }
     val list = rememberLazyListState(state.position(state.contentKey).index, state.position(state.contentKey).offset)
     val focus = remember { mutableMapOf<String, FocusRequester>() }
     val focusVersion = remember { longArrayOf(0L) }
@@ -92,6 +95,7 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
     var categoryReturn by remember { mutableStateOf("online:more-roots") }
     var yearDialog by remember { mutableStateOf(false) }
     var yearError by remember { mutableStateOf("") }
+    var hostDialog by remember { mutableStateOf<OnlineHostDialogState?>(null) }
     var detailRetryFocusFrom by remember { mutableStateOf<OnlineFocusTicket?>(null) }
     var detailInitialFocusAllowed by remember { mutableStateOf(true) }
     val context = LocalContext.current
@@ -118,6 +122,19 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
             memory.focused(key)
             state.savePosition(state.contentKey, state.position(state.contentKey).copy(focus = key))
         } }
+
+    fun hostCurrent(value: OnlineHostDialogState): Boolean = alive() && hostDialog === value &&
+        state.sourceId == value.sourceId && !state.starting &&
+        value.matches(state.detailSourceId, state.detailExternalId, state.detail?.item?.id,
+            state.sources?.scopeToken, api.viewing?.mode, api.viewing?.generation)
+
+    fun closeHostDialog() {
+        val value = hostDialog ?: return
+        if (value.saving || value.authorizing) return
+        hostRead.cancel()
+        hostDialog = null
+        state.detailUi.focus(onlineDetailHostReturnFocus(state.detail), memory)
+    }
 
     fun loadHealth() {
         val source = state.sourceId
@@ -186,7 +203,8 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
         }
     }
     fun resetDetail() {
-        catalogue.cancel(); itemRead.cancel(); playRead.cancel()
+        catalogue.cancel(); itemRead.cancel(); playRead.cancel(); hostRead.cancel()
+        hostDialog = null
         state.interruptCatalogue()
         state.detail = null; state.detailSourceId = ""; state.detailExternalId = ""; state.detailError = ""; state.item = null
         state.detailLoading = false; state.starting = false
@@ -308,6 +326,109 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
             finally { if (alive() && catalogue.current(ticket)) { state.detailLoading = false; loadHealth() } }
         }
     }
+    fun hostFailure(value: OnlineHostDialogState, error: Exception, applying: Boolean = false) {
+        value.discardReport()
+        val problem = error as? ApiException
+        if (!value.saved && (problem?.status == 403 || problem?.code in setOf("management_required", "online_management_revoked")))
+            value.permissionRequired = true
+        value.error = onlineHostError(error, value.saved, applying)
+    }
+    fun checkHosts() {
+        val value = hostDialog ?: return
+        if (!hostCurrent(value) || value.checking || value.saving || value.authorizing || value.saved || value.permissionRequired) return
+        value.checking = true; value.error = ""; value.discardReport()
+        hostRead.start(scope) { ticket ->
+            try {
+                val report = online.checkHosts(value.sourceId, value.externalId)
+                coroutineContext.ensureActive()
+                if (hostRead.current(ticket) && hostCurrent(value)) value.accept(report)
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) { if (hostRead.current(ticket) && hostCurrent(value)) hostFailure(value, error) }
+            finally { if (hostRead.current(ticket) && hostCurrent(value)) value.checking = false }
+        }
+    }
+    fun requestHostManagement() {
+        val value = hostDialog ?: return
+        if (!hostCurrent(value) || value.checking || value.saving || value.authorizing || value.saved) return
+        value.discardReport(); value.error = ""; value.authorizing = true
+        // The host dialog unmounts before the root opens the password dialog.
+        onRequestManagement { ready ->
+            if (hostCurrent(value)) {
+                value.authorizing = false
+                if (ready) { value.permissionRequired = false; checkHosts() }
+            }
+        }
+    }
+    suspend fun refreshHostDetail(value: OnlineHostDialogState) {
+        val originalLine = state.lineId
+        sourceRead.cancel(); catalogue.cancel(); itemRead.cancel()
+        val sources = online.sources()
+        coroutineContext.ensureActive()
+        if (!hostCurrent(value)) return
+        if (sources.scopeToken != value.scopeToken)
+            throw ApiException(409, "观看身份已变化", "online_state_scope_changed")
+        if (!sources.enabled) throw ApiException(409, "在线点播已停用", "online_disabled")
+        if (sources.items.none { it.id == value.sourceId && it.enabled })
+            throw ApiException(409, "视频源已停用", "online_source_disabled")
+        // Unlike acceptSources, this update keeps the current detail and its remote focus.
+        state.sources = sources; state.sourcesError = ""; state.sourcesLoading = false
+        // Invalidate source-dependent results while keeping the page and filters
+        // that the viewer should return to after closing this detail.
+        state.results = null; state.searchError = ""
+        state.cataloguePending = true
+        val refreshed = online.detail(value.sourceId, value.externalId)
+        coroutineContext.ensureActive()
+        if (!hostCurrent(value)) return
+        if (refreshed.item.id != value.itemId) throw ApiException(409, "内容已变化", "online_source_changed")
+        state.detail = refreshed
+        state.lineId = originalLine.takeIf { selected -> refreshed.lines.any { it.id == selected } }
+            ?: refreshed.lines.firstOrNull { line -> line.entries.any { it.supported && it.identity != null } }?.id
+            ?: refreshed.lines.firstOrNull()?.id.orEmpty()
+        state.item = null
+        val item = online.itemState(value.itemId)
+        coroutineContext.ensureActive()
+        if (!hostCurrent(value)) return
+        state.item = item
+        state.detailError = ""; state.notice = ""
+        loadHealth()
+    }
+    fun reloadHostDetail(apply: Boolean) {
+        val value = hostDialog ?: return
+        if (!hostCurrent(value) || value.saving || value.checking || value.authorizing) return
+        val report = value.report
+        val hosts = value.selectedHosts()
+        if (apply && (value.saved || value.permissionRequired || report == null || hosts.isEmpty())) return
+        value.saving = true; value.error = ""
+        hostRead.start(scope) { ticket ->
+            try {
+                if (apply && report != null) {
+                    online.allowHosts(report, hosts)
+                    coroutineContext.ensureActive()
+                    if (!hostRead.current(ticket) || !hostCurrent(value)) return@start
+                    value.saved = true; value.discardReport()
+                }
+                refreshHostDetail(value)
+                coroutineContext.ensureActive()
+                if (hostRead.current(ticket) && hostCurrent(value)) {
+                    value.saving = false
+                    closeHostDialog()
+                }
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) { if (hostRead.current(ticket) && hostCurrent(value)) hostFailure(value, error, applying = apply) }
+            finally { if (hostRead.current(ticket) && hostCurrent(value)) value.saving = false }
+        }
+    }
+    fun openHostDialog() {
+        val detail = state.detail ?: return
+        if (hostDialog != null || state.starting || state.sourcesLoading || state.sourcesError.isNotBlank() ||
+            state.sources?.enabled != true || state.sources?.items?.none { it.id == detail.source.id && it.enabled } != false ||
+            !onlineDetailNeedsHosts(detail)) return
+        val value = OnlineHostDialogState(detail.source.id, state.detailExternalId, detail.item.id,
+            detail.item.title, detail.source.name, state.sources?.scopeToken.orEmpty(), api.viewing?.mode,
+            api.viewing?.generation, api.viewing?.enabled == true && api.viewing?.managementUnlocked != true)
+        hostDialog = value
+        if (!value.permissionRequired) checkHosts()
+    }
     fun favorite(id: String, value: Boolean, frozenScope: String) {
         if (id in state.mutating || frozenScope.isBlank()) return
         if (!state.showingDetail) target("online:tab:${state.section}")
@@ -411,11 +532,17 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
         onDispose {
             if (!state.showingDetail) savePosition()
             state.detach(lifetime)
-            catalogue.cancel(); sourceRead.cancel(); itemRead.cancel(); libraryRead.cancel(); healthRead.cancel(); playRead.cancel()
+            catalogue.cancel(); sourceRead.cancel(); itemRead.cancel(); libraryRead.cancel(); healthRead.cancel(); playRead.cancel(); hostRead.cancel()
         }
+    }
+    LaunchedEffect(hostDialog, state.detailSourceId, state.detailExternalId, state.detail?.item?.id,
+        state.sourceId, state.sources?.scopeToken, api.viewing?.mode, api.viewing?.generation) {
+        val value = hostDialog
+        if (value != null && !hostCurrent(value)) { hostRead.cancel(); hostDialog = null }
     }
     BackHandler {
         when {
+            hostDialog != null -> closeHostDialog()
             sourceDialog -> { sourceDialog = false; target("online:source-button") }
             categoryDialog != null -> { categoryDialog = null; target(categoryReturn) }
             yearDialog -> { yearDialog = false; target("online:year:other") }
@@ -457,8 +584,13 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                 onSelectLine = { id -> state.detailUi.markUserInteraction(); playRead.cancel(); state.starting = false; state.lineId = id },
                 onPlay = ::play,
                 onFavorite = { item -> favorite(detail.item.id, !item.favorite, item.scopeToken) },
-                onAutoplayChange = { value -> state.autoplay = value; preferences.edit().putBoolean(preferenceKey, value).apply() })
+                onAutoplayChange = { value -> state.autoplay = value; preferences.edit().putBoolean(preferenceKey, value).apply() },
+                onCheckHosts = ::openHostDialog, hostDialogOpen = hostDialog != null)
             else -> Status("正在读取线路与分集…", icon = "loading")
+        }
+        hostDialog?.takeUnless { it.authorizing }?.let { value ->
+            OnlineHostDialog(value, onCheck = ::checkHosts, onAuthorize = ::requestHostManagement,
+                onApply = { reloadHostDetail(true) }, onReload = { reloadHostDetail(false) }, onClose = ::closeHostDialog)
         }
         return
     }
@@ -477,6 +609,8 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
             focusResults = false, returnFocus = returnKey)
     }
     fun selectYear(year: String, returnKey: String) {
+        val source = state.sources?.items?.firstOrNull { it.id == state.sourceId } ?: return
+        if (!source.browseSupported || !source.yearFilterSupported) return
         state.year = year; state.yearInput = year; state.query = ""
         search(selection = OnlineCatalogSelection(state.sourceId, categoryId = state.categoryId, year = year),
             focusResults = false, returnFocus = returnKey)
@@ -507,7 +641,7 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                 !enabled -> item { Status("在线点播尚未启用。请在网页“设置 → 在线视频源”启用并配置；已有记录仍可管理。") }
                 state.sources?.items?.none { it.enabled } != false -> item { Status("还没有可用的视频源，请先在网页添加来源。") }
                 else -> {
-                    if (selectedSource?.browseSupported == true) item(key = "filters") {
+                    if (selectedSource != null) item(key = "filters") {
                         OnlineFilterRows(tree, state.categoryRoot, state.categoryId, state.year, selectedSource.yearFilterSupported,
                             onRoot = { id ->
                                 if (id.isBlank()) selectCategory("", "online:root:all")
@@ -522,7 +656,7 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                             },
                             onYear = { year -> selectYear(year, "online:year:${year.ifBlank { "all" }}") },
                             onOtherYear = { state.yearInput = state.year; yearError = ""; yearDialog = true },
-                            focus = { key -> Modifier.onlineFocus(key) })
+                            focus = { key -> Modifier.onlineFocus(key) }, browseSupported = selectedSource.browseSupported)
                     }
                     when {
                         state.searching -> item { Status(if (state.loadedSelection?.browsing == true) "正在加载第 ${state.searchPage} 页目录…" else "正在搜索当前来源…", icon = "loading") }

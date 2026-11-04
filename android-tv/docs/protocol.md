@@ -58,11 +58,12 @@ APK 当前使用 `X-Api-Token`，仅发往保存的服务器 origin 和路径范
 电视端不依赖名字解析（纯 IPv4 电视可能解析出不可用的 IPv6，且 DHCP 会换地址），改为**客户端主动扫描 + 按 `server_id` 认亲**：
 
 - `GET /api/stream/client-info` 追加 `name`（默认视频库名，回落 `jzmedia`）、`version`（根 `version.properties`）、`server_id`（持久 UUID，存 `app_settings`，首次握手时生成；删除或重建数据库后更换，换 IP 或保留数据库重装不变）。字段为向后兼容追加，老客户端可忽略；写入失败时身份可为空，客户端不将其作为可发现实例。
-- 电视连接页“扫描局域网”：取本机 IPv4 站点地址推导 /24，逐个并发 GET `http://<ip>:8080/api/stream/client-info`（连接 700ms/读取 1200ms，总超时 2.5s，24 并发），只收录返回 `protocol_version` 与 `server_id` 的响应。
-- 停止后可立即重新扫描。旧扫描的进度、结果、错误和结束回调均失效；尚未返回的 HTTP 探测只等待自身超时，不改变新扫描的界面状态。
+- 电视连接页“扫描端口”默认 `8080`，支持填写 `1`～`65535` 中的一个端口；Docker 映射到宿主机 `58080` 时应填 `58080`。端口无效时显示提示，不发出探测请求；扫描期间锁定端口输入。
+- 选择“扫描局域网”后，取本机 IPv4 站点地址推导 /24，逐个并发 GET `http://<ip>:<port>/api/stream/client-info`（连接 700ms/读取 1200ms，总超时 2.5s，24 并发），只收录返回 `protocol_version` 与 `server_id` 的响应。一次扫描只使用选定端口，不遍历多个端口。
+- 选择“停止扫描”后可修改端口并立即重新扫描。旧扫描的进度、结果、错误和结束回调均失效；尚未返回的 HTTP 探测只等待自身超时，不改变新扫描的界面状态。
 - 结果进确认弹窗（名称 · 版本 · 地址，`auth_required` 标需令牌，协议不一致置灰并提示升级服务端）：扫描完成自动弹出，已保存同 ID 的项预选中；选中直接切到“连接到 xxx？”确认态，确认即按原连接流程验证令牌后保存（需令牌但令牌栏空时按钮变为“去填写令牌”，关窗后地址已填好）。保存的连接同时记录 `server_id`，下次扫描到同 ID 不同地址时提示“已保存的服务器现位于 xxx”。
 
-不采用服务端 UDP 广播：Docker 网桥收不到/发不出局域网广播（Jellyfin/Plex 要求 host 网络也是此原因），客户端扫描无此限制。`client-info` 本就未鉴权，新增字段只暴露存在性；连接仍需用户确认与令牌。
+发现使用客户端 HTTP 探测，不依赖服务端 UDP 广播；Docker 必须映射对应 TCP 端口，并保证电视能访问宿主机地址。自定义端口不改变 /24 扫描范围，也不能解决跨网段或模拟器 NAT 下的路径不可达；已知可达地址时可直接手填连接，无需先被扫描发现。`client-info` 本就未鉴权，新增字段只暴露存在性；连接仍需用户确认与令牌。
 
 ### 播放能力声明
 
@@ -224,7 +225,7 @@ APK 将用户的播放 / 暂停意图与播放器缓冲状态分开，跳转、�
 
 `OnlineApi` 使用既有 `JzApi` 的服务器地址、`X-Api-Token`、`X-Viewing-Client: tv` 与 `X-Viewing-Session`。JSON 与媒体请求仅发往当前服务器 origin 和部署前缀，拒绝跨 origin／路径范围的凭据转发与重定向。来源 API、媒体出站路由及允许主机仍由服务端独立策略控制，电视不接受上游 URL、NAS 路径或代理凭据。
 
-客户端只提交 `OnlineIdentity(source_id,item_id,kind,episode_id?,line_id?)`；在线 ID 不属于本地媒体的整数 ID 空间。播放描述必须是当前精确身份、同源 `/api/online/sessions/{session_id}/media`、`processing:passthrough`、`transport:mp4|hls` 与 `time_offset_seconds:0`，不接受新增处理方式或任意 URL。MP4 数据源串联不超过 8 MiB 的 Range 读取，区分单个区间完成与整片结束，校验范围及完整文件长度，支持定位后继续读取；HLS 仅加载网关返回的清单及当前会话资源。两条路径都由电视 Media3 解码，不调用本地 `/api/stream` 转码、预览、ASS 提取或字幕烧录入口。
+创建播放会话时，客户端只提交 `OnlineIdentity(source_id,item_id,kind,episode_id?,line_id?)`；在线 ID 不属于本地媒体的整数 ID 空间。播放描述必须是当前精确身份、同源 `/api/online/sessions/{session_id}/media`、`processing:passthrough`、`transport:mp4|hls` 与 `time_offset_seconds:0`，不接受新增处理方式或任意 URL。MP4 数据源串联不超过 8 MiB 的 Range 读取，区分单个区间完成与整片结束，校验范围及完整文件长度，支持定位后继续读取；HLS 仅加载网关返回的清单及当前会话资源。两条路径都由电视 Media3 解码，不调用本地 `/api/stream` 转码、预览、ASS 提取或字幕烧录入口。
 
 | API 范围 | 电视用途 |
 |---|---|
@@ -234,8 +235,16 @@ APK 将用户的播放 / 暂停意图与播放器缓冲状态分开，跳转、�
 | `/api/online/state/library` 与 `/api/online/state/items/{item_id}` | 收藏、历史、继续观看及所选身份进度 |
 | `/api/online/state/progress/claim` 与 `/api/online/state/progress` | 绑定已归属会话的写入资格与有序保存 |
 | `/api/online/catalog/health` | 当前配置最近的 API／媒体实际请求观察；不触发上游探测 |
+| `/api/online/sources/{source_id}/host-check` | 在当前内容详情显式检查候选主机，只读取该内容的目录资料 |
+| `/api/online/sources/{source_id}/allow-hosts` | 经确认后，按检查指纹向当前来源追加所选精确主机 |
 
-目录能力由 `/api/online/catalog/sources` 中每个来源的 `capabilities.browse` 显式声明，不从 `online_vod` 或版本号推断。支持时进入在线页面或切换来源自动请求 `/api/online/catalog/browse`，参数为 `source_id`、`page`、`category_id` 与可选 `year`；只在 `capabilities.year_filter=true` 时显示年份筛选。响应中的 `categories` 使用来源返回的 `id/name/parent_id`，电视不自行生成分类；父类的“综合条目”请求父类自身 ID，不声称聚合子类。`/search` 仅提交来源、关键词和页码；搜索时清除分类／年份筛选，选择目录筛选时回到浏览。缺少目录能力的旧服务端继续使用 `/search`，仅开放样例允许空关键词；缺少分类、年份或海报字段时保留可用的搜索、文字和播放流程。
+详情出现 `host_not_allowed` 或 `target_host_not_allowed` 时，电视提供“检查媒体主机”。这两个 POST 复用服务器的来源管理接口、写令牌和设备管理授权；保护开启且未解锁时，先完成既有管理验证。检查提交当前内容的 `external_id`，候选涵盖其全部线路、分集和海报地址，不解析候选 DNS、不访问候选主机，也不展开 HLS 或重定向。字段与服务端限制由[在线来源配置 API](../../docs/developer/api.md#在线来源配置)维护。
+
+电视按候选主机提供可用遥控器逐项切换的多选列表，默认全选，只有“确认添加”才提交 `hosts` 与 `expected_fingerprint`；确认前返回或取消不写配置。追加作用于当前服务的整个来源，保留已有主机和其它配置，发生变更后由服务端撤销该来源已有会话。`409 online_source_changed` 要求重新检查，不沿用旧指纹保存；保存成功但详情刷新失败时保留已保存状态，只重载详情，不重复追加。接口返回 `404` 时提示通过网页配置或升级服务端。连接、观看身份或当前详情变化后，旧检查和保存响应不能覆盖新页面。
+
+目录能力由 `/api/online/catalog/sources` 中每个来源的 `capabilities.browse` 显式声明，不从 `online_vod` 或版本号推断。支持时进入在线页面或切换来源自动请求 `/api/online/catalog/browse`，参数为 `source_id`、`page`、`category_id` 与可选 `year`；已选择来源后统一显示年份行；只有 `capabilities.browse=true` 且 `capabilities.year_filter=true` 时提供可操作的年份选项，否则显示“当前视频源暂未开放年份筛选”。年份由上游执行，可与分类组合；当前服务端为已核对的暴风接口及量子主站 JSON HTTPS 接口 `https://cj.lziapi.com/api.php/provide/vod/` 声明年份能力，未验证的来源只显示状态说明，不提交年份请求，不能按来源名称或其它量子域名推断支持。
+
+响应中的 `categories` 使用来源返回的 `id/name/parent_id`，电视不自行生成分类；父类的“综合条目”请求父类自身 ID，不声称聚合子类。`/search` 仅提交来源、关键词和页码；搜索时清除分类／年份筛选，选择目录筛选时回到浏览。缺少目录能力的旧服务端继续使用 `/search`，仅开放样例允许空关键词；缺少分类、年份或海报字段时保留可用的搜索、文字和播放流程。
 
 在线遥控键盘在电视本机使用随包词库将拼音转换为用户选择的汉字；不发送输入过程，也不构建来源片名索引。候选由读音映射生成，排序不代表词频，片名可能需要逐字输入。选择“搜索”才把已确认的文本提交当前来源，英文／数字和系统输入法仍可用；来源是否匹配中文词由来源决定。
 
@@ -265,8 +274,8 @@ Android 文件位于 `app/src/main/java/org/jzmedia/tv/` 下；Python 路径相�
 
 ### 局域网发现
 
-- 源码：`data/ServerDiscovery.kt`、`ui/TvApp.kt`（`ConnectionScreen`）、`data/ConnectionStore.kt`、`app/routers/stream/media.py`、`app/store/settings.py`。
-- 回归：`ServerDiscoveryTest`、`test_discovery_server.py`、`test_android_tv_playback.py`。
+- 源码：`data/ServerDiscovery.kt`、`data/DiscoveryScan.kt`、`ui/TvApp.kt`（`ConnectionScreen`）、`data/ConnectionStore.kt`、`app/routers/stream/media.py`、`app/store/settings.py`。
+- 回归：`ServerDiscoveryTest`、`DiscoveryScanTest`、`test_discovery_server.py`、`test_android_tv_playback.py`。
 
 ### 握手、地址和认证
 

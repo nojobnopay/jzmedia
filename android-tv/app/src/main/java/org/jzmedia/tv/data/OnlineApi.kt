@@ -11,8 +11,9 @@ import org.json.JSONObject
 /** All calls retain the JzApi server origin, write token and device identity. */
 class OnlineApi(val api: JzApi) {
     private suspend fun <T> read(method: String, path: String, body: JSONObject? = null,
-                                 scopeToken: String? = null, parser: (JSONObject) -> T): T {
-        val value = api.requestOnline(method, path, body, scopeToken)
+                                 scopeToken: String? = null, retryConnectionFailure: Boolean = true,
+                                 parser: (JSONObject) -> T): T {
+        val value = api.requestOnline(method, path, body, scopeToken, retryConnectionFailure)
         return try { parser(value) }
         catch (error: ApiException) { throw error }
         catch (_: Exception) { throw ApiException(0, "服务器返回了无法识别的在线数据", "invalid_online_response") }
@@ -41,6 +42,22 @@ class OnlineApi(val api: JzApi) {
         val selected = checkedOnlineCatalogExternal(externalId)
         return read("GET", queryPath("/api/online/catalog/detail", linkedMapOf("source_id" to sourceId, "external_id" to selected))) {
             OnlineDetail.fromJson(it).also { result -> require(result.source.id == sourceId) }
+        }
+    }
+    suspend fun checkHosts(sourceId: String, externalId: String): OnlineHostReport {
+        checkedOnlineSource(sourceId); checkedOnlineCatalogExternal(externalId)
+        return read("POST", "/api/online/sources/$sourceId/host-check", JSONObject().put("external_id", externalId)) {
+            OnlineHostReport.fromJson(it).also { report ->
+                require(report.sourceId == sourceId && report.externalId == externalId)
+            }
+        }
+    }
+    suspend fun allowHosts(report: OnlineHostReport, hosts: List<String>) {
+        val selected = checkedHostApproval(report, hosts)
+        read("POST", "/api/online/sources/${report.sourceId}/allow-hosts", JSONObject()
+            .put("hosts", org.json.JSONArray(selected)).put("expected_fingerprint", report.configurationFingerprint),
+            retryConnectionFailure = false) {
+            checkedHostApprovalResponse(it, report, selected)
         }
     }
     suspend fun createSession(identity: OnlineIdentity): OnlineDescriptor {

@@ -30,6 +30,13 @@ object ServerDiscovery {
     const val PROTOCOL_VERSION = 1
     private const val MAX_HANDSHAKE_BYTES = 8192L
 
+    /** 扫描端口只接受十进制数字，界面与扫描入口共用同一范围。 */
+    fun parsePort(text: String): Int? {
+        val value = text.trim()
+        if (value.isEmpty() || value.any { it !in '0'..'9' }) return null
+        return value.toIntOrNull()?.takeIf { it in 1..65535 }
+    }
+
     /** 本机 IPv4 站点地址（以太网/WLAN 双栈只取 v4，纯 v6 设备返回空列表即提示手动填写）。 */
     fun localIpv4(): List<String> {
         val out = mutableListOf<String>()
@@ -52,6 +59,7 @@ object ServerDiscovery {
 
     /** 由本机 IPv4 推导同网段候选（/24，排除网络/广播/本机地址）。 */
     fun candidatesFor(localIp: String, port: Int = DEFAULT_PORT): List<String> {
+        require(port in 1..65535) { "Discovery port must be between 1 and 65535" }
         val parts = localIp.trim().split(".")
         if (parts.size != 4) return emptyList()
         val nums = parts.map { it.toIntOrNull() ?: return emptyList() }
@@ -112,6 +120,7 @@ object ServerDiscovery {
         probe: suspend (String) -> DiscoveredServer? = { httpProbe(it) },
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): List<DiscoveredServer> = withContext(Dispatchers.IO) {
+        require(port in 1..65535) { "Discovery port must be between 1 and 65535" }
         val targets = locals.flatMap { candidatesFor(it, port) }.distinct()
         if (targets.isEmpty()) return@withContext emptyList()
         val found = mutableListOf<DiscoveredServer>()

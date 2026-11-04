@@ -187,10 +187,11 @@ internal fun onlineFocusItemIndex(state: OnlineScreenState, key: String): Int? {
         return rows.indexOfFirst { key.startsWith("online:record:${it.item.id}:") }.takeIf { it >= 0 }?.let { body + it }
     }
     if (key == "online:retry-sources") return body
-    val hasFilters = state.sources?.items?.firstOrNull { it.id == state.sourceId }?.browseSupported == true
-    if (key.startsWith("online:root:") || key.startsWith("online:category:") || key.startsWith("online:year:") ||
-        key == "online:more-roots" || key == "online:more-categories") return body.takeIf { hasFilters }
-    val result = body + if (hasFilters) 1 else 0
+    val source = state.sources?.items?.firstOrNull { it.id == state.sourceId }
+    if (key.startsWith("online:root:") || key.startsWith("online:category:") ||
+        key == "online:more-roots" || key == "online:more-categories") return body.takeIf { source?.browseSupported == true }
+    if (key.startsWith("online:year:")) return body.takeIf { source?.browseSupported == true && source.yearFilterSupported }
+    val result = body + if (source != null) 1 else 0
     if (key == "online:retry-search") return result
     val rows = state.results?.items.orEmpty()
     val columns = state.resultColumns.coerceAtLeast(1)

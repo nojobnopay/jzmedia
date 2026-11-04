@@ -53,6 +53,21 @@ class OnlineDetailScreenTest {
         assertEquals("当前线路不支持直接播放，请选择其他线路", onlineEntryUnavailableReason(entries[49].copy(reason = "other")))
     }
 
+    @Test fun hostRepairEntryChecksEveryLineAndReturnsToMoreAfterTheBlockIsRemoved() {
+        val (base, _) = detailWithLastProgress()
+        assertFalse(onlineDetailNeedsHosts(base))
+        assertEquals("detail:more", onlineDetailHostReturnFocus(base))
+        assertEquals("detail:more", onlineDetailHostReturnFocus(null))
+        val blocked = base.copy(lines = base.lines + OnlineLine("ln_" + "6".repeat(32), "Blocked",
+            listOf(OnlineEntry("Extra", null, null, false, "host_not_allowed"))))
+        assertTrue(onlineDetailNeedsHosts(blocked))
+        assertEquals("detail:hosts", onlineDetailHostReturnFocus(blocked))
+        assertTrue(onlineDetailNeedsHosts(blocked.copy(lines = listOf(blocked.lines.last().copy(entries =
+            listOf(OnlineEntry("Extra", null, null, false, "target_host_not_allowed")))))))
+        assertFalse(onlineDetailNeedsHosts(blocked.copy(lines = listOf(blocked.lines.last().copy(entries =
+            listOf(OnlineEntry("Extra", null, null, false, "unsupported_format")))))))
+    }
+
     @Test fun reversingChangesDisplayOrderWithoutRenumberingSourceGroupsOrLabels() {
         val entries = (0 until 783).map { entry(it) }
         val descending = onlineEpisodeGroups(entries, true)

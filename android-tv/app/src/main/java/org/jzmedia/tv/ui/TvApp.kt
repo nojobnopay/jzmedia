@@ -41,9 +41,14 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -113,6 +118,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     var onlineState by remember(api) { mutableStateOf(OnlineScreenState()) }
     var playing by remember { mutableStateOf(false) }
     var viewingDialog by remember { mutableStateOf<ViewingDialogRequest?>(null) }
+    var managementRequest by remember { mutableStateOf<Pair<JzApi, (Boolean) -> Unit>?>(null) }
     var viewingBlocked by remember { mutableStateOf(false) }
     var viewingError by remember { mutableStateOf("") }
     var locking by remember { mutableStateOf(false) }
@@ -144,7 +150,15 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         playing = false
         refresh++
     }
+    fun completeManagement(granted: Boolean) {
+        val pending = managementRequest ?: return
+        managementRequest = null
+        val session = api?.viewing
+        pending.second(granted && api === pending.first && foreground && !viewingBlocked &&
+            session != null && session.mode != "children" && (!session.enabled || session.managementUnlocked))
+    }
     fun clearPages() {
+        completeManagement(false)
         closeOnlinePlayback()
         onlineState = OnlineScreenState()
         remoteSessionId = null; remoteSnapshot = TvCastSnapshot(); playbackController = null
@@ -374,6 +388,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
                 if (server.viewing?.mode == "private") { lockViewing(); break }
                 server.updateViewingMetadata(server.viewing!!.copy(managementUnlocked = false))
                 viewingDialog = null
+                completeManagement(false)
             }
             try {
                 val session = server.readViewingSession(server.post("/api/viewing/activity", JSONObject()
@@ -491,7 +506,14 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
                             remoteSessionId = null; remoteSnapshot = TvCastSnapshot(); playback = null
                             onlinePlayback = request
                         }
-                    }, back = ::back)
+                    }, back = ::back, onRequestManagement = { complete ->
+                        if (!foreground || viewingBlocked || api !== server || viewingDialog != null || server.viewing?.mode == "children") {
+                            complete(false)
+                        } else {
+                            managementRequest = server to complete
+                            viewingDialog = ViewingDialogRequest("management")
+                        }
+                    })
                 } else {
                     Status(if (server.viewing?.mode == "children") "儿童模式暂不支持在线内容" else "此服务器尚未支持在线点播，请升级服务端")
                     TvAction("返回", ::back)
@@ -557,9 +579,10 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         CompositionLocalProvider(LocalSaveableStateRegistry provides null) { key(pageKey) { pageContent() } }
     } else holder.SaveableStateProvider(pageKey, pageContent)
     viewingDialog?.let { request ->
-        ViewingDialog(server, request, onClose = { viewingDialog = null }, onSession = ::applySession,
+        ViewingDialog(server, request, onClose = { viewingDialog = null; completeManagement(false) }, onSession = ::applySession,
             onPolicySaved = { SearchHistoryStore.clearAll(context); server.clearPrivateHistory(); clearPages() },
-            onUserActivity = { dialogInteraction = SystemClock.elapsedRealtime() })
+            onUserActivity = { dialogInteraction = SystemClock.elapsedRealtime() },
+            onManagementGranted = { viewingDialog = null; completeManagement(true) })
     }
 }
 
@@ -576,6 +599,8 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
     var viewingResetRequired by remember { mutableStateOf(false) }
     var job by remember { mutableStateOf<Job?>(null) }
     var scanning by remember { mutableStateOf(false) }
+    var scanPort by rememberSaveable { mutableStateOf(ServerDiscovery.DEFAULT_PORT.toString()) }
+    val selectedScanPort = ServerDiscovery.parsePort(scanPort)
     var scanProgress by remember { mutableStateOf("") }
     var scanResults by remember { mutableStateOf<List<DiscoveredServer>?>(null) }
     // 扫描结果弹窗：选服务器与确认连接一步完成；null=关闭。
@@ -586,6 +611,8 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
     val discovery = remember(scope) { DiscoveryScan(scope) }
     val context = LocalContext.current
     val memory = rememberFocusMemory("connect")
+    val scanPortFocus = remember { FocusRequester() }
+    val scanButtonFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val imeVisible = WindowInsets.isImeVisible
     // 已保存服务器换了 IP 时认亲提示。
@@ -629,8 +656,13 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
     LaunchedEffect(Unit) { if (autoConnect) connect() }
     fun scan() {
         if (scanning) { discovery.cancel(); scanning = false; return }
+        // Read the current state at click time; a remembered function reference
+        // can otherwise retain a derived port from an earlier composition.
+        val port = ServerDiscovery.parsePort(scanPort) ?: return
+        keyboard?.hide()
         scanning = true; scanProgress = ""; scanResults = null; closePicker()
         discovery.start(
+            port = port,
             onProgress = { done, total -> scanProgress = "$done/$total" },
             onResult = { found ->
                 scanResults = found
@@ -667,20 +699,36 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.Bottom) {
+                TvInput("扫描端口", scanPort, {
+                    if (!busy && !scanning) {
+                        scanPort = it
+                        scanResults = null
+                        scanProgress = ""
+                        closePicker()
+                    }
+                }, Modifier.widthIn(min = 160.dp, max = 180.dp).focusRequester(scanPortFocus)
+                    .focusProperties { down = scanButtonFocus }, keyboardType = KeyboardType.Number,
+                    enabled = !busy && !scanning)
                 TvAction(
                     if (scanning) "停止扫描${if (scanProgress.isNotBlank()) "（$scanProgress）" else ""}" else "扫描局域网",
-                    ::scan, Modifier.focusMemory(memory, "scan"), enabled = !busy,
+                    ::scan, Modifier.focusMemory(memory, "scan", scanButtonFocus)
+                        .focusProperties { up = scanPortFocus }, enabled = !busy && (scanning || selectedScanPort != null),
                     icon = if (scanning) "loading" else "search",
                 )
             }
+        }
+        item {
+            Text(if (selectedScanPort == null) "扫描端口须为 1–65535 的整数。"
+                else "只扫描所填端口；默认 8080，Docker 映射为 58080 时填写 58080。",
+                color = if (selectedScanPort == null) DesignTokens.Error else Muted)
         }
         if (moved != null) item {
             Text("已保存的 ${moved.name} 现位于 ${moved.address}，扫描后可直接选择更新", color = Muted)
         }
         val results = scanResults
         if (results != null && !scanning && results.isEmpty()) {
-            item { Status("同一网络下未发现服务器，可手动填写地址", ::scan, icon = "info") }
+            item { Status("同一网络下未发现服务器，可修改扫描端口或手动填写地址", ::scan, icon = "info") }
         }
         item { Text("方向键移动 · 确定键编辑或选择 · 返回键关闭键盘或返回", color = Muted) }
     }

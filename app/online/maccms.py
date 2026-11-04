@@ -312,7 +312,7 @@ def poster_url(row):
 
 
 def supports_year_filter(source):
-    """Only the exact provider endpoint verified to implement upstream year."""
+    """Only exact provider endpoints verified to implement upstream year."""
     options = source.get("provider_options", {})
     value = source.get("api_base_url", "")
     if (source.get("provider") != "maccms" or not isinstance(options, dict)
@@ -321,7 +321,7 @@ def supports_year_filter(source):
         return False
     try:
         parsed = urlsplit(value)
-        return (parsed.scheme == "https" and parsed.hostname == "bfzyapi.com"
+        return (parsed.scheme == "https" and parsed.hostname in {"bfzyapi.com", "cj.lziapi.com"}
                 and parsed.port in (None, 443) and parsed.username is None and parsed.password is None
                 and parsed.path in {"/api.php/provide/vod", "/api.php/provide/vod/"}
                 and not parsed.query and not parsed.fragment)

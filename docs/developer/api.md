@@ -80,7 +80,7 @@
 | `GET /api/online/sources/{source_id}` | 读取单个来源；不存在返回 `404` |
 | `PATCH /api/online/sources/{source_id}` | 原子更新已提供的字段；可用 `enabled:false` 停用并保留身份 |
 
-主机检查与追加还需先通过 `/api/viewing/session` 取得设备身份，并遵循管理授权与已配置的写令牌。`host-check` 提交 `{external_id}`，只通过该来源的 API 网络用途读取一项详情，复用目录期限、取消和并发限制；候选不做 DNS 或媒体探测。量子官方 `liangzi` 线路的已识别网页地址也可作为主机候选，检查不会读取该网页。返回 `source_id`、`external_id`、`missing_hosts`、`allowed_hosts`、`rejected_count` 和 64 位小写十六进制 `configuration_fingerprint`。`allow-hosts` 接收 1–128 个精确主机与该指纹，在同一写事务核对完整来源状态，仅追加用户选择的主机，不覆盖并发编辑；已有主机的无变化追加不撤销会话。指纹过期返回 `409 online_source_changed`，需要重新检查。
+主机检查与追加还需先通过 `/api/viewing/session` 取得设备身份，并遵循管理授权与已配置的写令牌。网页和电视复用这两个管理接口。`host-check` 提交 `{external_id}`，只通过该来源的 API 网络用途读取一项详情，复用目录期限、取消和并发限制；候选取自该内容的全部线路、分集及海报地址，不做 DNS 或媒体探测，也不展开 HLS 子资源或重定向。量子官方 `liangzi` 线路的已识别网页地址也可作为主机候选，检查不会读取该网页。返回 `source_id`、`external_id`、`missing_hosts`、`allowed_hosts`、`rejected_count` 和 64 位小写十六进制 `configuration_fingerprint`。`allow-hosts` 接收 1–128 个精确主机与该指纹，在同一写事务核对完整来源状态，仅追加用户选择的主机，不覆盖并发编辑；已有主机的无变化追加不撤销会话。指纹过期返回 `409 online_source_changed`，需要重新检查。发生变更时撤销当前来源已有播放会话，配置影响使用该来源的所有设备。
 
 创建来源必须提供 `name`、`provider`、`api_base_url`，提供方支持 `maccms` 与固定开放样例 `open_catalog`。可选 `allowed_hosts` 为精确主机名列表，自动包含 API 主机，不支持通配符；`enabled` 默认 `false`，`priority` 为 0–1000 的整数、默认 100，数值越小越优先。地址只接受无内嵌账号密码、查询参数或片段的 HTTP(S) 基础地址；保存时只检查结构和字面地址，不发 DNS 或网络请求。实际读取执行[公网目标与头部策略](playback.md#在线远程读取)，保存成功不代表来源已经可播放。
 
@@ -138,7 +138,9 @@
 
 后台读取最多 8 秒，不自动重试，不借用前台连接池；与推荐共用全进程最多一路低优先工作，并计入总共四路、每设备一路的原额度。前台请求取消后台实际 I/O，等待工作退出释放名额后再接管。网页每 15 分钟最多检查一次可见页；先校验当前来源和观看范围，再核对返回的配置摘要，不能把新配置结果暂存到旧缓存。
 
-`capabilities.year_filter` 默认 `false`，当前仅已核对的暴风 HTTPS 接口及默认详情动作声明支持。`year` 可省略或为空，否则必须为 1000–9999 的四位 ASCII 年份，并由来源接口实际过滤；未声明支持的来源返回 `422 online_year_filter_unsupported`，不访问上游。关键词搜索不接受年份参数，不将当前页的年份筛选冒充全目录查询。分类 `parent_id` 为空表示根；缺失父类、孤儿、自环及环形父链降为根分类，最多 256 类。查询父分类仍按其 ID 原样请求，不隐式聚合子分类。
+`capabilities.year_filter` 默认 `false`，当前仅已核对的暴风 `https://bfzyapi.com/api.php/provide/vod/` 与量子主站 JSON `https://cj.lziapi.com/api.php/provide/vod/` HTTPS 接口，在使用默认详情动作 `detail_action=detail` 时声明支持；不扩展到其它域名或接口。`year` 可省略或为空，否则必须为 1000–9999 的四位 ASCII 年份，并由来源接口实际过滤，可与 `category_id` 组合，目录翻页保留所选条件；未声明支持的来源返回 `422 online_year_filter_unsupported`，不访问上游。关键词搜索不接受年份参数；客户端发起搜索时清除目录分类与年份，不将当前页的年份筛选冒充全目录查询。未声明支持时，电视保留年份状态说明并停用年份操作，网页不显示年份控件。
+
+分类 `parent_id` 为空表示根；缺失父类、孤儿、自环及环形父链降为根分类，最多 256 类。查询父分类仍按其 ID 原样请求，不隐式聚合子分类。
 
 搜索与浏览条目提供 `external_id`、文本元数据及可选的服务内 `poster_path`，不创建本地媒体记录；详情按来源和内容种类保存独立在线身份。海报路径是不透明的来源绑定租约，受当前观看权限、来源与网络配置检查约束；停用来源、配置变化或租约失效后需重新读取目录或详情，不能将它作为持久图片地址保存。
 

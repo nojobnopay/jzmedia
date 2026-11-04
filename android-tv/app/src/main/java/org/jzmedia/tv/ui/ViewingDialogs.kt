@@ -70,7 +70,7 @@ private fun VisibilityChoice(label: String, description: String, selected: Boole
 @Composable
 internal fun ViewingDialog(api: JzApi, request: ViewingDialogRequest, onClose: () -> Unit,
                            onSession: (JzApi, Boolean) -> Unit, onPolicySaved: () -> Unit,
-                           onUserActivity: () -> Unit) {
+                           onUserActivity: () -> Unit, onManagementGranted: () -> Unit = {}) {
     var current by remember { mutableStateOf(api) }
     var form by remember { mutableStateOf(if (request.kind == "password") "password" else "") }
     var password by remember { mutableStateOf("") }
@@ -138,16 +138,30 @@ internal fun ViewingDialog(api: JzApi, request: ViewingDialogRequest, onClose: (
                 else -> {
                     current = current.withViewing(current.post("/api/viewing/unlock", JSONObject().put("password", chosen)))
                     onSession(current, false)
-                    form = ""; loadPolicy()
+                    if (request.kind == "management") { onManagementGranted(); onClose() }
+                    else { form = ""; loadPolicy() }
                 }
             }
             password = ""; newPassword = ""; confirmation = ""
+        }
+    }
+    fun checkManagement() {
+        run {
+            current = current.withViewing(current.get("/api/viewing/session"))
+            onSession(current, false)
+            if (current.viewing?.mode == "children") {
+                error = "请先退出儿童模式，再管理媒体主机。"
+            } else if (current.viewing?.enabled != true || current.viewing?.managementUnlocked == true) {
+                onManagementGranted(); onClose()
+            } else form = "unlock"
         }
     }
     LaunchedEffect(request) {
         if (request.kind == "policy") {
             if (current.viewing?.managementUnlocked != true) form = "unlock"
             else run { loadPolicy() }
+        } else if (request.kind == "management") {
+            checkManagement()
         }
     }
     BackHandler { if (!busy) onClose() }
@@ -161,6 +175,7 @@ internal fun ViewingDialog(api: JzApi, request: ViewingDialogRequest, onClose: (
                 form.isNotBlank() && setup -> "设置保护密码"
                 form == "password" -> "修改保护密码"
                 form.isNotBlank() -> "输入保护密码"
+                request.kind == "management" -> "验证管理权限"
                 request.kind == "policy" -> "内容可见性"
                 else -> "观看模式"
             }, style = MaterialTheme.typography.headlineSmall)
@@ -175,6 +190,12 @@ internal fun ViewingDialog(api: JzApi, request: ViewingDialogRequest, onClose: (
                 }
                 TvAction(if (busy) "正在验证…" else "确认", ::submitPassword,
                     enabled = !busy)
+            } else if (request.kind == "management") {
+                Text("检查并添加媒体主机需要当前服务的管理权限，验证不会切换观看模式。", color = Muted)
+                if (busy) Status("正在检查管理权限…", icon = "loading")
+                else if (current.viewing?.mode != "children") {
+                    TvAction("重新检查权限", ::checkManagement, Modifier.focusMemory(memory, "viewing:first"))
+                }
             } else if (request.kind == "policy") {
                 val value = policy
                 if (value == null) {

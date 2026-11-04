@@ -102,6 +102,13 @@ internal fun onlineEntryUnavailableReason(entry: OnlineEntry): String = when (en
     else -> "当前线路不支持直接播放，请选择其他线路"
 }
 
+internal fun onlineDetailNeedsHosts(detail: OnlineDetail): Boolean = detail.lines.any { line ->
+    line.entries.any { it.reason == "host_not_allowed" || it.reason == "target_host_not_allowed" }
+}
+
+internal fun onlineDetailHostReturnFocus(detail: OnlineDetail?): String =
+    if (detail != null && onlineDetailNeedsHosts(detail)) "detail:hosts" else "detail:more"
+
 /** A late record may suggest a line only while the viewer has not acted. */
 internal fun onlineResumeLineCandidate(
     detail: OnlineDetail, item: OnlineItemState?, currentLine: String, starting: Boolean, userInteracted: Boolean,
@@ -200,8 +207,11 @@ internal fun OnlineDetailScreen(
     onPlay: (OnlineEntry) -> Unit,
     onFavorite: (OnlineItemState) -> Unit,
     onAutoplayChange: (Boolean) -> Unit,
+    onCheckHosts: () -> Unit = {},
+    hostDialogOpen: Boolean = false,
 ) {
     val list = rememberLazyListState(ui.scrollIndex, ui.scrollOffset)
+    val heroActions = rememberLazyListState()
     val lines = rememberLazyListState()
     val groupStrip = rememberLazyListState()
     val requesters = remember { mutableMapOf<String, FocusRequester>() }
@@ -226,6 +236,12 @@ internal fun OnlineDetailScreen(
         resume != null -> "继续播放 · ${primary.label}"
         detail.item.kind == "tv" -> "播放 · ${primary.label}"
         else -> "播放"
+    }
+    val heroFocusKeys = buildList {
+        add("detail:play"); add("detail:favorite")
+        if (detail.description.isNotBlank() || detail.attribution.isNotEmpty()) add("detail:description")
+        if (onlineDetailNeedsHosts(detail)) add("detail:hosts")
+        add("detail:more")
     }
     fun Modifier.detailFocus(key: String): Modifier = focusRequester(requesters.getOrPut(key) { FocusRequester() })
         .onFocusChanged { if (it.isFocused) ui.focused(key, focusMemory) }
@@ -254,13 +270,14 @@ internal fun OnlineDetailScreen(
         val buttonWidth = ((maxWidth.value - 16f - (columns - 1) * 12f) / columns).coerceAtMost(100f).dp
         val rows = positions.chunked(columns)
         fun itemIndex(key: String): Int? = when {
-            key in setOf("detail:play", "detail:favorite", "detail:description", "detail:more") -> 0
+            key in setOf("detail:play", "detail:favorite", "detail:description", "detail:more", "detail:hosts") -> 0
             key.startsWith("detail:line:") -> 1
             key.startsWith("detail:group:") || key == "detail:reverse" || key == "detail:locate" || key == "detail:full-name" -> 2
             else -> positions.indexOfFirst { onlineEpisodeKey(lineId, entries[it], it) == key }
                 .takeIf { it >= 0 }?.let { 3 + it / columns }
         }
-        LaunchedEffect(ui.focusRevision, detail.item.id, lineId, ui.groupIndex, ui.reversed, allowInitialFocus) {
+        LaunchedEffect(ui.focusRevision, detail.item.id, lineId, ui.groupIndex, ui.reversed, allowInitialFocus, hostDialogOpen) {
+            if (hostDialogOpen) return@LaunchedEffect
             val pending = ui.pendingFocus
             val requestRevision = ui.focusRevision
             fun discard() {
@@ -286,7 +303,13 @@ internal fun OnlineDetailScreen(
                 withFrameNanos { }
                 if (!stillCurrent()) { discard(); return@LaunchedEffect }
             }
-            if (wanted.startsWith("detail:line:")) {
+            val heroIndex = heroFocusKeys.indexOf(wanted)
+            if (heroIndex >= 0) {
+                heroActions.scrollToItem(heroIndex)
+                if (!stillCurrent()) { discard(); return@LaunchedEffect }
+                withFrameNanos { }
+                if (!stillCurrent()) { discard(); return@LaunchedEffect }
+            } else if (wanted.startsWith("detail:line:")) {
                 val selected = detail.lines.indexOfFirst { "detail:line:${it.id}" == wanted }
                 if (selected >= 0) {
                     lines.scrollToItem(selected)
@@ -331,7 +354,7 @@ internal fun OnlineDetailScreen(
                         Text(detail.item.title, style = MaterialTheme.typography.headlineMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(listOf(if (detail.item.kind == "tv") "剧集" else "电影", detail.year, detail.source.name)
                             .filter(String::isNotBlank).joinToString(" · "), color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(8.dp)) {
+                        LazyRow(state = heroActions, horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(8.dp)) {
                             item {
                                 TvAction(primaryLabel, { ui.markUserInteraction(); primary?.let(onPlay) }, Modifier.widthIn(max = 240.dp).detailFocus("detail:play"),
                                     enabled = primary != null && playableSource && !starting, icon = if (starting) "loading" else "play")
@@ -343,6 +366,10 @@ internal fun OnlineDetailScreen(
                             }
                             if (detail.description.isNotBlank() || detail.attribution.isNotEmpty()) item {
                                 TvAction("完整简介", { ui.markUserInteraction(); descriptionDialog = true }, Modifier.detailFocus("detail:description"), icon = "info")
+                            }
+                            if (onlineDetailNeedsHosts(detail)) item {
+                                TvAction("检查媒体主机", { ui.markUserInteraction(); onCheckHosts() },
+                                    Modifier.detailFocus("detail:hosts"), enabled = playableSource && !starting, icon = "info")
                             }
                             item { TvAction("更多", { ui.markUserInteraction(); moreDialog = true }, Modifier.detailFocus("detail:more"), icon = "more") }
                         }

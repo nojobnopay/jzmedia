@@ -179,7 +179,7 @@ fun Modifier.focusMemory(memory: FocusMemory, key: String, focusRequester: Focus
 @Composable
 fun TvAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true,
              centerLabel: Boolean = false, icon: String? = null, fillContent: Boolean = false,
-             focusScale: Float = DesignTokens.FocusScale) {
+             focusScale: Float = DesignTokens.FocusScale, maxLines: Int = 2) {
     Button(
         onClick = onClick, enabled = enabled,
         modifier = modifier.heightIn(min = DesignTokens.ControlHeight).tvSelected(selected),
@@ -194,24 +194,25 @@ fun TvAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, s
             verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) TvIcon(icon, Modifier.padding(end = 8.dp))
             Text(text, textAlign = if (centerLabel) TextAlign.Center else TextAlign.Start,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                maxLines = maxLines, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
-fun TvInput(label: String, value: String, onValue: (String) -> Unit, modifier: Modifier = Modifier, password: Boolean = false) {
+fun TvInput(label: String, value: String, onValue: (String) -> Unit, modifier: Modifier = Modifier, password: Boolean = false,
+            keyboardType: KeyboardType? = null, enabled: Boolean = true) {
     var focused by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = modifier) {
         Text(label, style = MaterialTheme.typography.labelLarge, color = Muted)
         BasicTextField(
-            value = value, onValueChange = onValue, singleLine = true,
-            textStyle = TextStyle(color = DesignTokens.TextStrong, fontSize = 19.sp),
+            value = value, onValueChange = onValue, singleLine = true, enabled = enabled,
+            textStyle = TextStyle(color = if (enabled) DesignTokens.TextStrong else Muted, fontSize = 19.sp),
             cursorBrush = SolidColor(DesignTokens.TextStrong),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else KeyboardType.Text, imeAction = ImeAction.Done),
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType ?: if (password) KeyboardType.Password else KeyboardType.Text, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { keyboard?.hide(); focus.moveFocus(FocusDirection.Down) }),
             modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }
                 .onPreviewKeyEvent {

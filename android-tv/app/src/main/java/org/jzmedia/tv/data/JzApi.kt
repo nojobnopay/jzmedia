@@ -13,8 +13,10 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okio.BufferedSink
 import org.json.JSONObject
 import org.jzmedia.tv.BuildConfig
 import java.io.IOException
@@ -60,6 +62,11 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
     // Online catalogue work has a server-side 30-second operation deadline.
     private val onlineClient = client.newBuilder()
         .readTimeout(35, TimeUnit.SECONDS).callTimeout(35, TimeUnit.SECONDS).build()
+    // A reviewed save must not depend on a catalogue socket that went idle
+    // while the user read the domains. Keep the shared dispatcher for cancel.
+    private val onlineWriteClient = onlineClient.newBuilder()
+        .connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.SECONDS))
+        .retryOnConnectionFailure(false).build()
 
     init {
         require(token.length <= 4096 && token.none { it == '\r' || it == '\n' }) { "访问令牌格式无效" }
@@ -113,10 +120,11 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
         initialOnlineVod = supportsOnlineVod)
     fun cancelRequests() { client.dispatcher.cancelAll(); playbackClient.dispatcher.cancelAll(); onlineClient.dispatcher.cancelAll() }
     internal suspend fun requestOnline(method: String, path: String, body: JSONObject? = null,
-                                       scopeToken: String? = null): JSONObject {
+                                       scopeToken: String? = null, retryConnectionFailure: Boolean = true): JSONObject {
         require(path.startsWith("/api/online/")) { "在线请求地址无效" }
         require(scopeToken == null || Regex("[0-9a-f]{64}").matches(scopeToken)) { "在线状态身份无效" }
-        return json(method, path, body, onlineRequest = true, scopeToken = scopeToken)
+        return json(method, path, body, onlineRequest = true, scopeToken = scopeToken,
+            retryConnectionFailure = retryConnectionFailure)
     }
     suspend fun getText(path: String): String = execute("GET", path, null, 16 * 1024 * 1024, longRequest = true).toString(Charsets.UTF_8)
     suspend fun getBytes(path: String): ByteArray = execute("GET", path, null, 4 * 1024 * 1024)
@@ -125,16 +133,16 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
 
     private suspend fun json(method: String, path: String, body: JSONObject? = null, longRequest: Boolean = false,
                              receiverToken: String? = null, onlineRequest: Boolean = false,
-                             scopeToken: String? = null): JSONObject {
+                             scopeToken: String? = null, retryConnectionFailure: Boolean = true): JSONObject {
         val text = execute(method, path, body, 8 * 1024 * 1024, longRequest, receiverToken,
-            onlineRequest, scopeToken).toString(Charsets.UTF_8)
+            onlineRequest, scopeToken, retryConnectionFailure).toString(Charsets.UTF_8)
         return try { if (text.isBlank()) JSONObject() else JSONObject(text) }
         catch (_: Exception) { throw ApiException(0, "服务器返回了无法识别的数据") }
     }
 
     private suspend fun execute(method: String, path: String, body: JSONObject?, maxBytes: Int, longRequest: Boolean = false,
                                 receiverToken: String? = null, onlineRequest: Boolean = false,
-                                scopeToken: String? = null): ByteArray =
+                                scopeToken: String? = null, retryConnectionFailure: Boolean = true): ByteArray =
         suspendCancellableCoroutine { continuation ->
             val url = absoluteUrl(path)
             val request = Request.Builder().url(url).header("Accept", "application/json, text/plain, */*")
@@ -142,8 +150,19 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
             authHeadersFor(url).forEach { (key, value) -> request.header(key, value) }
             if (receiverToken != null) request.header("X-Receiver-Token", receiverToken)
             if (scopeToken != null) request.header("X-Online-State-Scope", scopeToken)
-            request.method(method, body?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType()))
-            val call = (if (onlineRequest) onlineClient else if (longRequest) playbackClient else client).newCall(request.build())
+            val encoded = body?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType())
+            val payload = if (!retryConnectionFailure && encoded != null) object : RequestBody() {
+                override fun contentType() = encoded.contentType()
+                override fun contentLength() = encoded.contentLength()
+                override fun writeTo(sink: BufferedSink) = encoded.writeTo(sink)
+                // HTTP follow-ups such as 503/Retry-After must not replay a save.
+                override fun isOneShot() = true
+            } else encoded
+            request.method(method, payload)
+            val selectedClient = if (onlineRequest) {
+                if (retryConnectionFailure) onlineClient else onlineWriteClient
+            } else if (longRequest) playbackClient else client
+            val call = selectedClient.newCall(request.build())
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {

@@ -51,6 +51,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -136,44 +137,49 @@ internal fun OnlineBrowseToolbar(section: String, query: String, source: OnlineS
 internal fun OnlineFilterRows(tree: OnlineTaxonomy, rootId: String, categoryId: String, year: String,
                               yearSupported: Boolean, onRoot: (String) -> Unit, onCategory: (String) -> Unit,
                               onMore: (String) -> Unit, onYear: (String) -> Unit, onOtherYear: () -> Unit,
-                              focus: (String) -> Modifier) {
+                              focus: (String) -> Modifier, browseSupported: Boolean = true) {
     val roots = onlineVisibleChannels(tree, rootId)
     val children = onlineVisibleCategories(tree, rootId, categoryId)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("分类", color = Muted, style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TvAction("全部", { onRoot("") }, focus("online:root:all"), selected = rootId.isBlank())
-                roots.forEach { channel ->
-                    TvAction(channel.label, { onRoot(channel.id) }, focus("online:root:${channel.id}"), selected = rootId == channel.id)
-                }
-                if (tree.channels.size > roots.size) TvAction("更多", { onMore("") }, focus("online:more-roots"), icon = "filter")
-            }
-        }
-        if (children.isNotEmpty()) key(rootId) {
+        if (browseSupported) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("细类", color = Muted, style = MaterialTheme.typography.labelLarge)
+                Text("分类", color = Muted, style = MaterialTheme.typography.labelLarge)
                 Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    children.forEach { category ->
-                        TvAction(onlineTaxonomyLabel(tree, category.id), { onCategory(category.id) },
-                            focus("online:category:${category.id}").widthIn(max = 190.dp), selected = categoryId == category.id)
+                    TvAction("全部", { onRoot("") }, focus("online:root:all"), selected = rootId.isBlank())
+                    roots.forEach { channel ->
+                        TvAction(channel.label, { onRoot(channel.id) }, focus("online:root:${channel.id}"), selected = rootId == channel.id)
                     }
-                    if (onlineAllCategoriesForChannel(tree, rootId).size > children.size)
-                        TvAction("更多", { onMore(rootId) }, focus("online:more-categories"), icon = "filter")
+                    if (tree.channels.size > roots.size) TvAction("更多", { onMore("") }, focus("online:more-roots"), icon = "filter")
+                }
+            }
+            if (children.isNotEmpty()) key(rootId) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("细类", color = Muted, style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        children.forEach { category ->
+                            TvAction(onlineTaxonomyLabel(tree, category.id), { onCategory(category.id) },
+                                focus("online:category:${category.id}").widthIn(max = 190.dp), selected = categoryId == category.id)
+                        }
+                        if (onlineAllCategoriesForChannel(tree, rootId).size > children.size)
+                            TvAction("更多", { onMore(rootId) }, focus("online:more-categories"), icon = "filter")
+                    }
                 }
             }
         }
-        if (yearSupported) {
-            val current = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).coerceIn(1004, 9999)
-            val years = (0..4).map { (current - it).toString() }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("年份", color = Muted, style = MaterialTheme.typography.labelLarge)
+        Row(Modifier.fillMaxWidth().heightIn(min = DesignTokens.ControlHeight), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("年份", color = Muted, style = MaterialTheme.typography.labelLarge)
+            if (browseSupported && yearSupported) {
+                val current = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).coerceIn(1004, 9999)
+                val years = (0..4).map { (current - it).toString() }
                 Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TvAction("全部", { onYear("") }, focus("online:year:all"), selected = year.isBlank())
                     years.forEach { candidate -> TvAction(candidate, { onYear(candidate) }, focus("online:year:$candidate"), selected = year == candidate) }
                     val other = year.takeIf { it.isNotBlank() && it !in years }
                     TvAction(other ?: "其他", onOtherYear, focus("online:year:other"), selected = other != null)
                 }
+            } else {
+                Text("当前视频源暂未开放年份筛选", Modifier.weight(1f), color = Muted)
             }
         }
     }
@@ -337,7 +343,7 @@ internal fun OnlineYearDialog(value: String, onValue: (String) -> Unit, onApply:
         Column(Modifier.fillMaxWidth(.55f).heightIn(max = tvDialogMaxHeight(.86f))
             .background(Panel, RoundedCornerShape(DesignTokens.DialogRadius)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("其他年份", style = MaterialTheme.typography.headlineSmall)
-            TvInput("四位年份，留空为全部", value, onValue, Modifier.fillMaxWidth())
+            TvInput("四位年份，留空为全部", value, onValue, Modifier.fillMaxWidth(), keyboardType = KeyboardType.Number)
             if (error.isNotBlank()) Text(error, color = DesignTokens.Error)
             listOf("12345", "67890").forEachIndexed { rowIndex, digits ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

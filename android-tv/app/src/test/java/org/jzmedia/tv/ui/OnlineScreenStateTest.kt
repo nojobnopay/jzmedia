@@ -102,6 +102,28 @@ class OnlineScreenStateTest {
         assertEquals(0, onlineFocusItemIndex(page, "online:source-button"))
     }
 
+    @Test fun yearStatusRowsKeepResultFocusPositionsWithoutInventingUnsupportedFilterTargets() {
+        val page = OnlineScreenState()
+        page.sourceId = source.id
+        page.results = OnlineSearchPage(source, listOf(OnlineSearchItem("one", "One", "", "movie", "")), 1, 2, 2)
+        page.sources = OnlineSources(true, listOf(source))
+
+        assertEquals(3, onlineFocusItemIndex(page, "online:result:one"))
+        assertEquals(4, onlineFocusItemIndex(page, "online:next-search"))
+        assertEquals(2, onlineFocusItemIndex(page, "online:retry-search"))
+        assertNull(onlineFocusItemIndex(page, "online:root:all"))
+        assertNull(onlineFocusItemIndex(page, "online:year:all"))
+
+        page.sources = OnlineSources(true, listOf(source.copy(yearFilterSupported = true)))
+        assertNull(onlineFocusItemIndex(page, "online:year:2026"))
+        page.sources = OnlineSources(true, listOf(source.copy(browseSupported = true)))
+        assertEquals(1, onlineFocusItemIndex(page, "online:root:all"))
+        assertNull(onlineFocusItemIndex(page, "online:year:2026"))
+        page.sources = OnlineSources(true, listOf(source.copy(browseSupported = true, yearFilterSupported = true)))
+        assertEquals(1, onlineFocusItemIndex(page, "online:year:2026"))
+        assertEquals(3, onlineFocusItemIndex(page, "online:result:one"))
+    }
+
     @Test fun catalogueReturnPositionIsIsolatedBySourceFilterAndPage() {
         val page = OnlineScreenState()
         page.sourceId = source.id

@@ -11,8 +11,8 @@ import kotlinx.coroutines.launch
 /** A stopped scan may still own blocking probes, but cannot update a newer scan's UI. */
 internal class DiscoveryScan(
     private val scope: CoroutineScope,
-    private val scan: suspend ((Int, Int) -> Unit) -> List<DiscoveredServer> = { progress ->
-        ServerDiscovery.scan(onProgress = progress)
+    private val scan: suspend (Int, (Int, Int) -> Unit) -> List<DiscoveredServer> = { port, progress ->
+        ServerDiscovery.scan(port = port, onProgress = progress)
     },
 ) {
     private val generation = AtomicLong()
@@ -25,16 +25,18 @@ internal class DiscoveryScan(
     }
 
     fun start(
+        port: Int,
         onProgress: (Int, Int) -> Unit,
         onResult: (List<DiscoveredServer>) -> Unit,
         onFailure: () -> Unit,
         onFinished: () -> Unit,
     ): Job {
+        require(port in 1..65535) { "Discovery port must be between 1 and 65535" }
         cancel()
         val current = generation.get()
         return scope.launch {
             try {
-                val found = scan { done, total ->
+                val found = scan(port) { done, total ->
                     // Probes run on IO; publish on the caller's scope after checking
                     // ownership again, including callbacks already queued at cancellation.
                     scope.launch { if (generation.get() == current) onProgress(done, total) }

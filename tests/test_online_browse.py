@@ -272,55 +272,102 @@ def test_metadata_name_lists_have_entry_and_text_limits(environment):
         assert all(len(value) <= limit for value in item[field])
 
 
+@pytest.mark.parametrize("host", ["bfzyapi.com", "cj.lziapi.com"])
 @pytest.mark.parametrize("url,options,provider,supported", [
-    ("https://bfzyapi.com/api.php/provide/vod/", {}, "maccms", True),
-    ("https://bfzyapi.com/api.php/provide/vod", {}, "maccms", True),
-    ("https://BFZYAPI.COM:443/api.php/provide/vod/", {"detail_action": "detail"}, "maccms", True),
-    ("http://bfzyapi.com/api.php/provide/vod/", {}, "maccms", False),
-    ("https://bfzyapi.com:444/api.php/provide/vod/", {}, "maccms", False),
-    ("https://bfzyapi.com.evil.invalid/api.php/provide/vod/", {}, "maccms", False),
-    ("https://bfzyapi.com/other", {}, "maccms", False),
-    ("https://bfzyapi.com/api.php/provide/vod//", {}, "maccms", False),
-    ("https://bfzyapi.com/api.php/provide/vod/?ac=detail", {}, "maccms", False),
-    ("https://bfzyapi.com/api.php/provide/vod/#fragment", {}, "maccms", False),
-    ("https://user:password@bfzyapi.com/api.php/provide/vod/", {}, "maccms", False),
-    ("https://bfzyapi.com/api.php/provide/vod/\n", {}, "maccms", False),
-    ("https://bfzyapi.com/api.php/provide/vod/", {"detail_action": "list"}, "maccms", False),
-    ("https://bfzyapi.com/api.php/provide/vod/", {}, "open_catalog", False),
+    ("https://{host}/api.php/provide/vod/", {}, "maccms", True),
+    ("https://{host}/api.php/provide/vod", {}, "maccms", True),
+    ("https://{upper_host}:443/api.php/provide/vod/", {"detail_action": "detail"}, "maccms", True),
+    ("http://{host}/api.php/provide/vod/", {}, "maccms", False),
+    ("https://{host}:444/api.php/provide/vod/", {}, "maccms", False),
+    ("https://{host}.evil.invalid/api.php/provide/vod/", {}, "maccms", False),
+    ("https://{host}/other", {}, "maccms", False),
+    ("https://{host}/api.php/provide/vod//", {}, "maccms", False),
+    ("https://{host}/api.php/provide/vod/?ac=detail", {}, "maccms", False),
+    ("https://{host}/api.php/provide/vod/#fragment", {}, "maccms", False),
+    ("https://user:password@{host}/api.php/provide/vod/", {}, "maccms", False),
+    ("https://{host}/api.php/provide/vod/\n", {}, "maccms", False),
+    ("https://{host}/api.php/provide/vod/", {"detail_action": "list"}, "maccms", False),
+    ("https://{host}/api.php/provide/vod/", {}, "open_catalog", False),
 ])
-def test_year_capability_is_specific_to_the_verified_endpoint(url, options, provider, supported):
+def test_year_capability_is_specific_to_the_verified_endpoint(host, url, options, provider, supported):
+    url = url.format(host=host, upper_host=host.upper())
     assert maccms.supports_year_filter({"provider": provider, "provider_options": options, "api_base_url": url}) is supported
 
 
-def baofeng_source():
+@pytest.mark.parametrize("host", ["cj.lzcaiji.com", "www.cj.lziapi.com", "api.lziapi.com", "cj-lziapi.com"])
+def test_unverified_liangzi_hosts_do_not_inherit_year_support(host):
+    assert maccms.supports_year_filter({"provider": "maccms", "provider_options": {},
+        "api_base_url": f"https://{host}/api.php/provide/vod/"}) is False
+
+
+def year_filter_source(host="bfzyapi.com"):
     return online.create_online_source({"name": "已核对年份的隔离接口", "provider": "maccms",
-        "api_base_url": "https://bfzyapi.com/api.php/provide/vod/", "allowed_hosts": ["cdn.example"], "enabled": True})
+        "api_base_url": f"https://{host}/api.php/provide/vod/", "allowed_hosts": ["cdn.example"], "enabled": True})
 
 
-def test_sources_declare_year_support_only_for_verified_endpoint_without_network(environment):
-    checked = baofeng_source()
+@pytest.mark.parametrize("host", ["bfzyapi.com", "cj.lziapi.com"])
+def test_sources_declare_year_support_only_for_verified_endpoint_without_network(environment, host):
+    checked = year_filter_source(host)
+    backup = year_filter_source("cj.lzcaiji.com")
     response = environment.client.get("/api/online/catalog/sources")
     assert response.status_code == 200
     values = {item["id"]: item["capabilities"]["year_filter"] for item in response.json()["items"]}
     assert values[checked["id"]] is True
+    assert values[backup["id"]] is False
     assert values[environment.source["id"]] is False
     assert environment.requests == []
 
 
 @pytest.mark.parametrize("year", ["1000", "2026", "9999"])
-def test_year_is_forwarded_to_the_real_upstream_query(environment, monkeypatch, year):
-    source = baofeng_source()
+@pytest.mark.parametrize("host,page", [("bfzyapi.com", 1), ("cj.lziapi.com", 2)])
+def test_year_is_forwarded_to_the_real_upstream_query(environment, monkeypatch, year, host, page):
+    source = year_filter_source(host)
     calls = []
     def fetch(_source, params):
         calls.append(params)
-        return {"list": [{**environment.movie, "vod_year": year}], "total": 7,
+        assert _source["api_base_url"] == f"https://{host}/api.php/provide/vod/"
+        return {"list": [{**environment.movie, "vod_year": year}], "page": page, "pagecount": 3, "total": 7,
                 "class": [{"type_id": 71, "type_name": "都市脑洞", "type_pid": 0}]}
     monkeypatch.setattr(maccms, "fetch", fetch)
     response = environment.client.get("/api/online/catalog/browse", params={
-        "source_id": source["id"], "category_id": "71", "year": year})
+        "source_id": source["id"], "category_id": "71", "year": year, "page": page})
     assert response.status_code == 200
-    assert response.json()["total"] == 7 and response.json()["items"][0]["year"] == year
-    assert calls == [{"ac": "detail", "pg": "1", "t": "71", "year": year}]
+    body = response.json()
+    assert body["page"] == page and body["page_count"] == 3 and body["total"] == 7
+    assert body["items"][0]["year"] == year
+    assert calls == [{"ac": "detail", "pg": str(page), "t": "71", "year": year}]
+
+
+def test_liangzi_year_pages_and_empty_results_keep_upstream_pagination(environment, monkeypatch):
+    source = year_filter_source("cj.lziapi.com")
+    calls = []
+
+    def fetch(_source, params):
+        calls.append(params)
+        page = int(params["pg"])
+        rows = ([{**environment.movie, "vod_id": f"year-page-{page}", "vod_year": params["year"]}]
+                if params["year"] == "2024" else [])
+        return {"list": rows, "page": page, "pagecount": 7 if rows else 0, "total": 21 if rows else 0,
+                "class": [{"type_id": 71, "type_name": "都市脑洞", "type_pid": 0}]}
+
+    monkeypatch.setattr(maccms, "fetch", fetch)
+    query = {"source_id": source["id"], "category_id": "71", "year": "2024"}
+    first_response = environment.client.get("/api/online/catalog/browse", params={**query, "page": 1})
+    second_response = environment.client.get("/api/online/catalog/browse", params={**query, "page": 2})
+    empty_response = environment.client.get("/api/online/catalog/browse", params={**query, "year": "1900"})
+    assert first_response.status_code == second_response.status_code == empty_response.status_code == 200
+    first, second, empty = first_response.json(), second_response.json(), empty_response.json()
+    assert first["page"] == 1 and second["page"] == 2
+    assert first["total"] == second["total"] == 21
+    assert first["page_count"] == second["page_count"] == 7
+    assert [item["external_id"] for item in first["items"]] == ["year-page-1"]
+    assert [item["external_id"] for item in second["items"]] == ["year-page-2"]
+    assert empty["items"] == [] and empty["total"] == empty["page_count"] == 0
+    # Each selected year/page is one source request; do not fetch unfiltered
+    # pages and turn a current-page subset into a purported catalogue result.
+    assert calls == [{"ac": "detail", "pg": "1", "t": "71", "year": "2024"},
+                     {"ac": "detail", "pg": "2", "t": "71", "year": "2024"},
+                     {"ac": "detail", "pg": "1", "t": "71", "year": "1900"}]
 
 
 @pytest.mark.parametrize("year", ["99", "0000", "20260", "٢٠٢٦", "2026\n", " 2026", "2e26", "-001"])
