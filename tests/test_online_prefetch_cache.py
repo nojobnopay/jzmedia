@@ -135,6 +135,157 @@ def test_remember_is_passive_and_real_demand_starts_at_most_two_downloads(harnes
     harness.cache.release(ticket)
 
 
+def test_longer_default_window_caches_more_realistic_segments_within_budgets():
+    # A 3-second segment near the size observed in a real playback sample.
+    # Reuse the immutable bytes to test accounting without allocating a movie.
+    body = b"x" * 880_404
+    defaults = SessionLimits()
+
+    def download_window(**changes):
+        limits = replace(defaults, **changes)
+        harness = Harness(max_segment_response_bytes=limits.max_segment_response_bytes,
+                          prefetch_seconds=limits.prefetch_seconds,
+                          prefetch_max_segments=limits.prefetch_max_segments,
+                          prefetch_session_bytes=limits.prefetch_session_bytes,
+                          prefetch_global_bytes=limits.prefetch_global_bytes,
+                          max_session_bytes=limits.max_session_bytes,
+                          max_reserved_bytes=limits.max_reserved_bytes,
+                          max_session_active=limits.max_session_active)
+        session = harness.session()
+        resources = harness.resources(session, 80)
+        harness.remember(session, resources, duration=3)
+        reads = []
+
+        def fetch(owner, resource, lease):
+            reads.append(resource.id)
+            assert harness.cache.set_length(owner, resource, lease, len(body))
+            lease.consume(len(body))
+            return CachedSegment(200, {"Content-Length": str(len(body))}, body)
+
+        harness.cache.fetch = fetch
+        ticket = harness.cache.demand(session, resources[0])
+        peak_active = 0
+        for _ in range(100):
+            peak_active = max(peak_active, harness.registry.stats()["active_requests"])
+            assert harness.cache.stats()["bytes"] <= limits.prefetch_session_bytes
+            assert harness.cache.stats()["bytes"] <= limits.prefetch_global_bytes
+            assert harness.registry.stats()["reserved_bytes"] <= limits.max_reserved_bytes
+            if not harness.jobs:
+                break
+            harness.run()
+        else:
+            pytest.fail("prefetch did not stop at the window boundary")
+        assert ticket.future.result().body == body
+        assert reads == [resource.id for resource in resources[:len(reads)]]
+        assert harness.registry.stats()["consumed_bytes"] == len(reads) * len(body)
+        assert harness.registry.stats()["active_requests"] == 0
+        assert harness.registry.stats()["reserved_bytes"] == 0
+        harness.cache.release(ticket)
+        harness.registry.close_all()
+        assert harness.cache.stats()["bytes"] == 0
+        return len(reads) - 1, peak_active
+
+    old = download_window(prefetch_seconds=90, prefetch_max_segments=24,
+                          prefetch_session_bytes=64 * 1024**2,
+                          prefetch_global_bytes=128 * 1024**2)
+    new = download_window()
+    assert old == (24, 2)
+    assert new == (60, 2)  # 60 complete three-second segments, not just a larger setting.
+
+
+def test_seek_and_close_retire_a_long_default_window():
+    harness = Harness(max_session_active=2)
+    session = harness.session()
+    resources = harness.resources(session, 80)
+    harness.remember(session, resources, duration=3)
+    first = harness.cache.demand(session, resources[0])
+    harness.run()  # Current segment completes while the old prefetch is pending.
+    seek = harness.cache.demand(session, resources[70])
+    harness.run()  # The obsolete background worker exits before releasing its slot.
+    harness.run()  # The new foreground request completes.
+    assert seek.future.result().body == b"data"
+    assert [read[1] for read in harness.reads] == [resources[0].id, resources[70].id]
+    assert harness.jobs, "the new position should have its own lookahead"
+    harness.registry.close(session.id, session.owner)
+    harness.cache.release(first)
+    harness.cache.release(seek)
+    harness.drain()
+    assert [read[1] for read in harness.reads] == [resources[0].id, resources[70].id]
+    assert harness.cache.stats()["entries"] == harness.cache.stats()["bytes"] == 0
+    assert harness.registry.stats()["active_requests"] == harness.registry.stats()["reserved_bytes"] == 0
+
+
+def test_short_segments_remain_bounded_by_the_default_fragment_limit():
+    harness = Harness(prefetch_session_bytes=4096, prefetch_global_bytes=8192,
+                      max_session_active=2)
+    session = harness.session()
+    resources = harness.resources(session, 120)
+    harness.remember(session, resources, duration=1)
+    ticket = harness.cache.demand(session, resources[0])
+    harness.drain()
+    assert [read[1] for read in harness.reads] == [resource.id for resource in resources[:97]]
+    assert harness.cache.stats()["prefetch_completed"] == 96
+    harness.cache.release(ticket)
+    harness.registry.close_all()
+
+
+def test_long_windows_share_global_budget_and_survive_other_session_close():
+    limits = SessionLimits()
+    harness = Harness(max_segment_response_bytes=limits.max_segment_response_bytes,
+                      prefetch_session_bytes=limits.prefetch_session_bytes,
+                      prefetch_global_bytes=limits.prefetch_global_bytes,
+                      max_session_bytes=limits.max_session_bytes,
+                      max_reserved_bytes=limits.max_reserved_bytes,
+                      max_session_active=limits.max_session_active)
+    first, second = harness.session("first"), harness.session("second")
+    first_resources = harness.resources(first, 6, prefix="first")
+    second_resources = harness.resources(second, 6, prefix="second")
+    harness.remember(first, first_resources, duration=3)
+    harness.remember(second, second_resources, duration=3)
+    # A maximum-sized segment stresses both limits without allocating one copy
+    # per cache entry. This tests accounting, not process RSS.
+    body = b"x" * limits.max_segment_response_bytes
+    reads = []
+
+    def fetch(owner, resource, lease):
+        reads.append((owner.id, resource.id))
+        assert harness.cache.set_length(owner, resource, lease, len(body))
+        lease.consume(len(body))
+        return CachedSegment(200, {"Content-Length": str(len(body))}, body)
+
+    harness.cache.fetch = fetch
+    first_ticket = harness.cache.demand(first, first_resources[0])
+    second_ticket = harness.cache.demand(second, second_resources[0])
+
+    def drain_bounded():
+        for _ in range(100):
+            cache = harness.cache.stats()
+            assert cache["bytes"] <= limits.prefetch_global_bytes
+            assert cache["entries"] <= limits.prefetch_max_entries
+            for session in (first, second):
+                assert harness.cache._size_locked(session.id) <= limits.prefetch_session_bytes
+            assert harness.registry.stats()["reserved_bytes"] <= limits.max_reserved_bytes
+            if not harness.jobs:
+                return
+            harness.run()
+        pytest.fail("shared cache did not stop at its budget")
+
+    drain_bounded()
+    assert harness.cache.stats()["bytes"] == limits.prefetch_global_bytes
+    assert first_ticket.future.result().body is body
+    assert second_ticket.future.result().body is body
+    second_reads = sum(owner == second.id for owner, _resource in reads)
+    harness.registry.close(first.id, first.owner)
+    harness.cache.release(first_ticket)
+    assert second_ticket.future.result().body is body
+    harness.cache.release(second_ticket)
+    drain_bounded()
+    assert sum(owner == second.id for owner, _resource in reads) > second_reads
+    harness.registry.close(second.id, second.owner)
+    assert harness.cache.stats()["entries"] == harness.cache.stats()["bytes"] == 0
+    assert harness.registry.stats()["active_requests"] == harness.registry.stats()["reserved_bytes"] == 0
+
+
 def test_foreground_coalesces_and_cache_hit_does_not_read_upstream_again(harness):
     session = harness.session()
     resource = harness.resources(session, 1)[0]
