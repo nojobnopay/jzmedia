@@ -13,6 +13,15 @@ class OnlineTaxonomyTest {
         OnlineCategory("special", "特别篇", "domestic"), OnlineCategory("urban", "都市脑洞", "short"),
     )
 
+    @Test fun searchRootLabelsExplainAllDescendantsWhileDirectoryLabelsStayExact() {
+        val tree = onlineTaxonomy(rows)
+        val whole = OnlineCatalogSelection("source", "片名", "tv", categoryScope = "descendants")
+        assertEquals("连续剧（全部子分类）", onlineSearchCategoryLabel(tree, whole))
+        assertEquals("连续剧 / 国产剧", onlineSearchCategoryLabel(tree, whole.copy(categoryId = "domestic", categoryScope = "exact")))
+        assertEquals("连续剧综合条目", onlineTaxonomyLabel(tree, "tv"))
+        assertNull(onlineSearchCategoryLabel(tree, whole.copy(categoryId = "")))
+    }
+
     @Test fun emptyFlatAndInvalidRowsNeverInventCategories() {
         assertTrue(onlineTaxonomy(emptyList()).channels.isEmpty())
         val tree = onlineTaxonomy(listOf(OnlineCategory("one", "电影"), OnlineCategory("two", "剧集", "missing"),

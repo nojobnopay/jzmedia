@@ -90,7 +90,7 @@ data class OnlineIdentity(val sourceId: String, val itemId: String, val kind: St
 data class OnlineSource(val id: String, val name: String, val provider: String,
                         val priority: Int = 100, val enabled: Boolean = true,
                         val browseSupported: Boolean = false, val yearFilterSupported: Boolean = false,
-                        val configurationToken: String = "") {
+                        val configurationToken: String = "", val searchFiltersSupported: Boolean = false) {
     companion object {
         fun fromJson(value: JSONObject): OnlineSource {
             val capabilities = value.optionalObject("capabilities")
@@ -100,7 +100,8 @@ data class OnlineSource(val id: String, val name: String, val provider: String,
             if (value.has("enabled")) value.boolean("enabled") else true,
             if (capabilities?.has("browse") == true) capabilities.boolean("browse") else false,
             if (capabilities?.has("year_filter") == true) capabilities.boolean("year_filter") else false,
-            value.catalogToken("configuration_token"))
+            value.catalogToken("configuration_token"),
+            if (capabilities?.has("search_filters") == true) capabilities.boolean("search_filters") else false)
         }
     }
 }
@@ -133,6 +134,41 @@ data class OnlineSearchPage(val source: OnlineSource, val items: List<OnlineSear
             value.integer("page").also { require(it in 1L..1000L) }.toInt(),
             value.integer("page_count").also { require(it <= Int.MAX_VALUE) }.toInt(), value.integer("total").also { require(it <= Int.MAX_VALUE) }.toInt(), categories)
     } }
+}
+
+/** A window of the collected search prefix. A missing total is deliberately not zero. */
+data class OnlineSearchSession(val sessionId: String, val version: Int, val source: OnlineSource,
+                               val configurationToken: String, val query: String, val status: String,
+                               val items: List<OnlineSearchItem>, val categories: List<OnlineCategory>,
+                               val scanned: Int, val found: Int, val total: Int?, val hasMore: Boolean,
+                               val canContinue: Boolean, val errorCode: String, val validatedAt: Long) {
+    val complete: Boolean get() = status == "complete"
+    companion object {
+        fun fromJson(value: JSONObject): OnlineSearchSession {
+            val source = OnlineSource.fromJson(value.getJSONObject("source"))
+            fun count(name: String) = value.integer(name).also { require(it <= 5000) }.toInt()
+            val status = value.string("status", 16).also { require(it in setOf("loading", "partial", "complete", "error")) }
+            val categories = value.list("categories", 256).map(OnlineCategory::fromJson)
+            val items = value.list("items", 100).map { OnlineSearchItem.fromJson(it, source.id) }
+            val scanned = count("scanned")
+            val found = count("found")
+            val total = if (value.isNull("total")) null else count("total")
+            require(found <= scanned && items.size <= found)
+            require(categories.map { it.id }.distinct().size == categories.size)
+            require(items.map { it.externalId }.distinct().size == items.size)
+            require((status == "complete") == (total != null) && (total == null || total == found))
+            return OnlineSearchSession(checkedOnlineSearchSession(value.string("session_id")),
+                value.integer("version").also { require(it <= Int.MAX_VALUE) }.toInt(), source,
+                value.string("configuration_token", 64).also { require(ONLINE_SCOPE.matches(it)) },
+                value.string("query", 100).also { require(it.isNotBlank()) }, status, items, categories,
+                scanned, found, total, value.boolean("has_more"), value.boolean("can_continue"),
+                value.string("error_code", 128), value.integer("validated_at"))
+        }
+    }
+}
+
+internal fun checkedOnlineSearchSession(value: String): String = value.also {
+    require(Regex("srch_[0-9a-f]{32}").matches(it))
 }
 data class OnlineCatalogItem(val id: String, val sourceId: String, val kind: String,
                              val title: String, val externalId: String = "") {
@@ -293,6 +329,12 @@ fun onlineErrorMessage(error: Throwable): String = when ((error as? ApiException
     "provider_page_unsupported" -> "此线路的网页结构暂不支持，请返回详情选择 lzm3u8 线路。"
     "provider_page_invalid" -> "视频源网页解析失败，请重试或选择 lzm3u8 线路。"
     "online_source_changed" -> "视频源或网络配置已变化，请返回详情重新播放。"
+    "online_search_filters_unsupported", "online_search_filter_unsupported" -> "当前服务暂不支持搜索内筛选，请升级服务端或清空片名后浏览分类。"
+    "online_search_session_expired" -> "搜索会话已过期，请刷新搜索；筛选条件会保留。"
+    "online_search_limit", "online_search_session_limit", "online_search_limit_reached" -> "搜索范围超过读取上限，请使用更具体的片名。"
+    "online_search_results_changed" -> "来源搜索结果已变化，请刷新搜索后继续。"
+    "online_search_category_unavailable" -> "暂时无法取得完整分类资料，请刷新搜索后重试。"
+    "provider_timeout", "network_timeout" -> "连接视频源超时，可保留当前结果并稍后继续检索。"
     "provider_not_found", "online_identity_not_found" -> "内容或播放线路已变化，请返回详情重新选择。"
     "invalid_online_response" -> "服务器返回了无法识别的在线数据，请更新服务端后重试。"
     else -> when ((error as? ApiException)?.status) {

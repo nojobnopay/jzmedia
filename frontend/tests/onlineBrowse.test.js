@@ -383,3 +383,17 @@ test('display equality ignores transport metadata and missing taxonomy but detec
     { ...response(), items: [second, ...response().items] }), false)
   assert.equal(onlineBrowseResponseEqual(current, { status: 'deferred' }), false)
 })
+
+test('progressive snapshots retain category scope and invalidate when search filtering is withdrawn', () => {
+  const memory = createOnlineBrowseMemory()
+  const progressiveSource = { ...source, capabilities: { ...source.capabilities, search_filters: true } }
+  const progressive = { session_id: 'srch_' + 'a'.repeat(32), version: 2, query: '原片名', status: 'partial', scanned: 100, found: 40 }
+  const selected = { categoryId: '71', categoryScope: 'descendants', query: '原片名' }
+  assert.equal(memory.save(snapshot({ source: progressiveSource, ...selected,
+    response: { ...response(), progressive, items: Array.from({ length: 120 }, (_, index) => ({ external_id: 'row-' + index, title: '片名' + index })) } })), true)
+  assert.equal(memory.read(scope, progressiveSource, selected).response.items.length, 120)
+  assert.equal(memory.read(scope, progressiveSource, { ...selected, categoryScope: 'exact' }), null)
+  const unsupported = { ...progressiveSource, capabilities: { ...progressiveSource.capabilities, search_filters: false } }
+  assert.equal(memory.read(scope, unsupported, selected), null)
+  assert.equal(memory.last(scope, [unsupported]), null)
+})

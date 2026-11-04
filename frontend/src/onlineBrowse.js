@@ -12,6 +12,8 @@ const SCOPE = /^[0-9a-f]{64}:(?:normal|private):\d+:\d+$/
 const clone = value => JSON.parse(JSON.stringify(value))
 const identity = value => typeof value === 'string' && /^[A-Za-z0-9_-]{0,128}$/.exec(value)?.[0] === value
 const validYear = value => typeof value === 'string' && (!value || /^[1-9][0-9]{3}$/.exec(value)?.[0] === value)
+const validCategoryScope = value => ['exact', 'descendants'].includes(value)
+const supportsYear = (source, query) => source.capabilities?.year_filter === true || !!query && source.capabilities?.search_filters === true
 
 function validSelections(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
@@ -54,18 +56,18 @@ export function createOnlineBrowseMemory({ clock = Date.now, maxBytes = MAX_BYTE
     for (const [key, entry] of entries) if (now - entry.savedAt >= navigationTtl) remove(key)
   }
   function valid(scope, source) { return SCOPE.test(scope || '') && SOURCE.test(source?.id || '') && TOKEN.test(source?.configuration_token || '') }
-  function key(scope, source, categoryId, query, page, year, channelId) {
-    return JSON.stringify([scope, source.id, source.configuration_token, categoryId, query, page, year, channelId])
+  function key(scope, source, categoryId, query, page, year, channelId, categoryScope = 'exact') {
+    return JSON.stringify([scope, source.id, source.configuration_token, categoryId, query, page, year, channelId, categoryScope])
   }
   const sizeOf = value => new TextEncoder().encode(JSON.stringify(value)).byteLength
   const hasCategories = rows => Array.isArray(rows) && rows.length > 0
   const matches = (entry, scope, source) => entry.scope === scope && entry.value.sourceId === source.id
     && entry.value.configuration === source.configuration_token
-  function selectionKey(scope, source, { categoryId = '', query = '', page = 1, year = '', channelId = '' } = {}) {
-    if (!valid(scope, source) || !identity(categoryId) || !identity(channelId) || !validYear(year)
-      || year && source.capabilities?.year_filter !== true || typeof query !== 'string' || query.length > 100
+  function selectionKey(scope, source, { categoryId = '', query = '', page = 1, year = '', channelId = '', categoryScope = 'exact' } = {}) {
+    if (!valid(scope, source) || !identity(categoryId) || !identity(channelId) || !validYear(year) || !validCategoryScope(categoryScope)
+      || year && !supportsYear(source, query) || typeof query !== 'string' || query.length > 100
       || !Number.isInteger(page) || page < 1 || page > 1000) return null
-    return key(scope, source, categoryId, query, page, year, channelId)
+    return key(scope, source, categoryId, query, page, year, channelId, categoryScope)
   }
   function read(entry) {
     if (!entry) return null
@@ -112,18 +114,20 @@ export function createOnlineBrowseMemory({ clock = Date.now, maxBytes = MAX_BYTE
     }
   }
   return {
-    save({ scope, source, categoryId = '', query = '', inputQuery = query, year = '', channelId = '', channelSelections = {},
+    save({ scope, source, categoryId = '', query = '', inputQuery = query, year = '', channelId = '', channelSelections = {}, categoryScope = 'exact',
       response, loadedAt = clock(), position = null }) {
-      if (!valid(scope, source) || !identity(categoryId) || !identity(channelId) || !validYear(year) || year && source.capabilities?.year_filter !== true || !validSelections(channelSelections)
+      if (!valid(scope, source) || !identity(categoryId) || !identity(channelId) || !validYear(year) || !validCategoryScope(categoryScope)
+        || year && !supportsYear(source, query) || !validSelections(channelSelections)
         || typeof query !== 'string' || query.length > 100 || typeof inputQuery !== 'string' || inputQuery.length > 100
         || !response || !Number.isInteger(response.page) || response.page < 1 || response.page > 1000
-        || !Array.isArray(response.items) || response.items.length > 100 || !Number.isFinite(loadedAt)) return false
+        || !Array.isArray(response.items) || response.items.length > (response.progressive ? 5000 : 100)
+        || response.progressive && source.capabilities?.search_filters !== true || !Number.isFinite(loadedAt)) return false
       prune()
-      const selected = key(scope, source, categoryId, query, response.page, year, channelId)
+      const selected = key(scope, source, categoryId, query, response.page, year, channelId, categoryScope)
       const previous = entries.get(selected)
       let value, bytes
       try {
-        value = clone({ sourceId: source.id, configuration: source.configuration_token, categoryId, query, year, channelId, channelSelections,
+        value = clone({ sourceId: source.id, configuration: source.configuration_token, categoryId, query, year, channelId, channelSelections, categoryScope,
           inputQuery, page: response.page, response: responseValue(response), loadedAt, position,
           lastAttemptAt: loadedAt, hasUpdate: false, pending: null, pendingLoadedAt: null })
         // Remembering position must not discard an in-flight check's attempt or
@@ -220,12 +224,13 @@ export function createOnlineBrowseMemory({ clock = Date.now, maxBytes = MAX_BYTE
       value.hasUpdate = false; value.pending = null; value.pendingLoadedAt = null
       return replaceValue(selected, value)
     },
-    read(scope, source, { categoryId = '', query = '', page = 1, year = '', channelId = '' } = {}) {
-      if (!valid(scope, source) || !identity(categoryId) || !identity(channelId) || !validYear(year)
-        || year && source.capabilities?.year_filter !== true) return null
+    read(scope, source, { categoryId = '', query = '', page = 1, year = '', channelId = '', categoryScope = 'exact' } = {}) {
+      if (!valid(scope, source) || !identity(categoryId) || !identity(channelId) || !validYear(year) || !validCategoryScope(categoryScope)
+        || year && !supportsYear(source, query)) return null
       prune()
-      const selected = key(scope, source, categoryId, query, page, year, channelId)
+      const selected = key(scope, source, categoryId, query, page, year, channelId, categoryScope)
       const entry = entries.get(selected)
+      if (entry?.value.response.progressive && source.capabilities?.search_filters !== true) return null
       if (!entry) return null
       entries.delete(selected); entries.set(selected, entry)
       return read(entry)
@@ -239,13 +244,14 @@ export function createOnlineBrowseMemory({ clock = Date.now, maxBytes = MAX_BYTE
       for (const [selected, entry] of entries) {
         const source = available.get(entry.value.sourceId)
         if (!source || !matches(entry, scope, source)
-          || entry.value.year && source.capabilities?.year_filter !== true) remove(selected)
+          || entry.value.year && !supportsYear(source, entry.value.query)
+          || entry.value.response.progressive && source.capabilities?.search_filters !== true) remove(selected)
       }
       for (const entry of [...entries.values()].reverse()) {
         const value = entry.value
         if (entry.scope === scope && (!sourceId || value.sourceId === sourceId)
           && available.get(value.sourceId)?.configuration_token === value.configuration
-          && (!value.year || available.get(value.sourceId)?.capabilities?.year_filter === true)) return read(entry)
+          && (!value.year || supportsYear(available.get(value.sourceId), value.query))) return read(entry)
       }
       return null
     },

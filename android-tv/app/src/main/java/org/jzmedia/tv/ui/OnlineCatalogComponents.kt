@@ -49,7 +49,7 @@ internal fun OnlineCatalogCard(api: JzApi, item: OnlineSearchItem, onClick: () -
 
 @Composable
 internal fun OnlineCategoryDialog(categories: List<OnlineCategory>, selected: String,
-                                  onSelect: (String) -> Unit, onClose: () -> Unit) {
+                                  onSelect: (String) -> Unit, onClose: () -> Unit, searchMode: Boolean = false) {
     val initial = (categories.indexOfFirst { it.id == selected } + 1).coerceAtLeast(0)
     val list = rememberLazyListState(initial)
     val focus = remember { FocusRequester() }
@@ -67,7 +67,8 @@ internal fun OnlineCategoryDialog(categories: List<OnlineCategory>, selected: St
                 }
                 items(categories, key = { it.id }) { category ->
                     val label = onlineCategoryLabel(categories, category.id) +
-                        if (tree.channels.any { it.id == category.id && it.children.isNotEmpty() }) "综合条目" else ""
+                        if (tree.channels.any { it.id == category.id && it.children.isNotEmpty() })
+                            if (searchMode) "（全部子分类）" else "综合条目" else ""
                     TvAction(label, { onSelect(category.id) },
                         if (selected == category.id) Modifier.fillMaxWidth().focusRequester(focus) else Modifier.fillMaxWidth(),
                         selected == category.id, fillContent = true)

@@ -10,14 +10,120 @@ import org.jzmedia.tv.data.OnlineLine
 import org.jzmedia.tv.data.OnlineProgress
 import org.jzmedia.tv.data.OnlineSearchItem
 import org.jzmedia.tv.data.OnlineSearchPage
+import org.jzmedia.tv.data.OnlineSearchSession
 import org.jzmedia.tv.data.OnlineSource
 import org.jzmedia.tv.data.OnlineSources
+import org.jzmedia.tv.data.ApiException
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 
 class OnlineScreenStateTest {
     private val source = OnlineSource("src_" + "1".repeat(32), "Source", "maccms")
     private val item = OnlineCatalogItem("itm_" + "2".repeat(32), source.id, "tv", "Show")
+    private fun searchWindow(items: List<OnlineSearchItem> = emptyList(), version: Int = 1,
+                             found: Int = items.size, complete: Boolean = false) = OnlineSearchSession(
+        "srch_" + "b".repeat(32), version, source, "a".repeat(64), "已提交片名",
+        if (complete) "complete" else "partial", items, emptyList(), 100, found,
+        if (complete) found else null, !complete, !complete, "", 1000)
+
+    @Test fun changingSearchFiltersUsesTheSubmittedWordAndPreservesUnsubmittedDrafts() {
+        val page = OnlineScreenState().apply {
+            sourceId = source.id; query = "还没有搜索的新词"; categoryId = "13"; year = "2026"
+            loadedSelection = OnlineCatalogSelection(source.id, "已提交片名", "13", "2026")
+        }
+        val category = page.categorySelection("2", "descendants")
+        assertEquals("已提交片名", category.query)
+        assertEquals("2026", category.year)
+        assertEquals("descendants", category.categoryScope)
+        assertEquals("还没有搜索的新词", page.query)
+        val year = page.yearSelection("")
+        assertEquals("已提交片名", year.query)
+        assertEquals("13", year.categoryId)
+        assertEquals("", year.year)
+        assertEquals("", page.categorySelection("").categoryId)
+    }
+
+    @Test fun submittingAWordPreservesFiltersAndSearchRootsIncludeAllTheirDescendants() {
+        val page = OnlineScreenState().apply {
+            sourceId = source.id; query = " 新片名 "; categoryId = "2"; year = "2026"
+            categories = listOf(OnlineCategory("2", "连续剧"), OnlineCategory("13", "国产剧", "2"))
+        }
+        assertEquals(OnlineCatalogSelection(source.id, "新片名", "2", "2026", "descendants"), page.submittedSelection(true))
+        assertEquals(OnlineCatalogSelection(source.id, "新片名"), page.submittedSelection(false))
+        page.query = ""
+        assertEquals(OnlineCatalogSelection(source.id, categoryId = "2", year = "2026"), page.submittedSelection(true))
+    }
+
+    @Test fun progressiveWindowsAppendWithoutDuplicatesAndKeepTheSamePositionKey() {
+        val first = OnlineSearchItem("one", "One", "", "movie", "")
+        val next = OnlineSearchItem("two", "Two", "", "tv", "")
+        val selection = OnlineCatalogSelection(source.id, "已提交片名", "2", categoryScope = "descendants")
+        val page = OnlineScreenState().apply { sourceId = source.id; loadedSelection = selection }
+        page.acceptSearchWindow(searchWindow(listOf(first), found = 2), selection)
+        val key = page.contentKey
+        val old = page.results!!.items
+        page.acceptSearchWindow(searchWindow(listOf(next), version = 2, found = 2), selection, old)
+        page.acceptSearchWindow(searchWindow(listOf(next), version = 2, found = 2), selection, old)
+        assertEquals(listOf("one", "two"), page.results!!.items.map { it.externalId })
+        assertEquals(key, page.contentKey)
+        page.acceptSearchWindow(searchWindow(listOf(first), version = 1, found = 2), selection)
+        assertEquals(listOf("one", "two"), page.results!!.items.map { it.externalId })
+        assertNull(page.searchSession!!.total)
+        assertEquals(0, page.results!!.pageCount)
+    }
+
+    @Test fun searchCapabilityDowngradeDiscardsAnOldProgressiveSession() {
+        val current = source.copy(browseSupported = true, searchFiltersSupported = true, configurationToken = "a".repeat(64))
+        val page = OnlineScreenState().apply {
+            acceptSources(OnlineSources(true, listOf(current), "b".repeat(64)))
+            searchSession = searchWindow()
+        }
+        assertTrue(page.acceptSources(OnlineSources(true, listOf(current.copy(searchFiltersSupported = false)), "b".repeat(64))))
+        assertNull(page.searchSession)
+        assertNull(page.loadedSelection)
+    }
+
+    @Test fun anUnreadOrPartialEmptyPrefixNeverClaimsThereAreNoSearchResults() {
+        assertFalse(onlineSearchSessionEmptyLabel(searchWindow()).contains("没有找到"))
+        assertTrue(onlineSearchSessionEmptyLabel(searchWindow().copy(scanned = 0)).contains("暂未读取"))
+        assertTrue(onlineSearchSessionEmptyLabel(searchWindow().copy(canContinue = false, hasMore = false)).contains("缩小关键词"))
+        assertTrue(onlineSearchSessionEmptyLabel(searchWindow(complete = true)).contains("没有找到"))
+    }
+
+    @Test fun anExpiredContinuationRebuildsOnlyOnceAndDiscardsThePreviousPrefix() = runBlocking {
+        val expiry = OnlineSearchExpiryRecovery()
+        var offset = 40
+        var prefix = listOf("old")
+        var rebuilt = 0
+        // A cached GET can succeed after the fresh period, while POST /more expires.
+        assertEquals("cached", expiry.read({ "cached" }, { error("unexpected rebuild") }))
+        val result = expiry.read({ throw ApiException(410, "expired", "online_search_session_expired") }) {
+            offset = 0; prefix = emptyList(); rebuilt++
+            "new first window"
+        }
+        assertEquals("new first window", result)
+        assertEquals(0, offset); assertTrue(prefix.isEmpty()); assertEquals(1, rebuilt)
+        try {
+            expiry.read({ throw ApiException(410, "expired again", "online_search_session_expired") }) { rebuilt++; "unexpected" }
+            fail("a second expiry must remain an error")
+        } catch (error: ApiException) { assertEquals(410, error.status) }
+        assertEquals(1, rebuilt)
+    }
+
+    @Test fun progressiveLoadMoreTargetsTheFooterAndUnsupportedFiltersHaveNoFocusTarget() {
+        val selection = OnlineCatalogSelection(source.id, "已提交片名")
+        val page = OnlineScreenState().apply {
+            sourceId = source.id; loadedSelection = selection
+            sources = OnlineSources(true, listOf(source.copy(browseSupported = true, searchFiltersSupported = true)))
+            acceptSearchWindow(searchWindow(listOf(OnlineSearchItem("one", "One", "", "tv", ""))), selection)
+        }
+        assertEquals(4, onlineFocusItemIndex(page, "online:more-search"))
+        assertEquals(4, onlineFocusItemIndex(page, "online:refresh-search"))
+        page.sources = OnlineSources(true, listOf(source.copy(browseSupported = true)))
+        assertNull(onlineFocusItemIndex(page, "online:root:all"))
+        assertNull(onlineFocusItemIndex(page, "online:year:all"))
+    }
     private val line = "ln_" + "3".repeat(32)
     private val otherLine = "ln_" + "4".repeat(32)
     private val identity = OnlineIdentity(source.id, item.id, "episode", "ep_" + "5".repeat(32), line)

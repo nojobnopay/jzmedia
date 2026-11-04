@@ -225,6 +225,7 @@ def sources(access):
                        "configuration_token": configuration,
                        "capabilities": {"search": True, "episodes": source["provider"] == "maccms", "refresh": True,
                                         "year_filter": maccms.supports_year_filter(source),
+                                        "search_filters": maccms.supports_search_filters(source),
                                         "related": supports_related(source)}})
     service._current_access(access)
     if not online_store.get_online_settings()["enabled"]:

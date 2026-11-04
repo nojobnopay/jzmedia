@@ -37,6 +37,42 @@ class OnlineApi(val api: JzApi) {
             OnlineSearchPage.fromJson(it).also { result -> require(result.source.id == sourceId && result.page == page) }
         }
     }
+    suspend fun createSearchSession(sourceId: String, q: String, categoryId: String = "", categoryScope: String = "exact",
+                                    year: String = "", offset: Int = 0, limit: Int = 20,
+                                    refresh: Boolean = false): OnlineSearchSession {
+        checkedOnlineSource(sourceId)
+        val query = q.trim().also { require(it.isNotEmpty() && it.length <= 100) }
+        val body = searchSelection(categoryId, categoryScope, year, offset, limit)
+            .put("source_id", sourceId).put("q", query).put("refresh", refresh)
+        return read("POST", "/api/online/catalog/search-sessions", body, retryConnectionFailure = false) {
+            OnlineSearchSession.fromJson(it).also { result -> require(result.source.id == sourceId && result.query == query) }
+        }
+    }
+    suspend fun searchSession(id: String, categoryId: String = "", categoryScope: String = "exact", year: String = "",
+                              offset: Int = 0, limit: Int = 20): OnlineSearchSession {
+        checkedOnlineSearchSession(id)
+        searchSelection(categoryId, categoryScope, year, offset, limit)
+        return read("GET", queryPath("/api/online/catalog/search-sessions/$id", linkedMapOf(
+            "category_id" to categoryId, "category_scope" to categoryScope, "year" to year, "offset" to offset, "limit" to limit))) {
+            OnlineSearchSession.fromJson(it).also { result -> require(result.sessionId == id) }
+        }
+    }
+    suspend fun moreSearchSession(id: String, categoryId: String = "", categoryScope: String = "exact", year: String = "",
+                                  offset: Int = 0, limit: Int = 20): OnlineSearchSession {
+        checkedOnlineSearchSession(id)
+        return read("POST", "/api/online/catalog/search-sessions/$id/more",
+            searchSelection(categoryId, categoryScope, year, offset, limit), retryConnectionFailure = false) {
+            OnlineSearchSession.fromJson(it).also { result -> require(result.sessionId == id) }
+        }
+    }
+    private fun searchSelection(categoryId: String, categoryScope: String, year: String, offset: Int, limit: Int): JSONObject {
+        if (categoryId.isNotEmpty()) checkedOnlineCatalogExternal(categoryId)
+        require(categoryScope in setOf("exact", "descendants"))
+        require(year.isEmpty() || Regex("[1-9][0-9]{3}").matches(year))
+        require(offset in 0..5000 && limit in 1..100)
+        return JSONObject().put("category_id", categoryId).put("category_scope", categoryScope).put("year", year)
+            .put("offset", offset).put("limit", limit)
+    }
     suspend fun detail(sourceId: String, externalId: String): OnlineDetail {
         checkedOnlineSource(sourceId)
         val selected = checkedOnlineCatalogExternal(externalId)

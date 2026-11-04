@@ -10,8 +10,10 @@ import org.jzmedia.tv.data.OnlineIdentity
 import org.jzmedia.tv.data.OnlineItemState
 import org.jzmedia.tv.data.OnlineLibrary
 import org.jzmedia.tv.data.OnlineSearchPage
+import org.jzmedia.tv.data.OnlineSearchSession
 import org.jzmedia.tv.data.OnlineSources
 import org.jzmedia.tv.data.OnlineCategory
+import org.jzmedia.tv.data.ApiException
 
 /** Content stays in memory for this server/viewing identity, never SavedState or preferences. */
 class OnlineScreenState {
@@ -23,6 +25,7 @@ class OnlineScreenState {
     var sourcesError by mutableStateOf("")
     var results by mutableStateOf<OnlineSearchPage?>(null)
     var loadedQuery by mutableStateOf("")
+    var searchSession by mutableStateOf<OnlineSearchSession?>(null)
     var searching by mutableStateOf(false)
     var searchError by mutableStateOf("")
     var searchPage by mutableStateOf(1)
@@ -98,11 +101,12 @@ class OnlineScreenState {
             old.scopeToken != value.scopeToken || old.enabled != value.enabled ||
             previous?.configurationToken != selected?.configurationToken ||
             previous?.browseSupported != selected?.browseSupported ||
-            previous?.yearFilterSupported != selected?.yearFilterSupported)
+            previous?.yearFilterSupported != selected?.yearFilterSupported ||
+            previous?.searchFiltersSupported != selected?.searchFiltersSupported)
         sources = value
         sourceId = selected?.id.orEmpty()
         if (invalidated) {
-            results = null; categories = emptyList(); categoryId = ""; categoryRoot = ""; channelSelections = emptyMap()
+            results = null; searchSession = null; categories = emptyList(); categoryId = ""; categoryRoot = ""; channelSelections = emptyMap()
             year = ""; yearInput = ""; query = ""; loadedQuery = ""
             loadedSelection = null; searchPage = 1; searching = false; searchError = ""; cataloguePending = true
             detail = null; detailSourceId = ""; detailExternalId = ""; detailError = ""; item = null
@@ -113,11 +117,58 @@ class OnlineScreenState {
         }
         return invalidated
     }
+
+    /** Only an explicit search submits the editor; filters keep the submitted word. */
+    internal fun submittedSelection(supportsFilters: Boolean): OnlineCatalogSelection {
+        val word = query.trim()
+        return if (word.isEmpty() || supportsFilters)
+            OnlineCatalogSelection(sourceId, word, categoryId, year,
+                if (word.isNotEmpty() && categories.any { it.id == categoryId && it.parentId.isEmpty() } &&
+                    categories.any { it.parentId == categoryId }) "descendants" else "exact")
+        else OnlineCatalogSelection(sourceId, word)
+    }
+    internal fun categorySelection(id: String, scope: String = "exact"): OnlineCatalogSelection =
+        OnlineCatalogSelection(sourceId, loadedSelection?.query.orEmpty(), id, year, scope)
+    internal fun yearSelection(value: String): OnlineCatalogSelection =
+        OnlineCatalogSelection(sourceId, loadedSelection?.query.orEmpty(), categoryId, value,
+            loadedSelection?.categoryScope ?: "exact")
+
+    internal fun acceptSearchWindow(value: OnlineSearchSession, request: OnlineCatalogSelection,
+                                    base: List<org.jzmedia.tv.data.OnlineSearchItem> = emptyList()) {
+        require(value.source.id == request.sourceId && value.query == request.query)
+        val previous = searchSession
+        if (previous?.sessionId == value.sessionId && previous.version > value.version) return
+        val combined = (base + value.items).distinctBy { it.externalId }
+        searchSession = value
+        results = OnlineSearchPage(value.source, combined, 1, if (value.complete) 1 else 0,
+            value.total ?: value.found, value.categories)
+        if (value.categories.isNotEmpty()) categories = value.categories
+    }
 }
 
 /** Pagination and retries use the submitted selection, never unfinished input. */
-internal data class OnlineCatalogSelection(val sourceId: String, val query: String = "", val categoryId: String = "", val year: String = "") {
+internal data class OnlineCatalogSelection(val sourceId: String, val query: String = "", val categoryId: String = "", val year: String = "",
+                                          val categoryScope: String = "exact") {
     val browsing: Boolean get() = query.isBlank()
+}
+
+internal fun onlineSearchSessionEmptyLabel(value: OnlineSearchSession): String = when {
+    value.complete -> "没有找到符合这些条件的内容，可清除分类或年份。"
+    !value.canContinue && !value.hasMore -> "当前检索尚未完成，请刷新搜索或缩小关键词。"
+    value.scanned == 0 -> "暂未读取到匹配内容，可稍后继续检索。"
+    else -> "已读取部分中暂未找到匹配内容，可继续检索。"
+}
+
+/** Reads and continuation share one recovery allowance for each user action. */
+internal class OnlineSearchExpiryRecovery {
+    private var rebuilt = false
+    suspend fun <T> read(request: suspend () -> T, rebuild: suspend () -> T): T = try {
+        request()
+    } catch (error: ApiException) {
+        if (error.status != 410 || rebuilt) throw error
+        rebuilt = true
+        rebuild()
+    }
 }
 
 /** A delayed focus request is valid only until the viewer moves focus elsewhere. */
@@ -189,12 +240,16 @@ internal fun onlineFocusItemIndex(state: OnlineScreenState, key: String): Int? {
     if (key == "online:retry-sources") return body
     val source = state.sources?.items?.firstOrNull { it.id == state.sourceId }
     if (key.startsWith("online:root:") || key.startsWith("online:category:") ||
-        key == "online:more-roots" || key == "online:more-categories") return body.takeIf { source?.browseSupported == true }
-    if (key.startsWith("online:year:")) return body.takeIf { source?.browseSupported == true && source.yearFilterSupported }
+        key == "online:more-roots" || key == "online:more-categories") return body.takeIf { source?.browseSupported == true &&
+        (state.loadedSelection?.browsing != false || source.searchFiltersSupported) }
+    if (key.startsWith("online:year:")) return body.takeIf { source?.browseSupported == true &&
+        (if (state.loadedSelection?.browsing == false) source.searchFiltersSupported else source.yearFilterSupported) }
     val result = body + if (source != null) 1 else 0
     if (key == "online:retry-search") return result
     val rows = state.results?.items.orEmpty()
     val columns = state.resultColumns.coerceAtLeast(1)
+    if (state.searchSession != null && key in setOf("online:more-search", "online:refresh-search"))
+        return result + 1 + (rows.size + columns - 1) / columns
     if (key == "online:previous-search" || key == "online:next-search") return result + 1 + (rows.size + columns - 1) / columns
     return rows.indexOfFirst { "online:result:${it.externalId}" == key }.takeIf { it >= 0 }?.let { result + 1 + it / columns }
 }

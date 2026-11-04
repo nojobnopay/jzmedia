@@ -12,44 +12,45 @@
       <EmptyState v-else-if="!sources.length" state="empty" title="还没有可用的视频源" text="从来源目录选择视频源，即可浏览和搜索；也支持添加自定义接口。"><router-link to="/settings?sec=sec-online">添加视频源</router-link></EmptyState>
       <template v-else>
         <div v-show="browseVisible" ref="browseTools" class="online-browse-tools" data-online-browse-tools>
-        <form class="online-search" data-online-search aria-label="搜索在线视频" @submit.prevent="!searching && search(1)">
+        <form class="online-search" data-online-search aria-label="搜索在线视频" @submit.prevent="(!searching || searchProgress) && search(1)">
           <JzField id="online-source" label="视频源"><template #default="field"><select :id="field.id" v-model="sourceId" data-online-source :disabled="loadingSources" @change="sourceChanged"><option v-for="source in sources" :key="source.id" :value="source.id">{{ source.name }}</option></select></template></JzField>
-          <BrowseToolbar id="online-search" input-id="online-query" :maxlength="100" embedded v-model="query" label="搜索在线视频" placeholder="搜索电影或剧集" :suggestions-enabled="false" :ai-enabled="false" :disabled="loadingSources || !sourceId" :search-disabled="!canSearch" :loading="searching" @search="search(1)"><template #filters><span /></template></BrowseToolbar>
+          <BrowseToolbar id="online-search" input-id="online-query" :maxlength="100" embedded v-model="query" label="搜索在线视频" placeholder="搜索电影或剧集" :suggestions-enabled="false" :ai-enabled="false" :disabled="loadingSources || !sourceId" :search-disabled="!canSearch" :loading="searching && !searchProgress" @search="search(1)"><template #filters><span /></template></BrowseToolbar>
           <details class="online-connection"><summary>连接状态</summary><div class="online-health" data-online-health><span>目录：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.api) : healthError || '尚未使用' }}</span><span>播放：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.media) : healthError || '尚未使用' }}</span><JzButton variant="ghost" :loading="healthLoading" @click="loadHealth">刷新状态</JzButton><small>卡顿时可在来源网络设置中尝试代理。</small></div></details>
         </form>
         <OnlineContinueRow v-if="!loadedQuery" :rows="continueRows" :loading="continueLoading" :error="continueError" :disabled="loadingSources || !!sourcesError" :starting="starting" :reason-label="availabilityReason" @detail="openSaved($event, false)" @resume="openSaved($event, true)" @retry="loadContinue" @all="showRecords('continue')" />
         <section v-if="categories.length" class="online-discovery-filters" aria-label="目录分类与年份">
           <nav class="online-channels" aria-label="内容频道">
-            <JzButton :aria-pressed="!channelId && !loadedQuery" :disabled="searching" data-online-channel="" @click="selectChannel('')">发现</JzButton>
-            <JzButton v-for="channel in mainChannels" :key="channel.id" :data-online-channel="channel.id" :data-online-category="!channel.children.length ? channel.id : undefined" :aria-pressed="channelId === channel.id && !loadedQuery" :disabled="searching" @click="selectChannel(channel.id)">{{ channel.label }}</JzButton>
+            <JzButton :aria-pressed="!channelId && !loadedQuery" :disabled="searching && !searchProgress" data-online-channel="" @click="selectChannel('')">发现</JzButton>
+            <JzButton v-for="channel in mainChannels" :key="channel.id" :data-online-channel="channel.id" :data-online-category="!channel.children.length ? channel.id : undefined" :aria-pressed="channelId === channel.id && (!loadedQuery || canSearchFilters)" :disabled="filtersDisabled" @click="selectChannel(channel.id)">{{ channel.label }}</JzButton>
             <JzButton ref="categoriesTrigger" variant="ghost" icon="filter" data-online-categories-open :aria-expanded="categoriesOpen" @click="openCategories"><span class="online-class-label-wide">全部分类</span><span class="online-class-label-narrow">选择分类</span></JzButton>
           </nav>
           <div v-if="selectedChannel?.children.length" class="online-subcategories" role="group" :aria-label="selectedChannel.label + '分类'">
-            <JzButton :data-online-category="selectedChannel.id" :aria-pressed="categoryId === selectedChannel.id" :disabled="searching" @click="selectCategory(selectedChannel.id)">{{ selectedChannel.name }}综合条目</JzButton>
-            <JzButton v-for="category in quickCategories" :key="category.id" :data-online-category="category.id" :aria-pressed="categoryId === category.id" :disabled="searching" @click="selectCategory(category.id)">{{ category.name }}</JzButton>
+            <JzButton :data-online-category="selectedChannel.id" :aria-pressed="categoryId === selectedChannel.id" :disabled="filtersDisabled" @click="selectCategory(selectedChannel.id, committedQuery ? 'descendants' : 'exact')">{{ selectedChannel.name }}{{ committedQuery && canSearchFilters ? '全部' : '综合条目' }}</JzButton>
+            <JzButton v-for="category in quickCategories" :key="category.id" :data-online-category="category.id" :aria-pressed="categoryId === category.id" :disabled="filtersDisabled" @click="selectCategory(category.id)">{{ category.name }}</JzButton>
             <JzButton v-if="selectedChannel.children.length > quickCategories.length" variant="ghost" @click="openCategories">更多分类</JzButton>
           </div>
           <p v-if="categoryId" class="online-category-current" data-online-category-current>{{ selectedChannel?.label }}<span v-if="selectedCategoryName && selectedCategoryName !== selectedChannel?.label"> / {{ selectedCategoryName }}</span></p>
-          <p v-if="selectedChannel?.children.length && categoryId === selectedChannel.id" class="online-category-hint">综合条目与细分类分别浏览，可选择下方的具体分类。</p>
+          <p v-if="!committedQuery && selectedChannel?.children.length && categoryId === selectedChannel.id" class="online-category-hint">综合条目与细分类分别浏览，可选择下方的具体分类。</p>
         </section>
+        <p v-if="searchFiltersUnavailable" class="online-category-hint" data-online-search-filter-unavailable>当前视频源暂未开放搜索结果筛选；清除搜索词后可浏览分类与年份。</p>
         <div v-if="canFilterYear" class="online-year-controls">
-          <JzField id="online-year" label="年份"><template #default="field"><select :id="field.id" :value="yearChoice" :disabled="searching" data-online-year @change="chooseYear($event.target.value)"><option value="">全部年份</option><option v-for="value in recentYears" :key="value" :value="value">{{ value }} 年</option><option value="custom">其他年份…</option></select></template></JzField>
+          <JzField id="online-year" label="年份"><template #default="field"><select :id="field.id" :value="yearChoice" :disabled="filtersDisabled" data-online-year @change="chooseYear($event.target.value)"><option value="">全部年份</option><option v-for="value in recentYears" :key="value" :value="value">{{ value }} 年</option><option value="custom">其他年份…</option></select></template></JzField>
           <form v-if="yearChoice === 'custom'" class="online-custom-year" data-online-year-form @submit.prevent="applyCustomYear">
-            <JzField id="online-year-custom" label="指定年份" :error="customYearError"><template #default="field"><input :id="field.id" v-model="customYear" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="如 2018" :disabled="searching" :aria-invalid="field.invalid || undefined" :aria-describedby="field.describedby" data-online-year-custom @input="customYearError = ''" /></template></JzField>
-            <JzButton type="submit" :disabled="searching">应用年份</JzButton>
+            <JzField id="online-year-custom" label="指定年份" :error="customYearError"><template #default="field"><input :id="field.id" v-model="customYear" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="如 2018" :disabled="filtersDisabled" :aria-invalid="field.invalid || undefined" :aria-describedby="field.describedby" data-online-year-custom @input="customYearError = ''" /></template></JzField>
+            <JzButton type="submit" :disabled="filtersDisabled">应用年份</JzButton>
           </form>
         </div>
         <JzDialog v-if="categoriesOpen" title="选择内容分类" size="large" @close="categoriesOpen = false">
           <div class="online-class-dialog" data-online-categories-dialog>
-            <p class="online-scope">选择具体分类查看内容，综合条目与细分类分别浏览。</p>
+            <p class="online-scope">{{ committedQuery && canSearchFilters ? '在搜索结果中筛选分类，大类包含全部子分类。' : '选择具体分类查看内容，综合条目与细分类分别浏览。' }}</p>
             <JzField id="online-category-query" label="查找分类"><template #default="field"><input :id="field.id" v-model="categoryQuery" maxlength="80" autocomplete="off" placeholder="输入分类名称" data-online-category-query /></template></JzField>
-            <JzButton :aria-pressed="!categoryId" :disabled="searching" @click="selectDialogCategory('')">发现 · 最近更新</JzButton>
+            <JzButton :aria-pressed="!categoryId" :disabled="filtersDisabled" @click="selectDialogCategory('')">{{ committedQuery ? '不限分类' : '发现 · 最近更新' }}</JzButton>
             <EmptyState v-if="!dialogChannels.length" state="no-results" title="没有匹配的分类" text="换个分类名称试试。" />
             <section v-for="channel in dialogChannels" :key="channel.id" class="online-class-group" :aria-label="channel.name">
               <h3>{{ channel.name }}</h3>
               <div class="online-class-options" role="group" :aria-label="channel.name + '分类'">
-                <JzButton v-if="channel.showRoot" :data-online-category="channel.id" :aria-pressed="categoryId === channel.id" :disabled="searching" @click="selectDialogCategory(channel.id)">{{ categoryTree.channels.find(value => value.id === channel.id)?.children.length ? channel.name + '综合条目' : channel.name }}</JzButton>
-                <JzButton v-for="category in channel.children" :key="category.id" :data-online-category="category.id" :aria-pressed="categoryId === category.id" :disabled="searching" @click="selectDialogCategory(category.id)">{{ category.name }}</JzButton>
+                <JzButton v-if="channel.showRoot" :data-online-category="channel.id" :aria-pressed="categoryId === channel.id" :disabled="filtersDisabled" @click="selectDialogCategory(channel.id, committedQuery ? 'descendants' : 'exact')">{{ categoryTree.channels.find(value => value.id === channel.id)?.children.length ? channel.name + (committedQuery && canSearchFilters ? '全部' : '综合条目') : channel.name }}</JzButton>
+                <JzButton v-for="category in channel.children" :key="category.id" :data-online-category="category.id" :aria-pressed="categoryId === category.id" :disabled="filtersDisabled" @click="selectDialogCategory(category.id)">{{ category.name }}</JzButton>
               </div>
             </section>
           </div>
@@ -116,7 +117,7 @@
           </section>
         </section>
         <div v-show="browseVisible" ref="browseRoot" class="online-browser" :aria-busy="searching" data-online-browser>
-          <OnlineBrowseResults :searched="searched" :has-updates="hasUpdates" :searching="searching" :applying-updates="applyingUpdates" :checking-updates="checkingUpdates" :update-check-error="updateCheckError" :checked-at="checkedAt" :checked-time="checkedTime" :search-error="searchError" :results="results" :loaded-query="loadedQuery" :query="query" :selected-source="selectedSource" :loaded-category-name="loadedCategoryName" :loaded-year="loadedYear" :total="total" :poster-generation="posterGeneration" :page-count="pageCount" :last-query="lastQuery" :page="page" @apply-update="applyUpdates" @retry="search(lastQuery.page, lastQuery.query, { force: true })" @refresh="refreshResults" @detail="openDetail($event)" @page="search($event, loadedQuery)" />
+          <OnlineBrowseResults :searched="searched" :has-updates="hasUpdates" :searching="searching" :applying-updates="applyingUpdates" :checking-updates="checkingUpdates" :update-check-error="updateCheckError" :checked-at="checkedAt" :checked-time="checkedTime" :search-error="searchError" :results="results" :loaded-query="loadedQuery" :query="query" :selected-source="selectedSource" :loaded-category-name="loadedCategoryName" :loaded-year="loadedYear" :total="total" :poster-generation="posterGeneration" :page-count="pageCount" :last-query="lastQuery" :page="page" :progressive="searchProgress" @more="loadMoreResults" @apply-update="applyUpdates" @retry="retryResults" @refresh="refreshResults" @detail="openDetail($event)" @page="search($event, loadedQuery)" />
         </div>
       </template>
       <div v-show="recordsVisible" ref="libraryRoot">
@@ -160,6 +161,7 @@ import '../styles/online.css'
 
 const client = createOnlineCatalogClient(), nextClient = createOnlineCatalogClient(), stateClient = createOnlineStateClient()
 const continueClient = createOnlineStateClient()
+const searchProgressClient = createOnlineCatalogClient()
 const refreshClient = createOnlineRefreshClient(), refreshSourcesClient = createOnlineCatalogClient()
 const route = useRoute(), router = useRouter()
 const healthClient = createOnlineHealthClient(), health = ref(null), healthLoading = ref(false), healthError = ref('')
@@ -169,6 +171,8 @@ const sources = ref([]), sourceId = ref(''), enabled = ref(false), query = ref('
 const loadingSources = ref(true), sourcesError = ref(''), searching = ref(false), searched = ref(false), searchError = ref('')
 const categories = ref([]), categoryId = ref('')
 const loadedCategoryId = ref(''), browseRoot = ref(null)
+const searchProgress = ref(null), committedQuery = ref('')
+const searchCategoryScope = ref('exact'), loadedCategoryScope = ref('exact')
 const channelId = ref(''), loadedChannelId = ref(''), channelSelections = ref({})
 const year = ref(''), loadedYear = ref(''), yearChoice = ref(''), customYear = ref(''), customYearError = ref('')
 const categoriesOpen = ref(false), categoriesTrigger = ref(null)
@@ -192,14 +196,17 @@ const mode = viewing?.mode === 'private' ? 'private' : 'normal'
 const modeText = computed(() => viewing.mode === 'private' ? '隐私模式' : '普通模式')
 const autoplay = ref(loadOnlineAutoplay(mode))
 const selectedSource = computed(() => sources.value.find(source => source.id === sourceId.value))
-const canFilterYear = computed(() => selectedSource.value?.capabilities?.year_filter === true)
+const canSearchFilters = computed(() => selectedSource.value?.capabilities?.search_filters === true)
+const searchFiltersUnavailable = computed(() => !!committedQuery.value && !canSearchFilters.value)
+const filtersDisabled = computed(() => searchFiltersUnavailable.value || searching.value && !searchProgress.value)
+const canFilterYear = computed(() => selectedSource.value?.capabilities?.year_filter === true || !!committedQuery.value && canSearchFilters.value)
 const categoryTree = computed(() => onlineCategoryTree(categories.value))
 const mainChannels = computed(() => visibleOnlineChannels(categoryTree.value, channelId.value))
 const selectedChannel = computed(() => categoryTree.value.channels.find(channel => channel.id === channelId.value))
 const quickCategories = computed(() => visibleOnlineCategories(selectedChannel.value, categoryId.value))
 const dialogChannels = computed(() => filterOnlineChannels(categoryTree.value, categoryQuery.value))
-const selectedCategoryName = computed(() => onlineCategoryLabel(categoryTree.value, categoryId.value))
-const loadedCategoryName = computed(() => onlineCategoryLabel(categoryTree.value, loadedCategoryId.value) || (loadedCategoryId.value ? '所选分类' : ''))
+const selectedCategoryName = computed(() => categorySelectionLabel(categoryId.value, searchCategoryScope.value))
+const loadedCategoryName = computed(() => categorySelectionLabel(loadedCategoryId.value, loadedCategoryScope.value) || (loadedCategoryId.value ? '所选分类' : ''))
 const canBrowse = computed(() => selectedSource.value?.capabilities?.browse || selectedSource.value?.provider === 'open_catalog')
 const canSearch = computed(() => !!sourceId.value && (query.value.trim().length > 0 || canBrowse.value))
 const selectedLine = computed(() => detail.value?.lines.find(line => line.id === lineId.value))
@@ -244,7 +251,13 @@ let lastSourceId = ''
 let continueGeneration = 0, navigationGeneration = 0, homeReturn = null, detailOrigin = null, handledRoute = routeKey(route.query)
 const recordSurfaces = new Map()
 let cacheScope = '', categoryScope = '', loadedAt = 0, browsePosition = null, positionIntent = 0, suspendedWork = null
-let refreshGeneration = 0, refreshTimer = null
+let refreshGeneration = 0, refreshTimer = null, progressTimer = null
+function cancelCatalogue() { client.cancel(); stopProgressPolling() }
+function stopProgressPolling() { clearTimeout(progressTimer); progressTimer = null; searchProgressClient.cancel() }
+function categorySelectionLabel(id, scope) {
+  const category = categoryTree.value.byId.get(id)
+  return category && scope === 'descendants' ? category.name + '全部' : onlineCategoryLabel(categoryTree.value, id)
+}
 function current(turn) { return !disposed && turn === generation && safeMode.value }
 function navigationCurrent(ticket) { return !disposed && safeMode.value && ticket === navigationGeneration }
 function recordTab(value) { return ['continue', 'favorites', 'history'].includes(value) ? value : 'continue' }
@@ -327,7 +340,7 @@ async function showRecords(section = 'continue', navigate = true, navigationTick
   rememberRecordsSurface()
   if (browseVisible.value) homeReturn = captureSurface()
   cancelAutomaticRefresh(); categoriesOpen.value = false
-  if (searching.value) { generation++; client.cancel(); searching.value = false }
+  if (searching.value) { generation++; cancelCatalogue(); searching.value = false }
   const selected = recordTab(section), saved = recordSurfaces.get(selected)
   if (saved?.scope === cacheScope) {
     const restoring = restoreSurface(saved, ticket)
@@ -386,10 +399,11 @@ async function syncRoute() {
 }
 function browseSelection() {
   return { categoryId: loadedCategoryId.value, channelId: loadedChannelId.value, year: loadedYear.value,
-    query: loadedQuery.value, page: page.value }
+    query: loadedQuery.value, page: page.value, categoryScope: loadedCategoryScope.value }
 }
 function browseResponse() {
-  return { items: results.value, categories: categories.value, page: page.value, page_count: pageCount.value, total: total.value }
+  return { items: results.value, categories: categories.value, page: page.value, page_count: pageCount.value, total: total.value,
+    ...(searchProgress.value ? { progressive: searchProgress.value } : {}) }
 }
 function refreshBinding() { return JSON.stringify([cacheScope, selectedSource.value?.id, selectedSource.value?.configuration_token, browseSelection()]) }
 function cancelAutomaticRefresh(clear = false) {
@@ -399,7 +413,7 @@ function cancelAutomaticRefresh(clear = false) {
 }
 function canCheckUpdates() {
   return !disposed && safeMode.value && route.path === '/online' && !globalThis.document?.hidden
-    && enabled.value && !!selectedSource.value && !!cacheScope && !!loadedAt && searched.value
+    && !searchProgress.value && enabled.value && !!selectedSource.value && !!cacheScope && !!loadedAt && searched.value
     && browseVisible.value && !loadingSources.value && !sourcesError.value && !searching.value && !searchError.value
     && !starting.value && !playing.value && !nextLoading.value && !categoriesOpen.value && !hostDialog.value && !applyingUpdates.value
 }
@@ -419,7 +433,7 @@ function scheduleAutomaticRefresh() {
 function invalidateRefreshBinding() {
   const preferredSource = sourceId.value
   cancelAutomaticRefresh(true); clearOnlineBrowse(); cacheScope = ''
-  generation++; client.cancel(); resetBrowse()
+  generation++; cancelCatalogue(); resetBrowse()
   void loadSources(preferredSource)
 }
 async function validateRefreshBinding(source, scope, valid) {
@@ -636,12 +650,16 @@ function rememberBrowse(source = selectedSource.value, capture = true) {
     || cacheScope !== onlineBrowseScope(cacheScope.slice(0, 64), viewing)) return
   if (capture && browseVisible.value) browsePosition = captureOnlinePosition(browseRoot.value) || browsePosition
   onlineBrowseMemory.save({ scope: cacheScope, source, categoryId: loadedCategoryId.value, channelId: loadedChannelId.value,
-    channelSelections: channelSelections.value, year: loadedYear.value, query: loadedQuery.value,
+    channelSelections: channelSelections.value, year: loadedYear.value, query: loadedQuery.value, categoryScope: loadedCategoryScope.value,
     inputQuery: query.value, loadedAt, position: browsePosition,
-    response: { items: results.value, categories: categories.value, page: page.value, page_count: pageCount.value, total: total.value } })
+    response: browseResponse() })
 }
 function applyBrowse(snapshot) {
   categoryId.value = loadedCategoryId.value = snapshot.categoryId
+  searchCategoryScope.value = loadedCategoryScope.value = snapshot.categoryScope || 'exact'
+  committedQuery.value = snapshot.query
+  searchProgress.value = snapshot.response?.progressive || null
+  searchError.value = searchProgress.value?.error_code ? onlineCatalogError({ code: searchProgress.value.error_code }) : ''
   channelId.value = loadedChannelId.value = snapshot.channelId || ''
   channelSelections.value = { ...(snapshot.channelSelections || {}), ...channelSelections.value }
   setYear(snapshot.year || ''); loadedYear.value = year.value
@@ -668,7 +686,8 @@ async function restoreBrowse(position = browsePosition, { top = false } = {}) {
 }
 function resetBrowse() {
   cancelAutomaticRefresh(true)
-  categoryScope = ''
+  categoryScope = ''; stopProgressPolling()
+  searchProgress.value = null; committedQuery.value = ''; searchCategoryScope.value = loadedCategoryScope.value = 'exact'
   results.value = []; categories.value = []; categoryId.value = loadedCategoryId.value = ''; loadedQuery.value = ''
   channelId.value = loadedChannelId.value = ''; channelSelections.value = {}; categoriesOpen.value = false; categoryQuery.value = ''
   setYear(''); loadedYear.value = ''
@@ -781,43 +800,151 @@ function sourceChanged(discover = true, navigationTicket = null) {
   }
   healthGeneration++; healthClient.cancel(); health.value = null; void loadHealth()
   itemStateGeneration++; itemStateLoading.value = false
-  generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
+  generation++; cancelCatalogue(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
   resetBrowse()
   if (discover) void loadSources(sourceId.value)
 }
-function selectCategory(id) {
-  if (searching.value || id === categoryId.value && !loadedQuery.value && searched.value) return
+function selectCategory(id, scope = 'exact') {
+  if (filtersDisabled.value || id === categoryId.value && scope === searchCategoryScope.value && searched.value) return
   rememberBrowse()
-  categoryId.value = id; syncChannel(); query.value = ''; void search(1, '')
+  categoryId.value = id; searchCategoryScope.value = scope; syncChannel()
+  if (committedQuery.value && canSearchFilters.value) void search(1, committedQuery.value, { filter: true })
+  else { query.value = ''; void search(1, '') }
 }
 function selectChannel(id) {
-  if (searching.value) return
+  if (searching.value && !searchProgress.value) return
   if (!id) {
-    rememberBrowse(); channelId.value = ''; categoryId.value = ''; setYear(''); query.value = ''; void search(1, '')
+    rememberBrowse(); channelId.value = ''; categoryId.value = ''; searchCategoryScope.value = 'exact'; setYear(''); query.value = ''; void search(1, '')
     return
   }
+  if (searchFiltersUnavailable.value) return
   const channel = categoryTree.value.channels.find(value => value.id === id)
   if (!channel) return
-  selectCategory(onlineChannelCategory(channel, channelSelections.value[id]))
+  if (committedQuery.value && canSearchFilters.value) selectCategory(id, 'descendants')
+  else selectCategory(onlineChannelCategory(channel, channelSelections.value[id]))
 }
-function selectDialogCategory(id) {
-  if (searching.value) return
+function selectDialogCategory(id, scope = 'exact') {
+  if (filtersDisabled.value) return
   categoriesOpen.value = false
-  if (id) selectCategory(id)
+  if (id || committedQuery.value) selectCategory(id, scope)
   else selectChannel('')
 }
 function openCategories() { categoryQuery.value = ''; categoriesOpen.value = true }
 function chooseYear(value) {
   customYearError.value = ''
+  if (filtersDisabled.value) return
   if (value === 'custom') { yearChoice.value = 'custom'; customYear.value = year.value; return }
-  if (!canFilterYear.value || !validOnlineYear(value) || searching.value) return
-  if (value === year.value && !loadedQuery.value) { setYear(value); return }
-  rememberBrowse(); setYear(value); query.value = ''; void search(1, '')
+  if (!canFilterYear.value || !validOnlineYear(value)) return
+  if (value === year.value) { setYear(value); return }
+  rememberBrowse(); setYear(value)
+  if (committedQuery.value && canSearchFilters.value) void search(1, committedQuery.value, { filter: true })
+  else { query.value = ''; void search(1, '') }
 }
 function applyCustomYear() {
-  if (!canFilterYear.value || searching.value) return
+  if (!canFilterYear.value || filtersDisabled.value) return
   if (!customYear.value || !validOnlineYear(customYear.value)) { customYearError.value = '请输入 1000 至 9999 的四位年份'; return }
-  rememberBrowse(); setYear(customYear.value); query.value = ''; void search(1, '')
+  rememberBrowse(); setYear(customYear.value)
+  if (committedQuery.value && canSearchFilters.value) void search(1, committedQuery.value, { filter: true })
+  else { query.value = ''; void search(1, '') }
+}
+function retryResults() {
+  const attempt = lastQuery.value
+  const terminal = searchProgress.value?.status === 'error' && !searchProgress.value.can_continue
+  categoryId.value = attempt.categoryId || ''; searchCategoryScope.value = attempt.categoryScope || 'exact'
+  channelId.value = attempt.channelId || ''; setYear(attempt.year || '')
+  void search(attempt.page, attempt.query, { force: !!attempt.force || terminal, more: !!attempt.more && !terminal,
+    offset: terminal ? 0 : attempt.offset || 0, filter: !!attempt.filter, position: attempt.position, retry: true })
+}
+function loadMoreResults() {
+  if (searching.value || !searchProgress.value?.has_more) return
+  categoryId.value = loadedCategoryId.value; searchCategoryScope.value = loadedCategoryScope.value
+  channelId.value = loadedChannelId.value; setYear(loadedYear.value)
+  void search(1, loadedQuery.value, { more: true, offset: results.value.length, position: captureOnlinePosition(browseRoot.value) || browsePosition })
+}
+async function progressiveSearch(text, requested, turn, navigation, options, changingView) {
+  const source = selectedSource.value
+  const conditions = { category_id: requested.categoryId, category_scope: requested.categoryScope,
+    year: requested.year, offset: options.force ? 0 : options.offset || 0, limit: 20 }
+  const valid = () => current(turn) && navigationCurrent(navigation)
+  let base = options.more && !options.force ? results.value.slice(0, conditions.offset) : []
+  const retainFailedRefresh = options.force && results.value.length > 0 && loadedQuery.value === text
+    && loadedCategoryId.value === requested.categoryId && loadedCategoryScope.value === requested.categoryScope && loadedYear.value === requested.year
+  const cached = onlineBrowseMemory.read(cacheScope, source, { ...requested, query: text, page: 1 })
+  const previous = searchProgress.value?.query === text && searchProgress.value.source?.id === source.id
+    && searchProgress.value.configuration_token === source.configuration_token ? searchProgress.value : cached?.response?.progressive
+  let response, rebuilt = false
+  const session = options.force ? null : previous
+  const rebuild = async () => {
+    if (rebuilt) throw Object.assign(new Error('在线搜索会话已过期'), { code: 'online_search_session_expired' })
+    rebuilt = true; base = []; conditions.offset = 0
+    return client.createSearchSession(source.id, text, conditions, true)
+  }
+  const accept = value => {
+    if (!valid() || !value) return
+    if (value.query !== text || value.source.id !== source.id || value.configuration_token !== source.configuration_token) {
+      throw Object.assign(new Error('在线搜索响应范围无效'), { code: 'online_source_changed' })
+    }
+    if (searchProgress.value?.session_id === value.session_id && value.version < searchProgress.value.version) return false
+    if (retainFailedRefresh && value.status === 'error' && value.scanned === 0) {
+      searchError.value = onlineCatalogError({ code: value.error_code })
+      return false
+    }
+    const { items, categories: taxonomy, ...metadata } = value
+    results.value = [...base, ...items]
+    searchProgress.value = { ...metadata, displayed: results.value.length }
+    acceptCategories(taxonomy)
+    page.value = 1; pageCount.value = 1; total.value = value.total ?? value.found
+    loadedQuery.value = text; loadedCategoryId.value = requested.categoryId; loadedCategoryScope.value = requested.categoryScope
+    loadedChannelId.value = requested.channelId; loadedYear.value = requested.year; searched.value = true
+    loadedAt = value.validated_at || Date.now()
+    searchError.value = value.error_code ? onlineCatalogError({ code: value.error_code }) : ''
+    checkedAt.value = 0; hasUpdates.value = false; updateCheckError.value = ''
+    rememberBrowse(source, false)
+    return true
+  }
+  try {
+    let created = !session
+    if (session) {
+      try { response = await client.readSearchSession(session.session_id, conditions, source.id) }
+      catch (error) {
+        if (error?.code !== 'online_search_session_expired' || !valid()) throw error
+        response = await rebuild(); created = true
+      }
+    }
+    else if (valid()) response = await client.createSearchSession(source.id, text, conditions, !!options.force)
+    if (!valid() || !response) return
+    if (accept(response) === false) return
+    const shouldContinue = response.items.length < conditions.limit && response.can_continue
+      && (!response.error_code || options.more || options.retry) && (!created || !!requested.categoryId || !!requested.year)
+    if (shouldContinue) {
+      const id = response.session_id
+      let advancing = true
+      const poll = () => {
+        progressTimer = setTimeout(async () => {
+          if (!advancing || !valid()) return
+          try {
+            const update = await searchProgressClient.readSearchSession(id, conditions, source.id)
+            if (advancing && valid() && update) accept(update)
+          } catch { /* The bounded main request owns failure and retry feedback. */ }
+          finally { if (advancing && valid()) poll() }
+        }, 2000)
+      }
+      poll()
+      try {
+        try { response = await client.moreSearchSession(id, conditions, source.id) }
+        catch (error) {
+          if (error?.code !== 'online_search_session_expired' || !valid()) throw error
+          advancing = false; stopProgressPolling()
+          response = await rebuild()
+        }
+        if (valid() && response) accept(response)
+      } finally { advancing = false; if (valid()) stopProgressPolling() }
+    }
+    if (!valid()) return
+    if (options.force) posterGeneration.value++
+    browsePosition = options.position || (options.force || options.more ? browsePosition : null)
+    await restoreBrowse(browsePosition, { top: changingView && !options.filter && !options.more && !options.position && !options.force })
+  } finally { if (valid()) stopProgressPolling() }
 }
 async function search(nextPage = 1, text = query.value, options = {}) {
   const navigation = options.navigationTicket ?? ++navigationGeneration
@@ -827,19 +954,32 @@ async function search(nextPage = 1, text = query.value, options = {}) {
   cancelAutomaticRefresh()
   cancelRelated(true)
   rememberBrowse()
-  if (text.trim()) { categoryId.value = ''; channelId.value = ''; setYear('') }
+  const progressive = !!text.trim() && canSearchFilters.value
+  if (text.trim() && !progressive) { categoryId.value = ''; channelId.value = ''; searchCategoryScope.value = 'exact'; setYear('') }
+  committedQuery.value = text.trim()
   const requestedCategory = categoryId.value
-  const requestedYear = canFilterYear.value && !text.trim() ? year.value : ''
+  const requestedYear = canFilterYear.value ? year.value : ''
   const requestedChannel = channelId.value
-  const changingView = searched.value && (nextPage !== page.value || requestedCategory !== loadedCategoryId.value || requestedYear !== loadedYear.value || text.trim() !== loadedQuery.value)
+  const requestedScope = progressive && categoryTree.value.channels.some(channel => channel.id === requestedCategory && channel.children.length)
+    ? 'descendants' : progressive ? searchCategoryScope.value : 'exact'
+  searchCategoryScope.value = requestedScope
+  const changingView = searched.value && (nextPage !== page.value || requestedCategory !== loadedCategoryId.value || requestedScope !== loadedCategoryScope.value || requestedYear !== loadedYear.value || text.trim() !== loadedQuery.value)
   const turn = ++generation
   positionIntent++
-  client.cancel()
+  cancelCatalogue()
   itemStateGeneration++; itemStateLoading.value = false
   void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
   searching.value = true; searchError.value = ''; lastQuery.value = { page: nextPage, query: text,
-    year: requestedYear, channelId: requestedChannel, force: !!options.force, position: options.position || (options.force ? browsePosition : null) }
+    categoryId: requestedCategory, categoryScope: requestedScope, year: requestedYear, channelId: requestedChannel,
+    more: !!options.more, offset: options.offset || 0, filter: !!options.filter,
+    force: !!options.force, position: options.position || (options.force ? browsePosition : null) }
   try {
+    if (progressive) {
+      await progressiveSearch(text.trim(), { categoryId: requestedCategory, categoryScope: requestedScope,
+        year: requestedYear, channelId: requestedChannel }, turn, navigation, options, changingView)
+      return
+    }
+    searchProgress.value = null
     const cached = !options.force && onlineBrowseMemory.read(cacheScope, selectedSource.value,
       { page: nextPage, categoryId: requestedCategory, year: requestedYear, channelId: requestedChannel, query: text.trim() })
     if (cached?.response) {
@@ -853,12 +993,11 @@ async function search(nextPage = 1, text = query.value, options = {}) {
     if (!current(turn) || !navigationCurrent(navigation) || !response) return
     results.value = response.items || []; page.value = response.page; pageCount.value = response.page_count
     acceptCategories(browsing ? response.categories : undefined)
-    total.value = response.total; loadedQuery.value = text.trim(); loadedCategoryId.value = requestedCategory; searched.value = true; loadedAt = Date.now()
+    total.value = response.total; loadedQuery.value = text.trim(); loadedCategoryId.value = requestedCategory; loadedCategoryScope.value = 'exact'; searched.value = true; loadedAt = Date.now()
     syncChannel(); loadedChannelId.value = channelId.value; loadedYear.value = requestedYear
     if (options.force) posterGeneration.value++
     browsePosition = options.position || (options.force ? browsePosition : null)
     onlineBrowseMemory.clearPending(cacheScope, selectedSource.value, browseSelection())
-    // New metadata must not capture an anchor from the previous Vue render.
     rememberBrowse(selectedSource.value, false)
     onlineBrowseMemory.recordAttempt(cacheScope, selectedSource.value, browseSelection(), loadedAt)
     checkedAt.value = loadedAt; hasUpdates.value = false; updateCheckError.value = ''
@@ -867,7 +1006,7 @@ async function search(nextPage = 1, text = query.value, options = {}) {
   finally { if (current(turn) && navigationCurrent(navigation)) { searching.value = false; void loadHealth(); scheduleAutomaticRefresh() } }
 }
 function refreshResults() {
-  categoryId.value = loadedCategoryId.value
+  categoryId.value = loadedCategoryId.value; searchCategoryScope.value = loadedCategoryScope.value
   channelId.value = loadedChannelId.value; setYear(loadedYear.value)
   void search(page.value, loadedQuery.value, { force: true })
 }
@@ -916,7 +1055,7 @@ async function showDetailTop(turn) {
 async function openDetail(externalId, options = {}) {
   const navigation = options.navigationTicket ?? ++navigationGeneration
   if (!navigationCurrent(navigation)) return
-  cancelAutomaticRefresh()
+  cancelAutomaticRefresh(); stopProgressPolling()
   closeHostDialog(false)
   rememberDetailReturnFocus(externalId, options)
   cancelRelated(true)
@@ -964,7 +1103,7 @@ async function backToResults(navigate = true, navigationTicket = null) {
   detailOrigin = null
   cancelRelated(true)
   itemStateGeneration++; itemStateLoading.value = false
-  generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false; searching.value = false
+  generation++; cancelCatalogue(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false; searching.value = false
   if (origin) {
     await restoreSurface(origin, ticket)
     if (!navigationCurrent(ticket)) return
@@ -1131,7 +1270,7 @@ const stopCleanup = registerViewingPlaybackCleanup(async () => {
   recordSurfaces.clear()
   cancelRelated(true)
   clearOnlineBrowse(); cacheScope = ''; positionIntent++; homeReturn = detailOrigin = null; continueRows.value = []; continueError.value = ''; suspendedWork = null
-  generation++; libraryGeneration++; continueGeneration++; playIntent++; cancelNext(); client.cancel(); stateClient.cancel(); continueClient.cancel()
+  generation++; libraryGeneration++; continueGeneration++; playIntent++; cancelNext(); cancelCatalogue(); stateClient.cancel(); continueClient.cancel()
   healthGeneration++; healthClient.cancel(); health.value = null; healthError.value = ''; healthLoading.value = false
   const closing = stopRun(activeRun)
   itemStateGeneration++; itemStateLoading.value = false
@@ -1147,7 +1286,7 @@ watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locally
   cancelRelated(true)
   clearOnlineBrowse(); cacheScope = ''; positionIntent++
   homeReturn = detailOrigin = null; continueRows.value = []; continueError.value = ''; continueLoading.value = false
-  generation++; libraryGeneration++; continueGeneration++; client.cancel(); stateClient.cancel(); continueClient.cancel(); cancelNext()
+  generation++; libraryGeneration++; continueGeneration++; cancelCatalogue(); stateClient.cancel(); continueClient.cancel(); cancelNext()
   healthGeneration++; healthClient.cancel(); health.value = null; healthLoading.value = false; healthError.value = ''
   itemStateGeneration++; itemStateLoading.value = false
   detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false; resetBrowse()
@@ -1171,9 +1310,10 @@ watch(() => viewing.suspended, suspended => {
     if (loadingSources.value) suspendedWork = { type: 'sources' }
     else if (detailLoading.value && !detail.value) suspendedWork = { type: 'detail', id: lastDetailId.value }
     else if (searching.value) suspendedWork = { type: 'search', page: lastQuery.value.page, query: lastQuery.value.query,
-      category: categoryId.value, year: lastQuery.value.year, channelId: lastQuery.value.channelId,
+      category: lastQuery.value.categoryId, categoryScope: lastQuery.value.categoryScope, year: lastQuery.value.year, channelId: lastQuery.value.channelId,
+      more: lastQuery.value.more, offset: lastQuery.value.offset, filter: lastQuery.value.filter,
       force: lastQuery.value.force, position: lastQuery.value.position }
-    generation++; libraryGeneration++; continueGeneration++; client.cancel(); stateClient.cancel(); continueClient.cancel(); cancelNext()
+    generation++; libraryGeneration++; continueGeneration++; cancelCatalogue(); stateClient.cancel(); continueClient.cancel(); cancelNext()
     healthGeneration++; healthClient.cancel(); healthLoading.value = false
     itemStateGeneration++; itemStateLoading.value = false
     searching.value = detailLoading.value = starting.value = libraryLoading.value = continueLoading.value = false
@@ -1197,7 +1337,7 @@ watch(() => viewing.suspended, suspended => {
   }
   if (work?.type === 'sources') void loadSources()
   else if (work?.type === 'detail') void openDetail(work.id)
-  else if (work?.type === 'search') { categoryId.value = work.category; channelId.value = work.channelId || ''; setYear(work.year || ''); void search(work.page, work.query, { force: work.force, position: work.position }) }
+  else if (work?.type === 'search') { categoryId.value = work.category; searchCategoryScope.value = work.categoryScope || 'exact'; channelId.value = work.channelId || ''; setYear(work.year || ''); void search(work.page, work.query, { force: work.force, more: work.more, offset: work.offset, filter: work.filter, position: work.position }) }
   else {
     void loadHealth()
     if (detail.value) {
@@ -1225,7 +1365,7 @@ onUnmounted(() => {
   closeHostDialog(false); hostReminders.clear()
   clearDetailReturnFocus()
   cancelRelated(true); relatedClient.close()
-  disposed = true; generation++; libraryGeneration++; healthGeneration++; playIntent++; cancelNext(); client.close(); nextClient.close(); stateClient.close(); continueClient.close(); healthClient.close(); stopCleanup()
+  disposed = true; generation++; libraryGeneration++; healthGeneration++; playIntent++; cancelNext(); client.close(); searchProgressClient.close(); stopProgressPolling(); nextClient.close(); stateClient.close(); continueClient.close(); healthClient.close(); stopCleanup()
   void stopRun(activeRun)
 })
 watch(() => route.query, () => { void syncRoute() }, { deep: true })

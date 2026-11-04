@@ -212,3 +212,46 @@ test('background refresh refuses malformed protocol responses instead of inventi
     client.close()
   }
 })
+
+test('progressive search sessions encode bounded conditions and keep progress reads independently cancellable', async () => {
+  const session = 'srch_' + '3'.repeat(32), calls = []
+  const response = { session_id: session, version: 1, source: { id: SOURCE, name: '隔离来源', provider: 'maccms' },
+    configuration_token: 'a'.repeat(64), query: '片名 & 分类', status: 'partial', items: [], categories: [],
+    scanned: 100, found: 0, total: null, has_more: true, can_continue: true, error_code: '', validated_at: 1700000000000 }
+  const client = createOnlineCatalogClient({ request: async (path, options) => { calls.push({ path, options }); return response } })
+  const conditions = { category_id: '20', category_scope: 'descendants', year: '2026', offset: 20, limit: 20 }
+  await client.createSearchSession(SOURCE, ' 片名 & 分类 ', conditions)
+  assert.equal(calls[0].path, '/api/online/catalog/search-sessions')
+  assert.equal(calls[0].options.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].options.body), { source_id: SOURCE, q: '片名 & 分类', refresh: false, ...conditions })
+  await client.readSearchSession(session, conditions, SOURCE)
+  assert.equal(new URL(calls[1].path, 'https://fixture.invalid').searchParams.get('category_scope'), 'descendants')
+  await client.moreSearchSession(session, conditions, SOURCE)
+  assert.equal(calls[2].path, '/api/online/catalog/search-sessions/' + session + '/more')
+  assert.deepEqual(JSON.parse(calls[2].options.body), conditions)
+  for (const selection of [{ category_id: '20\n' }, { category_scope: 'all' }, { year: '2026\n' }, { offset: 5001 }, { limit: 101 }]) {
+    assert.throws(() => client.readSearchSession(session, selection), /筛选条件无效/)
+  }
+  assert.throws(() => client.moreSearchSession(session + '\n'), /会话无效/)
+  const failed = createOnlineCatalogClient({ request: async () => ({ ...response, version: 0, status: 'error', scanned: 0, error_code: 'provider_timeout' }) })
+  assert.equal((await failed.createSearchSession(SOURCE, '片名')).error_code, 'provider_timeout')
+  client.close(); failed.close()
+})
+
+test('progressive search rejects partial totals and stale completions after a new query', async () => {
+  const session = 'srch_' + '4'.repeat(32), pending = deferred(), calls = []
+  const body = { session_id: session, version: 1, source: { id: SOURCE }, configuration_token: 'b'.repeat(64),
+    query: '词', status: 'partial', items: [], categories: [], scanned: 100, found: 0, total: null,
+    has_more: true, can_continue: true, error_code: '', validated_at: 1700000000000 }
+  const client = createOnlineCatalogClient({ request: (path, options) => {
+    calls.push({ path, options }); return path.endsWith('/more') ? pending.promise : Promise.resolve(body)
+  } })
+  const stale = client.moreSearchSession(session)
+  await client.createSearchSession(SOURCE, '新词')
+  assert.equal(calls[0].options.signal.aborted, true)
+  pending.resolve(body)
+  assert.equal(await stale, null)
+  const malformed = createOnlineCatalogClient({ request: async () => ({ ...body, total: 929 }) })
+  await assert.rejects(malformed.createSearchSession(SOURCE, '词'), error => error.code === 'invalid_provider_response')
+  client.close(); malformed.close()
+})

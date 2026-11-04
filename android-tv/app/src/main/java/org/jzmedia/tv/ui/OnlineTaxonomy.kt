@@ -102,6 +102,14 @@ internal fun onlineTaxonomyLabel(tree: OnlineTaxonomy, id: String): String {
     return if (tree.channels.any { it.id == id && it.children.isNotEmpty() }) "${category.name}综合条目" else category.name
 }
 
+/** Search roots cover their descendants; directory roots retain their exact meaning. */
+internal fun onlineSearchCategoryLabel(tree: OnlineTaxonomy, selection: OnlineCatalogSelection?): String? {
+    val id = selection?.categoryId?.takeIf { it.isNotEmpty() } ?: return null
+    val category = tree.categories.firstOrNull { it.id == id } ?: return "所选分类"
+    return if (selection.categoryScope == "descendants") "${category.name}（全部子分类）"
+        else onlineCategoryLabel(tree.categories, id)
+}
+
 /** The full chooser contains the real parent too; it is not a synthetic all-children query. */
 internal fun onlineAllCategoriesForChannel(tree: OnlineTaxonomy, rootId: String = ""): List<OnlineCategory> {
     if (rootId.isEmpty()) return tree.categories

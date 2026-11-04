@@ -1765,3 +1765,299 @@ test('viewing mode changes discard records page and focus snapshots even when re
   assert.equal(focus.count, 0)
   assert.notEqual(document.activeElement, focus)
 })
+
+const SEARCH_SESSION = 'srch_' + '3'.repeat(32)
+function progressiveSources() {
+  const value = taxonomySources()
+  value.items[0].capabilities.search_filters = true
+  return value
+}
+function progressiveRows(conditions = {}, overrides = {}) {
+  const items = Array.from({ length: 100 }, (_, index) => ({ ...rows.items[0], external_id: 'progress-' + index,
+    title: '渐进结果' + index, category_id: index < 50 ? '71' : '21', year: index % 2 ? '2025' : '2026' }))
+    .filter(item => !conditions.category_id || item.category_id === conditions.category_id
+      || conditions.category_scope === 'descendants' && conditions.category_id === '58' && item.category_id === '71')
+    .filter(item => !conditions.year || item.year === conditions.year)
+  const offset = Number(conditions.offset || 0), limit = Number(conditions.limit || 20)
+  return { session_id: SEARCH_SESSION, version: 1, source: { id: SOURCE_A, name: '来源 A', provider: 'maccms' },
+    configuration_token: 'b'.repeat(64), query: '原片名', status: 'partial', items: items.slice(offset, offset + limit),
+    categories: hierarchy, scanned: 100, found: items.length, total: null, has_more: true, can_continue: true,
+    error_code: '', validated_at: Date.now(), ...overrides }
+}
+function progressiveConditions(path, options = {}) {
+  return options.body ? JSON.parse(options.body) : Object.fromEntries(new URL(path, 'https://fixture.invalid').searchParams)
+}
+
+test('progressive search preserves the submitted keyword and filters while draft edits stay unsubmitted', async t => {
+  const calls = []
+  const { ui } = await setup(t, async (path, options) => {
+    calls.push({ path, options })
+    if (path.endsWith('/sources')) return progressiveSources()
+    if (path.includes('/search-sessions')) return progressiveRows(progressiveConditions(path, options))
+    return categoryRows(path)
+  })
+  search(ui, '原片名'); await flush()
+  assert.equal(calls.filter(call => call.path.endsWith('/search-sessions')).length, 1)
+  assert.equal(calls.some(call => call.path.endsWith('/more')), false, 'the initial keyword reads only one source page')
+  assert.ok(ui.text().includes('尚未检索完'))
+  assert.equal(ui.find(node => node.props['data-online-page-next'] !== undefined), undefined)
+  ui.find(node => node.props.id === 'online-query').props.onInput({ target: { value: '尚未提交的新片名' } })
+  ui.find(node => node.props['data-online-channel'] === '58').props.onClick(); await flush()
+  let conditions = progressiveConditions(calls.at(-1).path, calls.at(-1).options)
+  assert.equal(conditions.category_id, '58'); assert.equal(conditions.category_scope, 'descendants')
+  assert.equal(ui.find(node => node.props['data-online-channel'] === '58').props['aria-pressed'], true)
+  ui.find(node => node.props['data-online-year'] !== undefined).props.onChange({ target: { value: '2026' } }); await flush()
+  conditions = progressiveConditions(calls.at(-1).path, calls.at(-1).options)
+  assert.equal(conditions.category_id, '58'); assert.equal(conditions.year, '2026')
+  assert.equal(ui.find(node => node.props.id === 'online-query').props.value, '尚未提交的新片名')
+  assert.ok(ui.text().includes('搜索：原片名'))
+  assert.equal(calls.filter(call => call.path.endsWith('/search-sessions')).length, 1)
+  const before = calls.length
+  ui.find(node => node.props['data-online-categories-open'] !== undefined).props.onClick(); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '不限分类').props.onClick(); await flush()
+  conditions = progressiveConditions(calls.at(-1).path, calls.at(-1).options)
+  assert.equal(conditions.category_id, ''); assert.equal(conditions.year, '2026')
+  assert.ok(calls.length > before)
+})
+
+test('load more reuses cached matching rows and a partial empty filter requests only one bounded batch', async t => {
+  const calls = []
+  const { ui } = await setup(t, async (path, options) => {
+    calls.push({ path, options })
+    if (path.endsWith('/sources')) return progressiveSources()
+    if (path.includes('/search-sessions')) return progressiveRows(progressiveConditions(path, options))
+    return categoryRows(path)
+  })
+  search(ui, '原片名'); await flush()
+  ui.find(node => node.props['data-online-search-more'] !== undefined).props.onClick(); await flush()
+  assert.equal(ui.all().filter(node => node.props['data-online-result'] !== undefined).length, 40)
+  assert.equal(calls.some(call => call.path.endsWith('/more')), false, 'the next twenty matches are already in memory')
+  ui.find(node => node.props['data-online-channel'] === '58').props.onClick(); await flush()
+  ui.find(node => node.props['data-online-category'] === '72').props.onClick(); await flush()
+  assert.equal(calls.filter(call => call.path.endsWith('/more')).length, 1)
+  assert.ok(ui.text().includes('尚未找到匹配内容'))
+  assert.equal(ui.text().includes('没有找到相关内容'), false)
+  assert.ok(ui.text().includes('继续检索'))
+  ui.find(node => node.props['data-online-search-more'] !== undefined).props.onClick(); await flush()
+  assert.equal(calls.filter(call => call.path.endsWith('/more')).length, 2, 'one click cannot start an automatic full traversal')
+})
+
+test('changing a progressive filter cancels a slow batch and ignores its late response', async t => {
+  const pending = deferred(), calls = []
+  const { ui } = await setup(t, async (path, options) => {
+    calls.push({ path, options })
+    if (path.endsWith('/sources')) return progressiveSources()
+    if (path.endsWith('/more')) return pending.promise
+    if (path.includes('/search-sessions')) {
+      const conditions = progressiveConditions(path, options)
+      if (conditions.year === '2025') return progressiveRows(conditions, { status: 'complete', items: [{ ...rows.items[0], external_id: 'new-year', title: '新筛选内容' }], found: 1, total: 1, has_more: false, can_continue: false })
+      return progressiveRows(conditions)
+    }
+    return categoryRows(path)
+  })
+  search(ui, '原片名'); await flush()
+  ui.find(node => node.props['data-online-channel'] === '58').props.onClick(); await flush()
+  ui.find(node => node.props['data-online-category'] === '72').props.onClick(); await flush()
+  const slow = calls.find(call => call.path.endsWith('/more'))
+  assert.ok(slow)
+  const year = ui.find(node => node.props['data-online-year'] !== undefined)
+  assert.equal(year.props.disabled, false)
+  year.props.onChange({ target: { value: '2025' } }); await flush()
+  assert.equal(slow.options.signal.aborted, true)
+  assert.ok(ui.text().includes('新筛选内容'))
+  pending.resolve(progressiveRows({}, { items: [{ ...rows.items[0], title: '迟到的旧内容' }] })); await flush()
+  assert.equal(ui.text().includes('迟到的旧内容'), false)
+  assert.ok(ui.text().includes('新筛选内容'))
+})
+
+test('an expired progressive session rebuilds once without losing keyword, category or year', async t => {
+  let expired = false, creates = 0
+  const calls = []
+  const { ui } = await setup(t, async (path, options) => {
+    calls.push({ path, options })
+    if (path.endsWith('/sources')) return progressiveSources()
+    if (path.endsWith('/search-sessions')) { creates++; return progressiveRows(progressiveConditions(path, options)) }
+    if (path.includes('/search-sessions')) {
+      if (expired) { expired = false; throw { code: 'online_search_session_expired', status: 410 } }
+      return progressiveRows(progressiveConditions(path, options))
+    }
+    return categoryRows(path)
+  })
+  search(ui, '原片名'); await flush()
+  ui.find(node => node.props['data-online-channel'] === '58').props.onClick(); await flush()
+  expired = true
+  ui.find(node => node.props['data-online-year'] !== undefined).props.onChange({ target: { value: '2026' } }); await flush()
+  assert.equal(creates, 2)
+  const rebuild = JSON.parse(calls.findLast(call => call.path.endsWith('/search-sessions')).options.body)
+  assert.equal(rebuild.q, '原片名'); assert.equal(rebuild.category_id, '58')
+  assert.equal(rebuild.category_scope, 'descendants'); assert.equal(rebuild.year, '2026')
+  assert.ok(ui.text().includes('搜索：原片名'))
+})
+
+test('an explicit progressive retry resumes a timed-out batch without dropping known matches', async t => {
+  let failed = false, moreCalls = 0
+  const { ui } = await setup(t, async (path, options) => {
+    if (path.endsWith('/sources')) return progressiveSources()
+    if (path.includes('/search-sessions')) {
+      const conditions = progressiveConditions(path, options)
+      if (path.endsWith('/more')) {
+        moreCalls++
+        if (moreCalls === 1) { failed = true; return progressiveRows(conditions, { status: 'error', items: [], found: 0, error_code: 'provider_timeout' }) }
+        failed = false
+        return progressiveRows(conditions, { version: 2, status: 'complete', items: [{ ...rows.items[0], external_id: 'recovered', title: '续查成功' }], found: 1, total: 1, has_more: false, can_continue: false })
+      }
+      return progressiveRows(conditions, failed ? { status: 'error', items: [], found: 0, error_code: 'provider_timeout' } : {})
+    }
+    return categoryRows(path)
+  })
+  search(ui, '原片名'); await flush()
+  ui.find(node => node.props['data-online-channel'] === '58').props.onClick(); await flush()
+  ui.find(node => node.props['data-online-category'] === '72').props.onClick(); await flush()
+  assert.equal(moreCalls, 1)
+  assert.ok(ui.text().includes('连接视频源超时'))
+  ui.find(node => node.type === 'button' && nodeText(node) === '重新加载').props.onClick(); await flush()
+  assert.equal(moreCalls, 2)
+  assert.ok(ui.text().includes('续查成功'))
+  assert.equal(ui.text().includes('连接视频源超时'), false)
+})
+
+test('progressive detail return and warm reentry retain appended results and the same session', async t => {
+  const calls = []
+  const request = async (path, options) => {
+    calls.push({ path, options })
+    if (path.endsWith('/sources')) return progressiveSources()
+    if (path.includes('/search-sessions')) return progressiveRows(progressiveConditions(path, options))
+    if (path.includes('/detail?')) return show()
+    return categoryRows(path)
+  }
+  const first = await setup(t, request)
+  search(first.ui, '原片名'); await flush()
+  first.ui.find(node => node.props['data-online-search-more'] !== undefined).props.onClick(); await flush()
+  first.ui.find(node => node.props['data-online-result'] === 'progress-0').props.onClick(); await flush()
+  first.ui.find(node => node.type === 'button' && nodeText(node) === '返回搜索结果').props.onClick(); await flush()
+  assert.equal(first.ui.all().filter(node => node.props['data-online-result'] !== undefined).length, 40)
+  assert.ok(first.ui.find(node => node.props['data-online-search-progress'] !== undefined))
+  first.ui.app.unmount()
+  const before = calls.length
+  const second = await setup(t, request)
+  assert.equal(calls.length, before + 1, 'warm reentry only revalidates sources')
+  assert.equal(second.ui.all().filter(node => node.props['data-online-result'] !== undefined).length, 40)
+  assert.ok(second.ui.text().includes('搜索：原片名'))
+})
+
+test('unverified sources cannot turn a keyword search into a category browse', async t => {
+  const calls = []
+  const { ui } = await setup(t, async path => {
+    calls.push(path)
+    return path.endsWith('/sources') ? taxonomySources() : categoryRows(path)
+  })
+  search(ui, '原片名'); await flush()
+  const before = calls.length
+  const channel = ui.find(node => node.props['data-online-channel'] === '58')
+  assert.equal(channel.props.disabled, true)
+  channel.props.onClick(); await flush()
+  assert.equal(calls.length, before)
+  assert.equal(ui.find(node => node.props.id === 'online-query').props.value, '原片名')
+  assert.ok(ui.text().includes('暂未开放搜索结果筛选'))
+})
+
+for (const expireDuringMore of [false, true]) test(`a progressive ${expireDuringMore ? 'POST' : 'GET'} expiry replaces the old prefix before loading a new generation`, async t => {
+  let creates = 0, expire = false, moreCalls = 0
+  const calls = []
+  const newId = 'srch_' + '4'.repeat(32)
+  const freshItems = Array.from({ length: 20 }, (_, index) => ({ ...rows.items[0], external_id: 'fresh-' + index, title: '新代结果' + index }))
+  const { ui } = await setup(t, async (path, options) => {
+    calls.push({ path, options })
+    if (path.endsWith('/sources')) return progressiveSources()
+    if (path.endsWith('/search-sessions')) {
+      creates++
+      return progressiveRows(progressiveConditions(path, options), creates > 1
+        ? { session_id: newId, status: 'complete', items: freshItems, found: 20, total: 20, has_more: false, can_continue: false } : {})
+    }
+    if (path.includes('/search-sessions')) {
+      const conditions = progressiveConditions(path, options)
+      if (path.endsWith('/more')) { moreCalls++; throw { code: 'online_search_session_expired', status: 410 } }
+      if (expire && !expireDuringMore) { expire = false; throw { code: 'online_search_session_expired', status: 410 } }
+      return progressiveRows(conditions, expire && expireDuringMore ? { items: [], found: Number(conditions.offset) } : {})
+    }
+    return categoryRows(path)
+  })
+  search(ui, '原片名'); await flush()
+  ui.find(node => node.props['data-online-search-more'] !== undefined).props.onClick(); await flush()
+  assert.equal(ui.all().filter(node => node.props['data-online-result'] !== undefined).length, 40)
+  expire = true
+  ui.find(node => node.props['data-online-search-more'] !== undefined).props.onClick(); await flush()
+  assert.equal(creates, 2)
+  assert.equal(moreCalls, expireDuringMore ? 1 : 0)
+  assert.equal(ui.all().filter(node => node.props['data-online-result'] !== undefined).length, 20)
+  assert.equal(ui.find(node => node.props['data-online-result'] === 'progress-0'), undefined)
+  assert.ok(ui.find(node => node.props['data-online-result'] === 'fresh-0'))
+  const recreated = JSON.parse(calls.findLast(call => call.path.endsWith('/search-sessions')).options.body)
+  assert.equal(recreated.offset, 0); assert.equal(recreated.q, '原片名')
+})
+
+test('retrying a terminal first-page search failure creates a fresh session', async t => {
+  let creates = 0
+  const calls = []
+  const { ui } = await setup(t, async (path, options) => {
+    calls.push({ path, options })
+    if (path.endsWith('/sources')) return progressiveSources()
+    if (path.endsWith('/search-sessions')) {
+      creates++
+      return progressiveRows(progressiveConditions(path, options), creates === 1
+        ? { version: 0, status: 'error', items: [], scanned: 0, found: 0, has_more: false, can_continue: false, error_code: 'online_search_results_changed' }
+        : {})
+    }
+    return categoryRows(path)
+  })
+  search(ui, '原片名'); await flush()
+  assert.ok(ui.text().includes('搜索结果已变化'))
+  ui.find(node => node.type === 'button' && nodeText(node) === '重新加载').props.onClick(); await flush()
+  assert.equal(creates, 2)
+  assert.equal(JSON.parse(calls.findLast(call => call.path.endsWith('/search-sessions')).options.body).refresh, true)
+  assert.ok(ui.find(node => node.props['data-online-result'] === 'progress-0'))
+})
+
+test('a failed progressive refresh preserves the displayed prefix and retries a fresh generation', async t => {
+  let failRefresh = true, refreshCalls = 0
+  const { ui } = await setup(t, async (path, options) => {
+    if (path.endsWith('/sources')) return progressiveSources()
+    if (path.includes('/search-sessions')) {
+      const conditions = progressiveConditions(path, options)
+      if (path.endsWith('/search-sessions') && conditions.refresh) {
+        refreshCalls++
+        if (failRefresh) return progressiveRows(conditions, { session_id: 'srch_' + '5'.repeat(32), version: 0, status: 'error', items: [], scanned: 0, found: 0, error_code: 'provider_timeout' })
+      }
+      return progressiveRows(conditions)
+    }
+    return categoryRows(path)
+  })
+  search(ui, '原片名'); await flush()
+  ui.find(node => node.props['data-online-search-more'] !== undefined).props.onClick(); await flush()
+  assert.equal(ui.all().filter(node => node.props['data-online-result'] !== undefined).length, 40)
+  ui.find(node => node.props['data-online-refresh'] !== undefined).props.onClick(); await flush()
+  assert.equal(refreshCalls, 1)
+  assert.equal(ui.all().filter(node => node.props['data-online-result'] !== undefined).length, 40)
+  assert.ok(ui.text().includes('连接视频源超时'))
+  failRefresh = false
+  ui.find(node => node.type === 'button' && nodeText(node) === '重试').props.onClick(); await flush()
+  assert.equal(refreshCalls, 2)
+  assert.equal(ui.all().filter(node => node.props['data-online-result'] !== undefined).length, 20)
+  assert.equal(ui.text().includes('连接视频源超时'), false)
+})
+
+test('submitting a keyword from a browse root upgrades the search range to all descendants', async t => {
+  const calls = []
+  const { ui } = await setup(t, async (path, options) => {
+    calls.push({ path, options })
+    if (path.endsWith('/sources')) return progressiveSources()
+    if (path.includes('/search-sessions')) return progressiveRows(progressiveConditions(path, options))
+    return categoryRows(path)
+  })
+  ui.find(node => node.props['data-online-channel'] === '58').props.onClick(); await flush()
+  ui.find(node => node.props['data-online-category'] === '58').props.onClick(); await flush()
+  assert.equal(new URL(calls.at(-1).path, 'https://fixture.invalid').searchParams.get('category_id'), '58')
+  search(ui, '原片名'); await flush()
+  const body = JSON.parse(calls.findLast(call => call.path.endsWith('/search-sessions')).options.body)
+  assert.equal(body.category_id, '58'); assert.equal(body.category_scope, 'descendants')
+})

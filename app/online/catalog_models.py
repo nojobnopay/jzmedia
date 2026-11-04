@@ -17,6 +17,7 @@ class CatalogCapabilities(_Public):
     refresh: bool = True
     browse: bool = True
     year_filter: bool = False
+    search_filters: bool = False
     related: bool = False
 
 
@@ -89,6 +90,38 @@ class CatalogSearch(_Public):
     page_count: int
     total: int
     categories: list[CatalogCategory] = Field(default_factory=list)
+
+
+class CatalogSearchSelection(_Public):
+    category_id: str = Field(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$")
+    category_scope: Literal["exact", "descendants"] = "exact"
+    year: str = Field(default="", max_length=4, pattern=r"^(?:[1-9][0-9]{3})?$")
+    offset: int = Field(default=0, ge=0, le=5000)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class CatalogSearchSessionCreate(CatalogSearchSelection):
+    source_id: SourceId
+    q: str = Field(min_length=1, max_length=100)
+    refresh: bool = False
+
+
+class CatalogSearchSession(_Public):
+    session_id: str = Field(pattern=r"^srch_[0-9a-f]{32}$")
+    version: int
+    source: CatalogSource
+    configuration_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+    query: str
+    status: Literal["loading", "partial", "complete", "error"]
+    items: list[CatalogSearchItem]
+    categories: list[CatalogCategory]
+    scanned: int
+    found: int
+    total: int | None
+    has_more: bool
+    can_continue: bool
+    error_code: str = ""
+    validated_at: int
 
 
 class CatalogBackgroundReady(CatalogSearch):

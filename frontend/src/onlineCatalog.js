@@ -2,6 +2,43 @@ import { api } from './api.js'
 
 export const OPEN_CATALOG_BASE = 'https://www.bigbuckbunny.org/'
 const SOURCE_ID = /^src_[0-9a-f]{32}$/
+const SEARCH_SESSION_ID = /^srch_[0-9a-f]{32}$/
+const exactMatch = (pattern, value) => typeof value === 'string' && pattern.exec(value)?.[0] === value
+
+function searchSessionId(value) {
+  if (typeof value !== 'string' || SEARCH_SESSION_ID.exec(value)?.[0] !== value) throw new Error('在线搜索会话无效')
+  return value
+}
+
+function searchConditions({ category_id = '', category_scope = 'exact', year = '', offset = 0, limit = 20 } = {}) {
+  if (typeof category_id !== 'string' || /^[A-Za-z0-9_-]{0,128}$/.exec(category_id)?.[0] !== category_id
+    || !['exact', 'descendants'].includes(category_scope) || typeof year !== 'string'
+    || year && /^[1-9][0-9]{3}$/.exec(year)?.[0] !== year
+    || !Number.isInteger(offset) || offset < 0 || offset > 5000
+    || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('在线搜索筛选条件无效')
+  return { category_id, category_scope, year, offset, limit }
+}
+
+function searchSessionResponse(value, expected, conditions, session = '') {
+  if (!value || !exactMatch(SEARCH_SESSION_ID, value.session_id)
+    || session && value.session_id !== session
+    || expected && value.source?.id !== expected || !exactMatch(SOURCE_ID, value.source?.id)
+    || !exactMatch(/^[0-9a-f]{64}$/, value.configuration_token)
+    || !Number.isInteger(value.version) || value.version < 0
+    || typeof value.query !== 'string' || !value.query.trim() || value.query.length > 100
+    || !['loading', 'partial', 'complete', 'error'].includes(value.status)
+    || !Array.isArray(value.items) || value.items.length > conditions.limit
+    || value.items.some(item => typeof item?.external_id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(item.external_id) || typeof item.title !== 'string')
+    || !Array.isArray(value.categories) || value.categories.length > 256
+    || !Number.isInteger(value.scanned) || value.scanned < 0 || !Number.isInteger(value.found) || value.found < 0
+    || typeof value.has_more !== 'boolean' || typeof value.can_continue !== 'boolean'
+    || typeof value.error_code !== 'string' || value.error_code.length > 128
+    || !Number.isFinite(value.validated_at) || value.validated_at < 0
+    || (value.status === 'complete' ? !Number.isInteger(value.total) || value.total < 0 : value.total !== null)) {
+    throw Object.assign(new Error('在线搜索响应无效'), { code: 'invalid_provider_response' })
+  }
+  return value
+}
 
 export function onlineRouteTarget(query = {}) {
   try { sourceId(query.source) } catch { return null }
@@ -47,6 +84,12 @@ export function onlineCatalogError(problem) {
     provider_cancelled: '视频源查询已取消，请重新查询。',
     online_source_changed: '视频源配置已变化，请重新选择来源并查询。',
     online_year_filter_unsupported: '此来源尚未验证年份筛选，请清除年份后重试。',
+    online_search_filter_unsupported: '当前视频源暂未开放搜索结果筛选，可清除搜索词后浏览目录。',
+    online_search_session_expired: '搜索会话已过期，请重新搜索。',
+    online_search_session_limit: '搜索结果较多，请使用更具体的片名缩小范围。',
+    online_search_limit_reached: '已达到本次检索上限，请使用更具体的片名缩小范围。',
+    online_search_category_unavailable: '暂时无法读取分类资料，请刷新搜索后再选择分类。',
+    online_search_results_changed: '来源的搜索结果已变化，请刷新后继续检索。',
     network_timeout: '连接视频源超时，请稍后重试。',
     unsupported_online_media: '此来源没有可直接播放的 MP4 或 HLS 视频。',
   }[problem?.code] || '暂时无法读取此视频源，请检查来源设置与网络后重试。')
@@ -58,13 +101,13 @@ export function createOnlineCatalogClient({ request = api } = {}) {
   let generation = 0
   let pending = null
   let disposed = false
-  async function run(path) {
+  async function run(path, options = {}) {
     if (disposed) return null
     const turn = ++generation
     pending?.abort()
     const controller = pending = new AbortController()
     try {
-      const result = await request(path, { signal: controller.signal, timeout: 35000 })
+      const result = await request(path, { ...options, signal: controller.signal, timeout: options.timeout ?? 35000 })
       return !disposed && turn === generation && !controller.signal.aborted ? result : null
     } catch (error) {
       if (disposed || turn !== generation || controller.signal.aborted) return null
@@ -86,6 +129,23 @@ export function createOnlineCatalogClient({ request = api } = {}) {
       const q = String(query || '').trim()
       if (q.length > 100 || !Number.isInteger(page) || page < 1 || page > 1000) throw new Error('在线搜索条件无效')
       return run('/api/online/catalog/search?' + new URLSearchParams({ source_id: sourceId(source), q, page: String(page) }))
+    },
+    createSearchSession(source, query, selection = {}, refresh = false) {
+      const q = String(query || '').trim(), conditions = searchConditions(selection)
+      if (!q || q.length > 100 || typeof refresh !== 'boolean') throw new Error('在线搜索条件无效')
+      const expected = sourceId(source)
+      return run('/api/online/catalog/search-sessions', { method: 'POST', body: JSON.stringify({ source_id: expected, q, refresh, ...conditions }), timeout: 12000 })
+        .then(value => value && searchSessionResponse(value, expected, conditions))
+    },
+    readSearchSession(session, selection = {}, source = '') {
+      const conditions = searchConditions(selection)
+      return run('/api/online/catalog/search-sessions/' + searchSessionId(session) + '?' + new URLSearchParams(conditions), { timeout: 10000 })
+        .then(value => value && searchSessionResponse(value, source, conditions, session))
+    },
+    moreSearchSession(session, selection = {}, source = '') {
+      const conditions = searchConditions(selection)
+      return run('/api/online/catalog/search-sessions/' + searchSessionId(session) + '/more', { method: 'POST', body: JSON.stringify(conditions), timeout: 12000 })
+        .then(value => value && searchSessionResponse(value, source, conditions, session))
     },
     detail(source, externalId) {
       if (typeof externalId !== 'string' || externalId.length > 128

@@ -121,13 +121,16 @@
 
 ## 在线目录
 
-目录接口需要有效设备观看会话，即使未启用保护也须先调用 `GET /api/viewing/session`。它们不要求管理解锁，儿童模式仍拒绝；来源管理接口继续要求管理权限。只允许下表中的精确 GET 路径和参数，未知或重复参数返回固定 `422 invalid_online_catalog_request`。
+目录接口需要有效设备观看会话，即使未启用保护也须先调用 `GET /api/viewing/session`。它们不要求管理解锁，儿童模式仍拒绝；来源管理接口继续要求管理权限。只允许下表中的精确请求路径和参数，未知或重复查询参数返回固定 `422 invalid_online_catalog_request`。渐进搜索会话的 POST 沿用既有写方法访问令牌策略：配置了访问令牌时仍需携带，GET 不增加访问令牌要求。
 
 | 请求 | 返回与行为 |
 |---|---|
 | `GET /api/online/catalog/sources` | `{enabled,scope_token,items:[{id,name,provider,priority,capabilities,configuration_token}]}`；总开关关闭时列表为空，不访问上游 |
 | `GET /api/online/catalog/search?source_id=src_...&q=片名&page=1` | 单源搜索；返回来源、元数据条目、`page/page_count/total` |
 | `GET /api/online/catalog/browse?source_id=src_...&page=1&category_id=...&year=2026` | 浏览来源最近更新或实际分类；返回搜索结果同型结构，并包含 `categories:[{id,name,parent_id}]` |
+| `POST /api/online/catalog/search-sessions` | 创建或复用渐进搜索会话；请求包含 `source_id/q`、可选 `refresh` 和筛选窗口条件 |
+| `GET /api/online/catalog/search-sessions/{session_id}` | 按筛选窗口条件读取已收集结果与进度，不访问上游 |
+| `POST /api/online/catalog/search-sessions/{session_id}/more` | 按请求体中的筛选窗口条件补充检索；已读结果足够时直接返回 |
 | `GET /api/online/catalog/detail?source_id=src_...&external_id=123` | 返回稳定条目身份、简介、年份、全部线路、分集和可选归因链接 |
 | `GET /api/online/catalog/related?source_id=src_...&external_id=123` | 可选的同源其他季、同类内容与名称相关候选；只接受稳定身份，不接受标题或上游地址 |
 | `GET /api/online/catalog/artwork/{source_id}/{token}` | 读取此前目录或详情登记的海报；不接受上游 URL 参数 |
@@ -138,9 +141,19 @@
 
 后台读取最多 8 秒，不自动重试，不借用前台连接池；与推荐共用全进程最多一路低优先工作，并计入总共四路、每设备一路的原额度。前台请求取消后台实际 I/O，等待工作退出释放名额后再接管。网页每 15 分钟最多检查一次可见页；先校验当前来源和观看范围，再核对返回的配置摘要，不能把新配置结果暂存到旧缓存。
 
-`capabilities.year_filter` 默认 `false`，当前仅已核对的暴风 `https://bfzyapi.com/api.php/provide/vod/` 与量子主站 JSON `https://cj.lziapi.com/api.php/provide/vod/` HTTPS 接口，在使用默认详情动作 `detail_action=detail` 时声明支持；不扩展到其它域名或接口。`year` 可省略或为空，否则必须为 1000–9999 的四位 ASCII 年份，并由来源接口实际过滤，可与 `category_id` 组合，目录翻页保留所选条件；未声明支持的来源返回 `422 online_year_filter_unsupported`，不访问上游。关键词搜索不接受年份参数；客户端发起搜索时清除目录分类与年份，不将当前页的年份筛选冒充全目录查询。未声明支持时，电视保留年份状态说明并停用年份操作，网页不显示年份控件。
+`capabilities.year_filter` 默认 `false`，当前仅已核对的暴风 `https://bfzyapi.com/api.php/provide/vod/` 与量子主站 JSON `https://cj.lziapi.com/api.php/provide/vod/` HTTPS 接口，在使用默认详情动作 `detail_action=detail` 时声明支持；不扩展到其它域名或接口。`/browse` 的 `year` 可省略或为空，否则必须为 1000–9999 的四位 ASCII 年份，并由来源接口实际过滤，可与 `category_id` 组合，目录翻页保留所选条件；未声明支持的来源返回 `422 online_year_filter_unsupported`，不访问上游。旧 `/search` 契约保持不变，仍不接受分类或年份；支持组合筛选的客户端使用下述搜索会话接口保留关键词与筛选条件。普通目录浏览的年份能力未声明支持时，电视保留状态说明并停用年份操作，网页不显示年份控件。
 
-分类 `parent_id` 为空表示根；缺失父类、孤儿、自环及环形父链降为根分类，最多 256 类。查询父分类仍按其 ID 原样请求，不隐式聚合子分类。
+分类 `parent_id` 为空表示根；缺失父类、孤儿、自环及环形父链降为根分类，最多 256 类。普通 `/browse` 查询父分类仍按其 ID 原样请求，不隐式聚合子分类。
+
+`capabilities.search_filters` 默认 `false`，声明服务端可通过渐进搜索会话组合关键词、分类及年份。当前仅开放量子主接口 `https://cj.lziapi.com/api.php/provide/vod/`，允许省略尾斜杠或显式使用 443 端口，且要求 `detail_action=detail`、`search_action=list|detail`。未验证域名、路径或动作保持 `false`；旧服务器缺少该字段时按 `false` 处理。未开放的来源创建搜索会话返回 `422 online_search_filter_unsupported`，不访问上游。
+
+搜索会话标识为 `srch_` 加 32 位小写十六进制字符。创建请求的 `q` 必须为非空且最多 100 字符的单行文本；`refresh` 默认 `false`，同一范围与关键词在新鲜期内可复用，`true` 创建新会话。三个接口共用筛选窗口条件：`category_id` 默认空；`category_scope=exact|descendants` 默认 `exact`，后者包含指定分类及其全部后代；`year` 默认空，非空时沿用四位年份格式，匹配元数据开头的合法四位年份，允许地区等后缀。`offset` 是筛选结果中的起始位置，范围 0–5000，默认 0；`limit` 为 1–100，默认 20。GET 使用查询参数，两个 POST 使用 JSON 请求体。
+
+响应为 `{session_id,version,source,configuration_token,query,status,items,categories,scanned,found,total,has_more,can_continue,error_code,validated_at}`。`items` 仅含请求的筛选窗口；`scanned` 为已读原始条目数，`found` 为已读部分的匹配数。`status` 为 `loading/partial/complete/error`；只有全部搜索页完整读取且校验通过才为 `complete`，此时 `total` 为精确匹配数，其余状态均为 `null`。`has_more` 同时表示缓存中还有匹配项或尚可补充检索；`can_continue` 仅表示能否继续读取上游，完整结果仍可能有缓存窗口未展示。未完成且没有匹配项不能解释为最终零结果。`version` 随成功追加源页递增，`validated_at` 为会话新鲜期基准的毫秒时间戳。
+
+新会话首次最多读取一个未筛选源页，每页 100 条；每次 `/more` 以满足 `offset+limit` 个匹配项为目标，最多读两个源页，共用 8 秒期限，不自动遍历全部搜索页或自动重试。客户端按需显式续查或刷新，不为搜索会话安排全量后台刷新。成功读取的连续前缀逐页发布，独立 GET 可在 POST 期间观察进度；匹配项保留来源搜索顺序。追加检索复用后台名额，前台操作优先；HTTP 取消中断该次 POST 的上游 I/O，工作实际退出后释放名额。失败保留已提交前缀及固定 `error_code`，页码、总数、分类树或 ID 不一致时停止继续检索，不将部分结果标为完整。
+
+会话仅保存进程内目录摘要，每会话最多 5000 条、50 个源页、8 MiB，全局最多 8 个会话、64 MiB，并按 LRU 淘汰。达到预算返回或携带 `online_search_limit_reached`，需缩小关键词。缓存按设备、观看代次、保护修订、来源及完整网络配置和关键词隔离；每次交付与源页读取前后仍复核权限和配置。新鲜期 15 分钟，读取不延长；闲置 30 分钟淘汰。过期会话在保留期内仍可 GET 已读内容，但 `/more` 拒绝继续；重启、淘汰或范围不匹配也可使标识失效。遇到 `410 online_search_session_expired`，客户端保留关键词及筛选条件，从 `offset=0` 重建一次新会话，并替换旧显示前缀，不能混合不同会话的数据。搜索会话不创建本地媒体记录或读取视频。
 
 搜索与浏览条目提供 `external_id`、文本元数据及可选的服务内 `poster_path`，不创建本地媒体记录；详情按来源和内容种类保存独立在线身份。海报路径是不透明的来源绑定租约，受当前观看权限、来源与网络配置检查约束；停用来源、配置变化或租约失效后需重新读取目录或详情，不能将它作为持久图片地址保存。
 

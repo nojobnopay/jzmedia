@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 
 from ..network.policy import NetworkPolicyError
-from ..online import catalog, catalog_models, providers, service
+from ..online import catalog, catalog_models, providers, search_sessions, service
 from ..online.models import SourceId
 from ..network.guard import NetworkOperation, NetworkOperationError
 from ..store.online import OnlineNotFound
@@ -135,6 +135,34 @@ async def detail(request: Request, source_id: SourceId,
                  external_id: str = Query(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")):
     _query(request, {"source_id", "external_id"})
     return await _read(request, catalog.detail, source_id, external_id)
+
+
+@router.post("/search-sessions", response_model=catalog_models.CatalogSearchSession)
+async def create_search_session(request: Request, body: catalog_models.CatalogSearchSessionCreate):
+    _query(request, set())
+    selection = body.model_dump(exclude={"source_id", "q", "refresh"})
+    return await _read(request, search_sessions.create, body.source_id, body.q, body.refresh, selection,
+                       deadline_seconds=search_sessions.BATCH_SECONDS)
+
+
+@router.get("/search-sessions/{session_id}", response_model=catalog_models.CatalogSearchSession)
+async def read_search_session(request: Request, session_id: str,
+                              category_id: str = Query(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$"),
+                              category_scope: Literal["exact", "descendants"] = "exact",
+                              year: str = Query(default="", max_length=4, pattern=r"^(?:[1-9][0-9]{3})?$"),
+                              offset: int = Query(default=0, ge=0, le=5000),
+                              limit: int = Query(default=20, ge=1, le=100)):
+    _query(request, {"category_id", "category_scope", "year", "offset", "limit"})
+    return await _read(request, search_sessions.read, session_id,
+                       {"category_id": category_id, "category_scope": category_scope, "year": year,
+                        "offset": offset, "limit": limit})
+
+
+@router.post("/search-sessions/{session_id}/more", response_model=catalog_models.CatalogSearchSession)
+async def advance_search_session(request: Request, session_id: str, body: catalog_models.CatalogSearchSelection):
+    _query(request, set())
+    return await _read(request, search_sessions.more, session_id, body.model_dump(),
+                       deadline_seconds=search_sessions.BATCH_SECONDS)
 
 
 @router.get("/browse", response_model=catalog_models.CatalogSearchResponse)

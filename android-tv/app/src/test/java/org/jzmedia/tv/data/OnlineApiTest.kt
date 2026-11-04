@@ -24,6 +24,11 @@ class OnlineApiTest {
     private val scope = "a".repeat(64)
     private val movie = OnlineIdentity(source, item, "movie", lineId = line)
     private fun sourceJson() = JSONObject().put("id", source).put("name", "Isolated source").put("provider", "maccms")
+    private fun searchSession(id: String = "srch_" + "b".repeat(32)) = JSONObject().put("session_id", id).put("version", 1)
+        .put("source", sourceJson()).put("configuration_token", "a".repeat(64)).put("query", "A&wd=other")
+        .put("status", "partial").put("items", JSONArray()).put("categories", JSONArray())
+        .put("scanned", 100).put("found", 0).put("total", JSONObject.NULL)
+        .put("has_more", true).put("can_continue", true).put("error_code", "").put("validated_at", 1000L)
     private fun descriptor() = JSONObject().put("identity", movie.toJson()).put("session_id", sid)
         .put("media_url", "/api/online/sessions/$sid/media").put("transport", "mp4").put("processing", "passthrough")
         .put("seekable", true).put("duration_seconds", 24.0).put("time_offset_seconds", 0.0).put("expires_at", 2_147_483_648L)
@@ -72,6 +77,60 @@ class OnlineApiTest {
             assertEquals("tv", request.getHeader("X-Viewing-Client"))
             assertEquals("write-token", request.getHeader("X-Api-Token"))
             assertNull(request.getHeader("X-Online-State-Scope"))
+        }
+    }
+
+    @Test fun progressiveSearchCreatesReadsAndContinuesTheSameFilteredWindow() = runBlocking {
+        MockWebServer().use { server ->
+            val online = OnlineApi(api(server))
+            repeat(3) { server.enqueue(reply(searchSession())) }
+            val value = online.createSearchSession(source, " A&wd=other ", "2", "descendants", "2026")
+            val create = server.takeRequest(1, TimeUnit.SECONDS)!!
+            assertEquals("POST", create.method)
+            assertEquals("/prefix/api/online/catalog/search-sessions", create.path)
+            val body = JSONObject(create.body.readUtf8())
+            assertEquals("A&wd=other", body.getString("q"))
+            assertEquals("2", body.getString("category_id")); assertEquals("descendants", body.getString("category_scope"))
+            assertEquals("2026", body.getString("year")); assertEquals(0, body.getInt("offset")); assertEquals(20, body.getInt("limit"))
+            assertFalse(body.getBoolean("refresh"))
+            assertEquals("device-token", create.getHeader("X-Viewing-Session"))
+            assertEquals("write-token", create.getHeader("X-Api-Token"))
+            online.searchSession(value.sessionId, "2", "descendants", "2026", 20)
+            val read = server.takeRequest(1, TimeUnit.SECONDS)!!
+            assertEquals("GET", read.method)
+            assertEquals("20", read.requestUrl!!.queryParameter("offset"))
+            assertEquals("descendants", read.requestUrl!!.queryParameter("category_scope"))
+            online.moreSearchSession(value.sessionId, "2", "descendants", "2026", 20)
+            val more = server.takeRequest(1, TimeUnit.SECONDS)!!
+            assertEquals("/prefix/api/online/catalog/search-sessions/${value.sessionId}/more", more.path)
+            assertEquals(20, JSONObject(more.body.readUtf8()).getInt("offset"))
+        }
+    }
+
+    @Test fun progressiveSearchRejectsInvalidSelectorsAndMismatchedSessionResponses() = runBlocking {
+        MockWebServer().use { server ->
+            val online = OnlineApi(api(server))
+            val id = "srch_" + "b".repeat(32)
+            try { online.createSearchSession(source, " "); fail("blank query") } catch (_: IllegalArgumentException) { }
+            try { online.searchSession("../other"); fail("invalid session") } catch (_: IllegalArgumentException) { }
+            try { online.moreSearchSession(id, categoryScope = "all"); fail("invalid scope") } catch (_: IllegalArgumentException) { }
+            try { online.searchSession(id, offset = -1); fail("negative offset") } catch (_: IllegalArgumentException) { }
+            try { online.moreSearchSession(id, year = "2026&wd=x"); fail("invalid year") } catch (_: IllegalArgumentException) { }
+            assertEquals(0, server.requestCount)
+            server.enqueue(reply(searchSession("srch_" + "c".repeat(32))))
+            try { online.searchSession(id); fail("foreign response") }
+            catch (error: ApiException) { assertEquals("invalid_online_response", error.code) }
+        }
+    }
+
+    @Test fun cancellingAProgressiveContinuationStopsTheRequestWithoutStartingAnotherBatch() = runBlocking {
+        MockWebServer().use { server ->
+            val online = OnlineApi(api(server))
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+            val pending = async { online.moreSearchSession("srch_" + "b".repeat(32)) }
+            withContext(kotlinx.coroutines.Dispatchers.IO) { assertNotNull(server.takeRequest(2, TimeUnit.SECONDS)) }
+            withTimeout(2000) { pending.cancelAndJoin() }
+            assertEquals(1, server.requestCount)
         }
     }
 

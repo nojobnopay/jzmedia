@@ -17,6 +17,11 @@ class OnlineModelsTest {
         .put("kind", "tv").put("description", "独立测试资料")
     private fun searchPage() = JSONObject().put("source", sourceJson()).put("items", JSONArray().put(searchItem()))
         .put("page", 1).put("page_count", 1).put("total", 1)
+    private fun searchSession() = JSONObject().put("session_id", "srch_" + "b".repeat(32)).put("version", 1)
+        .put("source", sourceJson()).put("configuration_token", "a".repeat(64)).put("query", "片名")
+        .put("status", "partial").put("items", JSONArray()).put("categories", JSONArray())
+        .put("scanned", 100).put("found", 0).put("total", JSONObject.NULL)
+        .put("has_more", true).put("can_continue", true).put("error_code", "").put("validated_at", 1000L)
     private fun descriptor() = JSONObject().put("identity", movie.toJson()).put("session_id", sid)
         .put("media_url", "/api/online/sessions/$sid/media").put("transport", "mp4")
         .put("processing", "passthrough").put("seekable", true).put("duration_seconds", 24.0)
@@ -69,6 +74,41 @@ class OnlineModelsTest {
         assertEquals("", entry.categoryId)
         assertEquals("", entry.parentCategoryId)
         assertEquals("", entry.remarks)
+    }
+
+    @Test fun searchFilteringRequiresAnExplicitBooleanCapability() {
+        assertFalse(OnlineSource.fromJson(sourceJson()).searchFiltersSupported)
+        assertTrue(OnlineSource.fromJson(sourceJson().put("capabilities", JSONObject().put("search_filters", true))).searchFiltersSupported)
+        assertThrows(IllegalArgumentException::class.java) {
+            OnlineSource.fromJson(sourceJson().put("capabilities", JSONObject().put("search_filters", "true")))
+        }
+    }
+
+    @Test fun aPartialEmptySearchKeepsAnUnknownTotalUntilTheEntirePrefixIsComplete() {
+        val partial = OnlineSearchSession.fromJson(searchSession())
+        assertFalse(partial.complete)
+        assertNull(partial.total)
+        assertEquals(100, partial.scanned)
+        assertTrue(partial.hasMore)
+        val failedFirstPage = OnlineSearchSession.fromJson(searchSession().put("version", 0).put("status", "error")
+            .put("scanned", 0).put("error_code", "provider_timeout"))
+        assertEquals(0, failedFirstPage.version)
+        assertEquals("provider_timeout", failedFirstPage.errorCode)
+        val complete = OnlineSearchSession.fromJson(searchSession().put("status", "complete").put("total", 0)
+            .put("has_more", false).put("can_continue", false))
+        assertTrue(complete.complete)
+        assertEquals(0, complete.total)
+    }
+
+    @Test fun searchSessionsRejectInventedFinalTotalsDuplicateIdsAndMalformedProgress() {
+        val invalid = listOf(searchSession().put("total", 0), searchSession().put("status", "complete"),
+            searchSession().put("session_id", "../../other"), searchSession().put("scanned", 5001),
+            searchSession().put("found", 101), searchSession().put("can_continue", "true"),
+            searchSession().put("configuration_token", "foreign"),
+            searchSession().put("found", 2).put("items", JSONArray().put(searchItem()).put(searchItem())))
+        invalid.forEach { value ->
+            assertThrows(IllegalArgumentException::class.java) { OnlineSearchSession.fromJson(value) }
+        }
     }
 
     @Test fun browseKeepsSourceTaxonomyMetadataAndOnlyTheSourceBoundArtworkLease() {

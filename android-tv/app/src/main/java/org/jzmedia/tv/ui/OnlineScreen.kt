@@ -41,7 +41,12 @@ import androidx.tv.material3.Text
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.ApiException
@@ -49,6 +54,7 @@ import org.jzmedia.tv.data.OnlineApi
 import org.jzmedia.tv.data.OnlineEntry
 import org.jzmedia.tv.data.OnlineIdentity
 import org.jzmedia.tv.data.OnlineLibraryEntry
+import org.jzmedia.tv.data.OnlineSearchSession
 import org.jzmedia.tv.data.onlineErrorMessage
 import org.jzmedia.tv.data.onlineHostError
 import org.jzmedia.tv.playback.OnlinePlaybackRequest
@@ -214,7 +220,7 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
     fun changeSource(id: String) {
         if (state.sourceId == id) return
         savePosition(); resetDetail(); catalogue.cancel()
-        state.sourceId = id; state.results = null; state.searchError = ""; state.searchPage = 1; state.searching = false
+        state.sourceId = id; state.results = null; state.searchSession = null; state.searchError = ""; state.searchPage = 1; state.searching = false
         state.categories = emptyList(); state.categoryId = ""; state.year = ""; state.yearInput = ""; state.query = ""
         state.categoryRoot = ""; state.channelSelections = emptyMap()
         state.loadedSelection = null; state.cataloguePending = true
@@ -225,28 +231,84 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
         if (query == state.query) return
         state.query = query
         state.pendingFocus = null
-        if (state.searching) {
-            catalogue.cancel(); state.searching = false; state.searchError = ""; state.results = null; state.searchPage = 1
-        }
         // Completed results still name their submitted loadedQuery until an
         // explicit new search; typing itself never requests the provider.
     }
     fun search(page: Int = 1, selection: OnlineCatalogSelection? = null, focusResults: Boolean = true,
-               returnFocus: String? = null) {
+               returnFocus: String? = null, append: Boolean = false, refreshSession: Boolean = false) {
         val source = selection?.sourceId ?: state.sourceId
         val selected = state.sources?.items?.firstOrNull { it.id == source } ?: return
         val request = selection ?: OnlineCatalogSelection(source, state.query.trim(), state.categoryId, state.year)
         val query = request.query
         if (source != state.sourceId || !selected.enabled || state.sources?.enabled != true || state.sourcesLoading || state.sourcesError.isNotBlank() ||
             query.isBlank() && !selected.browseSupported && selected.provider != "open_catalog") return
+        val progressive = query.isNotBlank() && selected.searchFiltersSupported
+        val retainResults = progressive && state.loadedSelection == request && state.searchSession != null
+        val remembered = state.searchSession?.takeIf { it.query == query && it.source.id == source &&
+            it.configurationToken == selected.configurationToken && !refreshSession }
+        var base = if (append && state.loadedSelection == request && remembered != null) state.results?.items.orEmpty() else emptyList()
+        var offset = base.size
         savePosition(); resetDetail(); state.keyboard = false
         state.cataloguePending = false
         if (returnFocus != null) target(returnFocus)
         val requestedFocus = OnlineFocusTicket(focusVersion[0], memory.key, memory.revision)
         catalogue.start(scope) { ticket ->
             state.searching = true; state.searchError = ""; state.searchPage = page; state.loadedQuery = query
-            state.loadedSelection = request; state.results = null
+            state.loadedSelection = request
+            if (!retainResults) { state.results = null; state.searchSession = null }
             try {
+                if (progressive) {
+                    fun accept(value: OnlineSearchSession) {
+                        if (alive() && catalogue.current(ticket) && source == state.sourceId) {
+                            require(value.configurationToken == selected.configurationToken)
+                            state.searchError = value.errorCode.takeIf { it.isNotEmpty() }?.let {
+                                onlineErrorMessage(ApiException(0, "", it))
+                            }.orEmpty()
+                            if (!(retainResults && value.scanned == 0 && value.errorCode.isNotEmpty()))
+                                state.acceptSearchWindow(value, request, base)
+                        }
+                    }
+                    suspend fun create() = online.createSearchSession(source, query, request.categoryId,
+                        request.categoryScope, request.year, offset, refresh = refreshSession)
+                    suspend fun rebuild(): OnlineSearchSession {
+                        // A replacement generation never appends to the old result prefix.
+                        base = emptyList(); offset = 0
+                        return create()
+                    }
+                    val expiry = OnlineSearchExpiryRecovery()
+                    val value = if (remembered != null) expiry.read({ online.searchSession(remembered.sessionId,
+                        request.categoryId, request.categoryScope, request.year, offset) }, ::rebuild) else create()
+                    coroutineContext.ensureActive()
+                    accept(value)
+                    val hasFilter = request.categoryId.isNotBlank() || request.year.isNotBlank()
+                    if (value.canContinue && value.items.size < 20 && (append || value.errorCode.isEmpty()) &&
+                        (remembered != null || hasFilter || append)) {
+                        val continued = expiry.read({ coroutineScope {
+                            val more = async { online.moreSearchSession(value.sessionId, request.categoryId,
+                                request.categoryScope, request.year, offset) }
+                            val progress = launch {
+                                while (isActive) {
+                                    delay(2000)
+                                    try {
+                                        val update = online.searchSession(value.sessionId, request.categoryId,
+                                            request.categoryScope, request.year, offset)
+                                        coroutineContext.ensureActive(); accept(update)
+                                    } catch (error: CancellationException) { throw error }
+                                    catch (_: Exception) { /* The active bounded request reports its final failure. */ }
+                                }
+                            }
+                            try { more.await() } finally { progress.cancelAndJoin() }
+                        } }, ::rebuild)
+                        accept(continued)
+                    }
+                    coroutineContext.ensureActive()
+                    if (alive() && catalogue.current(ticket) &&
+                        requestedFocus.isCurrent(focusVersion[0], memory.key, memory.revision)) {
+                        if (focusResults) target(state.results?.items?.firstOrNull()?.let { "online:result:${it.externalId}" } ?: "online:query")
+                        else if (returnFocus != null) target(returnFocus)
+                    }
+                    return@start
+                }
                 val value = if (request.browsing && selected.browseSupported)
                     online.browse(source, page, request.categoryId, request.year) else online.search(source, query, page)
                 coroutineContext.ensureActive()
@@ -296,6 +358,7 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
     }
     fun openDetail(source: String, externalId: String, resume: OnlineIdentity? = null) {
         savePosition()
+        state.interruptCatalogue()
         val focusBeforeRequest = OnlineFocusTicket(focusVersion[0], memory.key, memory.revision)
         detailRetryFocusFrom = null
         if (state.sourceId != source) changeSource(source)
@@ -482,6 +545,9 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
         if (!state.sourcesLoading && state.cataloguePending && state.section == "search" && !state.showingDetail && state.sourcesError.isBlank()) {
             state.cataloguePending = false
             val source = state.sources?.items?.firstOrNull { it.id == state.sourceId && it.enabled }
+            if (state.searchSession?.let { it.configurationToken == source?.configurationToken &&
+                    it.query == state.loadedSelection?.query } == true && state.results != null)
+                return@LaunchedEffect
             if (state.sources?.enabled == true && source != null && (source.browseSupported || state.loadedSelection != null))
                 search(state.searchPage, state.loadedSelection, focusResults = false)
         }
@@ -597,23 +663,35 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
     val tree = remember(state.categories) { onlineTaxonomy(state.categories) }
     fun submitSearch() {
         val query = state.query.trim()
-        if (query.isBlank() && !(selectedSource?.provider == "open_catalog" && !selectedSource.browseSupported)) return
-        state.categoryId = ""; state.categoryRoot = ""; state.year = ""; state.yearInput = ""; state.keyboard = false
-        search(selection = OnlineCatalogSelection(state.sourceId, query))
+        if (query.isBlank() && selectedSource?.browseSupported != true && selectedSource?.provider != "open_catalog") return
+        val request = state.submittedSelection(selectedSource?.searchFiltersSupported == true)
+        if (query.isNotBlank() && selectedSource?.searchFiltersSupported != true) {
+            if (state.categoryId.isNotBlank() || state.year.isNotBlank()) state.notice = "当前服务暂不支持搜索内筛选，本次仅按片名搜索。"
+            state.categoryId = ""; state.categoryRoot = ""; state.year = ""; state.yearInput = ""
+        }
+        state.keyboard = false
+        search(selection = request)
     }
     fun selectCategory(id: String, returnKey: String) {
+        val submittedWord = state.loadedSelection?.query.orEmpty()
+        if (submittedWord.isNotBlank() && selectedSource?.searchFiltersSupported != true) {
+            state.notice = "当前服务暂不支持搜索内筛选，请升级服务端，或清空片名后浏览分类。"
+            return
+        }
         val selectedRoot = tree.rootByCategory[id].orEmpty()
-        state.categoryId = id; state.categoryRoot = selectedRoot; state.query = ""
+        val includeChildren = submittedWord.isNotBlank() && tree.channels.any { it.id == id && it.children.isNotEmpty() }
+        val request = state.categorySelection(id, if (includeChildren) "descendants" else "exact")
+        state.categoryId = id; state.categoryRoot = selectedRoot
         if (selectedRoot.isNotBlank()) state.channelSelections = state.channelSelections + (selectedRoot to id)
-        search(selection = OnlineCatalogSelection(state.sourceId, categoryId = id, year = state.year),
-            focusResults = false, returnFocus = returnKey)
+        search(selection = request, focusResults = false, returnFocus = returnKey)
     }
     fun selectYear(year: String, returnKey: String) {
         val source = state.sources?.items?.firstOrNull { it.id == state.sourceId } ?: return
-        if (!source.browseSupported || !source.yearFilterSupported) return
-        state.year = year; state.yearInput = year; state.query = ""
-        search(selection = OnlineCatalogSelection(state.sourceId, categoryId = state.categoryId, year = year),
-            focusResults = false, returnFocus = returnKey)
+        val searchingWord = state.loadedSelection?.query?.isNotBlank() == true
+        if (!source.browseSupported || !(if (searchingWord) source.searchFiltersSupported else source.yearFilterSupported)) return
+        val request = state.yearSelection(year)
+        state.year = year; state.yearInput = year
+        search(selection = request, focusResults = false, returnFocus = returnKey)
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
@@ -642,11 +720,13 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                 state.sources?.items?.none { it.enabled } != false -> item { Status("还没有可用的视频源，请先在网页添加来源。") }
                 else -> {
                     if (selectedSource != null) item(key = "filters") {
-                        OnlineFilterRows(tree, state.categoryRoot, state.categoryId, state.year, selectedSource.yearFilterSupported,
+                        OnlineFilterRows(tree, state.categoryRoot, state.categoryId, state.year,
+                            if (state.loadedSelection?.browsing == false) selectedSource.searchFiltersSupported else selectedSource.yearFilterSupported,
                             onRoot = { id ->
                                 if (id.isBlank()) selectCategory("", "online:root:all")
                                 else tree.channels.firstOrNull { it.id == id }?.let { channel ->
-                                    selectCategory(onlineChannelCategory(channel, state.channelSelections[id].orEmpty()), "online:root:$id")
+                                    selectCategory(if (state.loadedSelection?.browsing == false) channel.id
+                                        else onlineChannelCategory(channel, state.channelSelections[id].orEmpty()), "online:root:$id")
                                 }
                             },
                             onCategory = { id -> selectCategory(id, "online:category:$id") },
@@ -656,9 +736,25 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                             },
                             onYear = { year -> selectYear(year, "online:year:${year.ifBlank { "all" }}") },
                             onOtherYear = { state.yearInput = state.year; yearError = ""; yearDialog = true },
-                            focus = { key -> Modifier.onlineFocus(key) }, browseSupported = selectedSource.browseSupported)
+                            focus = { key -> Modifier.onlineFocus(key) }, browseSupported = selectedSource.browseSupported,
+                            searchMode = state.loadedSelection?.browsing == false,
+                            searchFiltersSupported = selectedSource.searchFiltersSupported)
                     }
+                    val progressive = state.searchSession
                     when {
+                        progressive != null -> item(key = "search-progress") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(listOf("搜索：${state.loadedQuery}",
+                                    onlineSearchCategoryLabel(tree, state.loadedSelection),
+                                    state.loadedSelection?.year?.takeIf { it.isNotBlank() }?.let { "$it 年" },
+                                    progressive.total?.let { "$it 项" } ?: "已找到 ${progressive.found} 项，尚未检索完")
+                                    .filterNotNull().joinToString(" · "), color = Muted)
+                                if (state.searching) Status("正在继续检索，已检查 ${progressive.scanned} 条…", icon = "loading")
+                                if (state.searchError.isNotBlank()) Status(state.searchError + " 已读取的内容仍可查看。", icon = "error")
+                                if (state.results?.items.isNullOrEmpty() && !state.searching)
+                                    Status(onlineSearchSessionEmptyLabel(progressive))
+                            }
+                        }
                         state.searching -> item { Status(if (state.loadedSelection?.browsing == true) "正在加载第 ${state.searchPage} 页目录…" else "正在搜索当前来源…", icon = "loading") }
                         state.searchError.isNotBlank() -> item {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -678,18 +774,28 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                                     "${state.results!!.total} 项", "第 ${state.results!!.page} 页")
                                     .filterNotNull().joinToString(" · "), color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
-                            items(state.results!!.items.chunked(columns), key = { "result-row:${it.first().externalId}" }) { row ->
-                                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
-                                    row.forEach { item ->
-                                        OnlineCatalogCard(api, item, { openDetail(state.sourceId, item.externalId) },
-                                            Modifier.weight(1f).onlineFocus("online:result:${item.externalId}"))
-                                    }
-                                    repeat(columns - row.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
-                                }
-                            }
                         }
                     }
-                    state.results?.takeIf { it.pageCount > 1 && !state.searching && state.searchError.isBlank() }?.let { result -> item(key = "search-pagination") {
+                    items(state.results?.items.orEmpty().chunked(columns), key = { "result-row:${it.first().externalId}" }) { row ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
+                            row.forEach { item ->
+                                OnlineCatalogCard(api, item, { openDetail(state.sourceId, item.externalId) },
+                                    Modifier.weight(1f).onlineFocus("online:result:${item.externalId}"))
+                            }
+                            repeat(columns - row.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                    progressive?.let { session -> item(key = "search-more") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (session.hasMore) TvAction(if (session.found > state.results?.items.orEmpty().size) "加载更多" else "继续检索",
+                                { search(selection = state.loadedSelection, focusResults = false, returnFocus = "online:more-search", append = true) },
+                                Modifier.onlineFocus("online:more-search"), enabled = !state.searching, icon = "forward")
+                            TvAction("刷新搜索", { search(selection = state.loadedSelection, focusResults = false,
+                                returnFocus = "online:refresh-search", refreshSession = true) }, Modifier.onlineFocus("online:refresh-search"),
+                                enabled = !state.searching, icon = "refresh")
+                        }
+                    } }
+                    state.results?.takeIf { progressive == null && it.pageCount > 1 && !state.searching && state.searchError.isBlank() }?.let { result -> item(key = "search-pagination") {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             TvAction("上一页", { search(result.page - 1, state.loadedSelection) }, Modifier.onlineFocus("online:previous-search"), enabled = result.page > 1, icon = "back")
                             Text("第 ${result.page} / ${result.pageCount} 页", color = Muted)
@@ -759,9 +865,9 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
             else -> "online:category:$id"
         }
         selectCategory(id, wanted)
-    }, onClose = { categoryDialog = null; target(categoryReturn) }) }
+    }, onClose = { categoryDialog = null; target(categoryReturn) }, searchMode = state.loadedSelection?.browsing == false) }
     if (state.keyboard) OnlineSearchKeyboardDialog(state.query, ::changeQuery, onSubmit = ::submitSearch,
-        onClose = { state.keyboard = false; target("online:keyboard") })
+        onClose = { state.keyboard = false; target("online:keyboard") }, allowEmpty = selectedSource?.browseSupported == true)
     if (yearDialog) OnlineYearDialog(state.yearInput,
         onValue = { value -> state.yearInput = value.filter { it in '0'..'9' }.take(4); yearError = "" },
         onApply = {

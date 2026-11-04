@@ -115,7 +115,7 @@ internal fun OnlineBrowseToolbar(section: String, query: String, source: OnlineS
             OnlineQueryInput(query, onQuery, onSearch, sourceEnabled, focus("online:query").weight(1f).widthIn(min = 100.dp))
             val openSample = source?.provider == "open_catalog" && !source.browseSupported && query.isBlank()
             TvAction(if (openSample) "目录" else "搜索", onSearch, focus("online:search"),
-                enabled = sourceEnabled && (query.isNotBlank() || openSample), icon = "search")
+                enabled = sourceEnabled && (query.isNotBlank() || openSample || source?.browseSupported == true), icon = "search")
             TvAction("键盘", onKeyboard, focus("online:keyboard"), enabled = sourceEnabled, icon = "keyboard")
             TvAction("来源：${source?.name ?: "选择"}", onSource, focus("online:source-button").widthIn(max = 170.dp),
                 enabled = sourceEnabled, icon = "chevron-down")
@@ -137,7 +137,8 @@ internal fun OnlineBrowseToolbar(section: String, query: String, source: OnlineS
 internal fun OnlineFilterRows(tree: OnlineTaxonomy, rootId: String, categoryId: String, year: String,
                               yearSupported: Boolean, onRoot: (String) -> Unit, onCategory: (String) -> Unit,
                               onMore: (String) -> Unit, onYear: (String) -> Unit, onOtherYear: () -> Unit,
-                              focus: (String) -> Modifier, browseSupported: Boolean = true) {
+                              focus: (String) -> Modifier, browseSupported: Boolean = true,
+                              searchMode: Boolean = false, searchFiltersSupported: Boolean = false) {
     val roots = onlineVisibleChannels(tree, rootId)
     val children = onlineVisibleCategories(tree, rootId, categoryId)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -145,11 +146,14 @@ internal fun OnlineFilterRows(tree: OnlineTaxonomy, rootId: String, categoryId: 
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("分类", color = Muted, style = MaterialTheme.typography.labelLarge)
                 Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TvAction("全部", { onRoot("") }, focus("online:root:all"), selected = rootId.isBlank())
+                    TvAction("全部", { onRoot("") }, focus("online:root:all"), selected = rootId.isBlank(),
+                        enabled = !searchMode || searchFiltersSupported)
                     roots.forEach { channel ->
-                        TvAction(channel.label, { onRoot(channel.id) }, focus("online:root:${channel.id}"), selected = rootId == channel.id)
+                        TvAction(channel.label, { onRoot(channel.id) }, focus("online:root:${channel.id}"), selected = rootId == channel.id,
+                            enabled = !searchMode || searchFiltersSupported)
                     }
-                    if (tree.channels.size > roots.size) TvAction("更多", { onMore("") }, focus("online:more-roots"), icon = "filter")
+                    if (tree.channels.size > roots.size) TvAction("更多", { onMore("") }, focus("online:more-roots"),
+                        enabled = !searchMode || searchFiltersSupported, icon = "filter")
                 }
             }
             if (children.isNotEmpty()) key(rootId) {
@@ -157,15 +161,21 @@ internal fun OnlineFilterRows(tree: OnlineTaxonomy, rootId: String, categoryId: 
                     Text("细类", color = Muted, style = MaterialTheme.typography.labelLarge)
                     Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         children.forEach { category ->
-                            TvAction(onlineTaxonomyLabel(tree, category.id), { onCategory(category.id) },
-                                focus("online:category:${category.id}").widthIn(max = 190.dp), selected = categoryId == category.id)
+                            val label = if (searchMode && tree.channels.any { it.id == category.id && it.children.isNotEmpty() })
+                                "${category.name}全部" else onlineTaxonomyLabel(tree, category.id)
+                            TvAction(label, { onCategory(category.id) },
+                                focus("online:category:${category.id}").widthIn(max = 190.dp), selected = categoryId == category.id,
+                                enabled = !searchMode || searchFiltersSupported)
                         }
                         if (onlineAllCategoriesForChannel(tree, rootId).size > children.size)
-                            TvAction("更多", { onMore(rootId) }, focus("online:more-categories"), icon = "filter")
+                            TvAction("更多", { onMore(rootId) }, focus("online:more-categories"),
+                                enabled = !searchMode || searchFiltersSupported, icon = "filter")
                     }
                 }
             }
         }
+        if (searchMode && !searchFiltersSupported)
+            Text("当前服务暂不支持搜索内筛选，可升级服务端，或清空片名后浏览分类。", color = Muted)
         Row(Modifier.fillMaxWidth().heightIn(min = DesignTokens.ControlHeight), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("年份", color = Muted, style = MaterialTheme.typography.labelLarge)
@@ -218,7 +228,8 @@ internal fun OnlineSourceDialog(sources: List<OnlineSource>, selected: String, h
 }
 
 @Composable
-internal fun OnlineSearchKeyboardDialog(query: String, onQuery: (String) -> Unit, onSubmit: () -> Unit, onClose: () -> Unit) {
+internal fun OnlineSearchKeyboardDialog(query: String, onQuery: (String) -> Unit, onSubmit: () -> Unit, onClose: () -> Unit,
+                                        allowEmpty: Boolean = false) {
     val requester = remember { FocusRequester() }
     val keyboardRequester = remember { FocusRequester() }
     val editRequester = remember { FocusRequester() }
@@ -259,7 +270,8 @@ internal fun OnlineSearchKeyboardDialog(query: String, onQuery: (String) -> Unit
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TvAction("拼音", { if (!pinyinMode && !cannotLeave()) { pinyinMode = true; hint = "" } }, Modifier.focusRequester(requester), selected = pinyinMode)
                     TvAction("英文/数字", { if (!cannotLeave()) { pinyinMode = false; hint = "" } }, selected = !pinyinMode)
-                    TvAction("搜索", { if (!cannotLeave()) onSubmit() }, enabled = query.isNotBlank() || composition.isNotBlank(), icon = "search")
+                    TvAction("搜索", { if (!cannotLeave()) onSubmit() },
+                        enabled = query.isNotBlank() || composition.isNotBlank() || allowEmpty, icon = "search")
                     TvAction("关闭", { if (!cannotLeave()) onClose() })
                 }
             }

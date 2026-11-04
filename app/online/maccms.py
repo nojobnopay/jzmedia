@@ -333,6 +333,14 @@ def valid_year(year):
     return isinstance(year, str) and (not year or _YEAR.fullmatch(year) is not None)
 
 
+def supports_search_filters(source):
+    """The bounded search collector is verified only for this exact endpoint."""
+    if not supports_year_filter(source):
+        return False
+    return (urlsplit(source["api_base_url"]).hostname == "cj.lziapi.com"
+            and source.get("provider_options", {}).get("search_action", "list") in {"list", "detail"})
+
+
 def _optional_text(value, limit):
     # Optional upstream metadata is deliberately tolerant: malformed cast or
     # tags cannot make otherwise playable entries disappear.
@@ -440,6 +448,24 @@ def _search_result(payload, page):
 def search(source, query, page):
     action = source.get("provider_options", {}).get("search_action", "list")
     return _search_result(fetch(source, {"ac": action, "wd": query, "pg": str(page)}), page)
+
+
+def search_session_page(source, query, page):
+    """One unfiltered prefix page; never use upstream post-pagination filters."""
+    if not supports_search_filters(source):
+        raise ProviderError("provider_filter_unsupported")
+    action = source.get("provider_options", {}).get("search_action", "list")
+    payload = fetch(source, {"ac": action, "wd": query, "pg": str(page), "pagesize": "100"})
+    total = _number(payload.get("total"), maximum=1000000000)
+    pages = _number(payload.get("pagecount"), maximum=1000000)
+    actual = _number(payload.get("page"), maximum=1000000)
+    if (actual != page or pages != (total + 99) // 100 and not (total == 0 and pages == 1)
+            or len(payload["list"]) != min(100, max(0, total - (page - 1) * 100))):
+        raise ProviderError("invalid_provider_response")
+    result = _search_result(payload, page)
+    result["page_count"] = pages
+    result["categories"] = _categories(payload.get("class", []))
+    return result
 
 
 class _CategoryCancellation:
