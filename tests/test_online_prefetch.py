@@ -28,6 +28,8 @@ pytest_plugins = ["test_network_transport"]
 OWNER = "prefetch-owner-fixture"
 SEGMENTS = [bytes([index]) * 2048 for index in range(10)]
 RANGE_BODY = bytes(range(64))
+LONG_SEGMENT_COUNT = 153
+LONG_SEGMENT_BYTES = 2048
 
 
 def wait_until(predicate, timeout=2):
@@ -73,6 +75,12 @@ def prefetch_origin():
                     lines.extend(["#EXTINF:4,", f"segments/{index}.ts?signature=fixture-secret"])
                 body = ("\n".join([*lines, "#EXT-X-ENDLIST"]) + "\n").encode()
                 mime = "application/vnd.apple.mpegurl"
+            elif path == "/long.m3u8":
+                lines = ["#EXTM3U", "#EXT-X-TARGETDURATION:4"]
+                for index in range(LONG_SEGMENT_COUNT):
+                    lines.extend(["#EXTINF:4,", f"long-segments/{index}.ts"])
+                body = ("\n".join([*lines, "#EXT-X-ENDLIST"]) + "\n").encode()
+                mime = "application/vnd.apple.mpegurl"
             elif path == "/ranges.m3u8":
                 body = (b'#EXTM3U\n#EXT-X-TARGETDURATION:4\n'
                         b'#EXT-X-MAP:URI="asset.bin",BYTERANGE="4@0"\n'
@@ -81,6 +89,12 @@ def prefetch_origin():
                 mime = "application/vnd.apple.mpegurl"
             elif path == "/asset.bin":
                 body, mime = RANGE_BODY, "application/octet-stream"
+            elif path.startswith("/long-segments/"):
+                match = re.fullmatch(r"/long-segments/([0-9]+)\.ts", path)
+                if not match or int(match[1]) >= LONG_SEGMENT_COUNT:
+                    self.send_error(404)
+                    return
+                body, mime = bytes([int(match[1]) % 256]) * LONG_SEGMENT_BYTES, "video/mp2t"
             else:
                 match = re.fullmatch(r"/segments/([0-9]+)\.ts", path)
                 if not match or int(match[1]) >= len(SEGMENTS):
@@ -232,6 +246,58 @@ def test_manifest_and_head_do_not_start_speculative_media_reads(prefetch_bridge,
         assert response.status_code == 200 and response.content == b""
         assert not segment_reads(prefetch_origin)
         assert harness.registry.stats()["consumed_bytes"] == before
+
+
+def test_single_browser_fragment_triggers_ten_minutes_of_complete_server_prefetch(prefetch_bridge, prefetch_origin):
+    limits = SessionLimits()
+    harness = prefetch_bridge("/long.m3u8", prefetch_seconds=limits.prefetch_seconds,
+                              prefetch_max_segments=limits.prefetch_max_segments,
+                              prefetch_session_bytes=limits.prefetch_session_bytes,
+                              prefetch_global_bytes=limits.prefetch_global_bytes,
+                              prefetch_max_entries=limits.prefetch_max_entries,
+                              max_segment_response_bytes=limits.max_segment_response_bytes,
+                              max_session_bytes=limits.max_session_bytes,
+                              max_reserved_bytes=limits.max_reserved_bytes)
+    with TestClient(harness.app) as client:
+        paths = playlist(client, harness)
+        assert len(paths) == LONG_SEGMENT_COUNT
+        assert not [row for row in prefetch_origin.records if row["path"].startswith("/long-segments/")]
+        before = harness.registry.stats()["consumed_bytes"]
+
+        # Simulate a browser that asks only for its current fragment and then
+        # stops requesting. All later segment reads must be background work.
+        response = client.get(paths[0])
+        assert response.status_code == 200 and response.content == bytes(LONG_SEGMENT_BYTES)
+        cache = harness.registry._media_cache
+        assert wait_until(lambda: cache.stats()["prefetch_completed"] == 150
+                          and harness.registry.stats()["active_requests"] == 0, timeout=25)
+
+        reads = [row for row in prefetch_origin.records
+                 if row["method"] == "GET" and row["path"].startswith("/long-segments/")]
+        assert len(reads) == 151
+        assert {row["path"] for row in reads} == {f"/long-segments/{i}.ts" for i in range(151)}
+        with cache._lock:
+            timeline = cache._timelines[(harness.session.id, harness.session.entry.id)][1]
+            assert sum(segment.duration for segment in timeline[1:151]) == 600
+            for index, segment in enumerate(timeline[:151]):
+                key = (harness.session.id, segment.path.rsplit("/", 1)[-1])
+                entry = cache._entries[key]
+                assert not entry.obsolete and entry.future.done()
+                assert entry.future.result().body == bytes([index % 256]) * LONG_SEGMENT_BYTES
+            assert (harness.session.id, timeline[151].path.rsplit("/", 1)[-1]) not in cache._entries
+
+        cache_stats, registry_stats = cache.stats(), harness.registry.stats()
+        assert cache_stats["entries"] == 151 <= limits.prefetch_max_entries
+        assert cache_stats["bytes"] == 151 * LONG_SEGMENT_BYTES <= limits.prefetch_session_bytes
+        assert cache_stats["bytes"] <= limits.prefetch_global_bytes
+        assert registry_stats["consumed_bytes"] - before == 151 * LONG_SEGMENT_BYTES
+        assert registry_stats["reserved_bytes"] == 0
+        assert registry_stats["resources"] <= limits.max_resources
+
+        harness.registry.close(harness.session.id, OWNER)
+        assert cache.stats()["entries"] == cache.stats()["bytes"] == 0
+        assert harness.registry.stats()["active_requests"] == harness.registry.stats()["reserved_bytes"] == 0
+        assert harness.registry.stats()["resources"] == 0
 
 
 def test_completed_segment_is_reused_without_second_origin_read_or_byte_charge(prefetch_bridge, prefetch_origin):

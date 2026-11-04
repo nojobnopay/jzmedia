@@ -51,11 +51,11 @@ class SessionLimits:
     max_resources: int = 4096
     max_global_resources: int = 16384
     max_resource_url_bytes: int = 16 * 1024**2
-    prefetch_seconds: float = 180.0
-    prefetch_max_segments: int = 96
-    prefetch_session_bytes: int = 96 * 1024**2
-    prefetch_global_bytes: int = 192 * 1024**2
-    prefetch_max_entries: int = 256
+    prefetch_seconds: float = 600.0
+    prefetch_max_segments: int = 600
+    prefetch_session_bytes: int = 256 * 1024**2
+    prefetch_global_bytes: int = 512 * 1024**2
+    prefetch_max_entries: int = 1280
 
     def __post_init__(self):
         for definition in fields(self):

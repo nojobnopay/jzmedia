@@ -60,11 +60,11 @@ class CacheStore:
         self.registry, self.fetch, self.submit = registry, fetch, submit
         self._clock = clock
         limits = registry.limits
-        self._seconds = getattr(limits, "prefetch_seconds", 180.0)
-        self._segment_limit = getattr(limits, "prefetch_max_segments", 96)
-        self._session_limit = getattr(limits, "prefetch_session_bytes", 96 * 1024**2)
-        self._global_limit = getattr(limits, "prefetch_global_bytes", 192 * 1024**2)
-        self._entry_limit = getattr(limits, "prefetch_max_entries", 256)
+        self._seconds = getattr(limits, "prefetch_seconds", 600.0)
+        self._segment_limit = getattr(limits, "prefetch_max_segments", 600)
+        self._session_limit = getattr(limits, "prefetch_session_bytes", 256 * 1024**2)
+        self._global_limit = getattr(limits, "prefetch_global_bytes", 512 * 1024**2)
+        self._entry_limit = getattr(limits, "prefetch_max_entries", 1280)
         # Registry cancellation callbacks run outside its lock. RLock also lets
         # registry.sweep synchronously close this same session during admission.
         self._lock = threading.RLock()
