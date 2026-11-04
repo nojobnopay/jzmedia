@@ -22,7 +22,6 @@
 .settings-layout .hint, .settings-layout .fhint { color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.7; }
 .settings-layout .hint { margin: 0 0 12px; }
 .settings-layout .warn-text { color: var(--jz-warn); }
-.settings-layout button, .settings-layout select, .settings-layout input { min-height: var(--jz-control-current); box-sizing: border-box; }
 .settings-layout input[type="checkbox"], .settings-layout input[type="range"] { min-height: auto; accent-color: var(--jz-accent); }
 .settings-layout select { color: var(--jz-text); background: var(--jz-surface-2); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s); padding: 6px 10px; max-width: 100%; }
 .settings-layout .bar { padding: 12px 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-s); font-size: var(--jz-font-m); }

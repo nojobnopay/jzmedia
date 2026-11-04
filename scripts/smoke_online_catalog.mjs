@@ -19,11 +19,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_catalog.mjs [--demo] [--case page-resolver|matrix|catalogue|discovery|loading|loading-feedback|image-cache|categories|related|detail|detail-recovery|metadata-recovery|refresh-strategy|hosts|all]')
+    console.log('Usage: node scripts/smoke_online_catalog.mjs [--demo] [--case page-resolver|matrix|catalogue|discovery|loading|loading-feedback|image-cache|categories|related|detail|detail-recovery|metadata-recovery|refresh-strategy|hosts|network-config|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['page-resolver', 'matrix', 'catalogue', 'discovery', 'loading', 'loading-feedback', 'image-cache', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'refresh-strategy', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['page-resolver', 'matrix', 'catalogue', 'discovery', 'loading', 'loading-feedback', 'image-cache', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'refresh-strategy', 'hosts', 'network-config', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-catalog-'))
 const output = path.join(root, 'output/playwright/online-catalog')
 const dist = path.join(work, 'dist')
@@ -2250,6 +2250,242 @@ async function hostRepair() {
   }
   await backendChildren('after-host-repair')
 }
+async function networkConfiguration() {
+  async function alignedFields(page, selectors, label) {
+    const controls = await page.evaluate(selectors => selectors.map(selector => {
+      const control = document.querySelector(selector)
+      const rect = control.getBoundingClientRect()
+      const field = control.closest('.jz-field')
+      const label = field?.querySelector('label')?.getBoundingClientRect()
+      return { selector, x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+        labelTop: label?.top, labelBottom: label?.bottom }
+    }), selectors)
+    report.formAlignment ||= []
+    report.formAlignment.push({ case: phase.name, label, controls })
+    // Columns must share one control baseline even when only one field has a
+    // multiline hint. Stacked phone fields retain their natural own rows.
+    const sameRow = controls.every(control => Math.abs(control.labelTop - controls[0].labelTop) < 1)
+    if (sameRow) {
+      for (const control of controls.slice(1)) {
+        assert.ok(Math.abs(control.y - controls[0].y) < 1, `${label}: controls align above their independent hints`)
+        assert.ok(Math.abs(control.height - controls[0].height) < 1, `${label}: controls keep the same height`)
+      }
+    }
+    for (const control of controls) {
+      assert.ok(control.y >= control.labelBottom, `${label}: labels never overlap their controls`)
+      assert.ok(control.height >= (page.viewportSize().width <= 700 ? 43.5 : 35.5), `${label}: control height stays usable`)
+      assert.ok(control.height < 60, `${label}: a neighboring hint never stretches an input`)
+    }
+    return controls
+  }
+  async function alignedActions(page, form, controlSelector, label) {
+    const geometry = await form.evaluate((element, controlSelector) => {
+      const rect = node => {
+        const value = node.getBoundingClientRect()
+        return { x: value.x, y: value.y, width: value.width, height: value.height, bottom: value.bottom }
+      }
+      return { control: rect(element.querySelector(controlSelector)),
+        actions: [...element.querySelectorAll('button')].filter(button => button.offsetWidth && button.offsetHeight).map(rect) }
+    }, controlSelector)
+    report.formAlignment ||= []
+    report.formAlignment.push({ case: phase.name, label, ...geometry })
+    assert.ok(geometry.actions.length > 0, `${label}: the form has a visible action`)
+    for (const action of geometry.actions) {
+      assert.ok(Math.abs(action.y - geometry.actions[0].y) < 1, `${label}: save and cancel stay on one baseline`)
+      assert.ok(Math.abs(action.height - geometry.actions[0].height) < 1, `${label}: action heights match`)
+      assert.ok(Math.abs(action.height - geometry.control.height) < 1, `${label}: actions match the native control height`)
+      if (page.viewportSize().width > 700) {
+        assert.ok(Math.abs(action.y - geometry.control.y) < 1, `${label}: actions align with the control, not the hint`)
+      } else {
+        assert.ok(action.y >= geometry.control.bottom, `${label}: phone actions wrap after the full-width control`)
+      }
+    }
+    return geometry
+  }
+  for (const width of [1440, 1024, 390, 320]) {
+    phase = { name: `network-config-${width}`, expectedHttp: false }
+    const { context, page } = await newPage(width)
+    const sourcePath = `/api/online/sources/${primarySource.id}/network`
+    let originalPolicy, originalDefault, profileId, releaseRequest
+    try {
+      await navigate(page, '/settings'); await idle()
+      if (width === 1024) await page.evaluate(() => { document.documentElement.style.fontSize = '20px' })
+      originalPolicy = (await call(page, 'GET', sourcePath)).body.policy
+      originalDefault = (await call(page, 'GET', '/api/online/network/default')).body.rule
+      const callsBefore = (await metrics()).client_calls.length
+      const profilesBefore = (await call(page, 'GET', '/api/online/network/profiles')).body.items
+      const section = page.locator('#online-proxy-configurations')
+      const network = page.locator('[data-online-network-form]')
+      const profileForm = page.locator('[data-online-proxy-form]')
+      const sourceButton = page.getByRole('button', { name: '网络 ' + primarySource.name, exact: true })
+      await sourceButton.click()
+      await network.getByLabel('连接方式', { exact: true }).selectOption('proxy')
+      await network.getByLabel('代理配置', { exact: true }).selectOption('new')
+      await network.getByLabel('代理服务器地址', { exact: true }).fill('proxy.example.invalid')
+      await network.getByLabel('端口', { exact: true }).fill('7890')
+      await network.getByText('代理认证（可选）', { exact: true }).click()
+      await network.getByLabel('代理用户名', { exact: true }).fill('isolated-network-user')
+      await network.getByLabel('代理密码', { exact: true }).fill('isolated-network-password')
+      await network.screenshot({ path: path.join(output, `network-config-${width}-new-proxy-alignment.png`) })
+      const newProxyAlignment = await alignedFields(page,
+        ['#online-proxy-protocol', '#online-proxy-host', '#online-proxy-port'], 'new proxy endpoint')
+      const newAuthAlignment = await alignedFields(page,
+        ['#online-proxy-username', '#online-proxy-password'], 'new proxy authentication')
+
+      let createStarted = false
+      const createGate = new Promise(resolve => { releaseRequest = resolve })
+      const createRoute = async route => {
+        if (route.request().method() !== 'POST') return route.continue()
+        createStarted = true; await createGate; await route.continue()
+      }
+      await page.route('**/api/online/network/profiles', createRoute)
+      await network.getByRole('button', { name: '保存网络规则', exact: true }).click()
+      await until(() => createStarted, 'The proxy creation must reach the real administrative API')
+      assert.equal(await network.getByLabel('代理服务器地址', { exact: true }).isDisabled(), true)
+      assert.equal(await section.getByLabel('服务默认连接', { exact: true }).isDisabled(), true)
+      if (width === 1440) await network.screenshot({ path: path.join(output, 'network-config-1440-saving.png') })
+      releaseRequest(); releaseRequest = null
+      await network.waitFor({ state: 'hidden' })
+      await page.unroute('**/api/online/network/profiles', createRoute)
+      const created = (await call(page, 'GET', '/api/online/network/profiles')).body.items
+        .filter(item => !profilesBefore.some(previous => previous.id === item.id))
+      assert.equal(created.length, 1, 'Saving a new proxy creates exactly one manageable profile')
+      const profile = created[0]; profileId = profile.id
+      const profilePath = '/api/online/network/profiles/' + profileId
+      const row = page.locator(`[data-online-proxy-row="${profileId}"]`)
+      await row.waitFor()
+      assert.equal(profile.has_credentials, true)
+      await row.getByText('连接参数', { exact: true }).click()
+      await row.getByText('proxy.example.invalid:7890', { exact: false }).waitFor()
+      await row.getByText('连接超时', { exact: true }).waitFor()
+      const createdLayout = await layout(page, width)
+      await section.screenshot({ path: path.join(output, `network-config-${width}-created.png`) })
+
+      await row.getByRole('button', { name: '编辑代理 ' + profile.name, exact: true }).click()
+      await profileForm.getByText('修改代理认证（可选）', { exact: true }).click()
+      assert.equal(await profileForm.getByLabel('新用户名', { exact: true }).inputValue(), '')
+      assert.equal(await profileForm.getByLabel('新密码', { exact: true }).inputValue(), '')
+      assert.equal(await profileForm.getByLabel('代理服务器地址', { exact: true }).inputValue(), 'proxy.example.invalid')
+      const longName = '隔离共享代理配置'.repeat(12)
+      const longHost = 'proxy-' + 'x'.repeat(50) + '.isolated.example.invalid'
+      await profileForm.getByLabel('配置名称', { exact: true }).fill(longName)
+      await profileForm.getByLabel('代理服务器地址', { exact: true }).fill(longHost)
+      await profileForm.getByLabel('端口', { exact: true }).fill('17890')
+      await profileForm.getByLabel('配置名称', { exact: true }).focus()
+      await page.keyboard.press('Tab')
+      assert.equal(await profileForm.getByLabel('代理协议', { exact: true }).evaluate(element => element === document.activeElement), true,
+        'Keyboard focus moves from the profile name to its next editable field')
+      const editLayout = await layout(page, width)
+      await profileForm.screenshot({ path: path.join(output, `network-config-${width}-editing.png`) })
+      const editProxyAlignment = await alignedFields(page,
+        ['#online-profile-protocol', '#online-profile-host', '#online-profile-port'], 'saved proxy endpoint')
+      const editAuthAlignment = await alignedFields(page,
+        ['#online-profile-username', '#online-profile-password'], 'saved proxy authentication')
+      if (width === 1440) {
+        phase.expectedHttp = true
+        await page.route('**/api/online/network/profiles/' + profileId, async route => {
+          if (route.request().method() !== 'PATCH') return route.continue()
+          await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'isolated save failure' }) })
+        }, { times: 1 })
+        await profileForm.getByRole('button', { name: '保存代理配置', exact: true }).click()
+        await section.getByRole('alert').filter({ hasText: '代理配置保存失败' }).waitFor()
+        assert.equal(await profileForm.getByLabel('配置名称', { exact: true }).inputValue(), longName,
+          'Failed profile updates preserve the editable draft for retry')
+        assert.equal((await call(page, 'GET', profilePath)).body.name, profile.name)
+        await section.screenshot({ path: path.join(output, 'network-config-1440-save-error.png') })
+        phase.expectedHttp = false
+      }
+      let updateStarted = false
+      const updateGate = new Promise(resolve => { releaseRequest = resolve })
+      const updateRoute = async route => {
+        if (route.request().method() !== 'PATCH') return route.continue()
+        updateStarted = true; await updateGate; await route.continue()
+      }
+      await page.route('**/api/online/network/profiles/' + profileId, updateRoute)
+      await profileForm.getByRole('button', { name: '保存代理配置', exact: true }).click()
+      await until(() => updateStarted, 'The profile edit must reach PATCH instead of creating another profile')
+      assert.equal(await profileForm.getByLabel('配置名称', { exact: true }).isDisabled(), true)
+      assert.equal(await sourceButton.isDisabled(), true, 'A pending shared-profile edit prevents competing source changes')
+      assert.equal(await profileForm.getByRole('button', { name: '取消编辑', exact: true }).isDisabled(), true)
+      releaseRequest(); releaseRequest = null
+      await profileForm.waitFor({ state: 'hidden' })
+      await page.unroute('**/api/online/network/profiles/' + profileId, updateRoute)
+      const edited = (await call(page, 'GET', profilePath)).body
+      assert.equal(edited.id, profileId)
+      assert.equal(edited.name, longName)
+      assert.equal(edited.proxy_url, `http://${longHost}:17890`)
+      assert.equal(edited.has_credentials, true, 'Leaving write-only fields empty preserves existing authentication')
+      assert.equal((await call(page, 'GET', '/api/online/network/profiles')).body.items.length, profilesBefore.length + 1)
+      await row.getByText(edited.proxy_url + ' · 已保存认证信息', { exact: true }).waitFor()
+      const updatedLayout = await layout(page, width)
+      await section.screenshot({ path: path.join(output, `network-config-${width}-updated.png`) })
+
+      await section.getByLabel('服务默认连接', { exact: true }).selectOption('profile:' + profileId)
+      await section.screenshot({ path: path.join(output, `network-config-${width}-default-draft.png`) })
+      const defaultAlignment = await alignedActions(page, section.locator('[data-online-default-form]'),
+        '#online-service-default', 'service default draft')
+      await section.getByRole('button', { name: '保存服务默认', exact: true }).click()
+      await until(async () => (await call(page, 'GET', '/api/online/network/default')).body.rule.profile_id === profileId,
+        'The service default selected in the form must be persisted')
+      await sourceButton.click()
+      await network.locator('p.online-proxy-endpoint').filter({ hasText: edited.proxy_url }).waitFor()
+      await network.getByRole('button', { name: '取消', exact: true }).click()
+      await row.getByRole('button', { name: '删除代理 ' + longName, exact: true }).click()
+      await row.getByRole('button', { name: '取消删除', exact: true }).click()
+      assert.equal(await row.getByRole('button', { name: '确认删除', exact: true }).count(), 0)
+
+      async function blockedDelete() {
+        phase.expectedHttp = true
+        await row.getByRole('button', { name: '删除代理 ' + longName, exact: true }).click()
+        await row.getByRole('button', { name: '确认删除', exact: true }).click()
+        await section.getByRole('alert').filter({ hasText: '仍被来源网络规则或服务默认使用' }).waitFor()
+        assert.equal((await call(page, 'GET', profilePath)).status, 200)
+        await row.getByRole('button', { name: '取消删除', exact: true }).click()
+        phase.expectedHttp = false
+      }
+      await blockedDelete()
+      await section.screenshot({ path: path.join(output, `network-config-${width}-referenced.png`) })
+      await sourceButton.click()
+      await network.getByLabel('连接方式', { exact: true }).selectOption('direct')
+      await network.getByRole('button', { name: '保存网络规则', exact: true }).click()
+      await network.waitFor({ state: 'hidden' })
+      await blockedDelete()
+      await section.getByLabel('服务默认连接', { exact: true }).selectOption('direct')
+      await section.getByRole('button', { name: '保存服务默认', exact: true }).click()
+      await until(async () => (await call(page, 'GET', '/api/online/network/default')).body.rule.mode === 'direct',
+        'Switching the service default to direct releases its profile reference')
+      await row.getByRole('button', { name: '删除代理 ' + longName, exact: true }).click()
+      await row.getByRole('button', { name: '确认删除', exact: true }).click()
+      await row.waitFor({ state: 'hidden' })
+      assert.deepEqual((await call(page, 'GET', '/api/online/network/profiles')).body.items, profilesBefore)
+      assert.equal((await metrics()).client_calls.length, callsBefore,
+        'Proxy administration never connects to the configured proxy or fetches source media')
+      assert.equal(await page.locator('video').count(), 0)
+      await page.evaluate(source => window.__jzOnlineFixture.navigate({ path: '/settings',
+        query: { sec: 'sec-online', source, item: 'movie-1' } }), primarySource.id)
+      const hostForm = page.locator('[data-online-host-form]')
+      await hostForm.waitFor()
+      await hostForm.screenshot({ path: path.join(output, `network-config-${width}-host-alignment.png`) })
+      const hostAlignment = await alignedActions(page, hostForm, '#online-host-item', 'host inspection')
+      await layout(page, width)
+      const deletedProfileId = profileId; profileId = null
+      passed({ case: phase.name, width, createdLayout, editLayout, updatedLayout, profileId: deletedProfileId,
+        newProxyAlignment, newAuthAlignment, editProxyAlignment, editAuthAlignment,
+        defaultAlignment, hostAlignment, fontSize: width === 1024 ? 20 : 16,
+        editPreservesIdentity: true, authenticationWriteOnlyAndPreserved: true,
+        sourceAndServiceReferencesProtectDeletion: true, explicitDeleteConfirmation: true,
+        busyControlsLocked: true, failedUpdateRetainsDraft: width === 1440,
+        scope: 'Real Vue forms and temporary SQLite management APIs; synthetic proxy endpoints are never contacted.' })
+    } finally {
+      releaseRequest?.()
+      if (originalPolicy) await call(page, 'PATCH', sourcePath, originalPolicy).catch(() => {})
+      if (originalDefault) await call(page, 'PATCH', '/api/online/network/default', { rule: originalDefault }).catch(() => {})
+      if (profileId) await call(page, 'DELETE', '/api/online/network/profiles/' + profileId).catch(() => {})
+      await closeContext(context)
+    }
+  }
+  await backendChildren('after-network-configuration')
+}
 async function catalogue({ currentPassword = null } = {}) {
   phase = { name: 'catalogue-stable-lines-and-refresh', expectedHttp: false }
   const { context, page } = await newPage()
@@ -2420,6 +2656,7 @@ try {
     'scripts/smoke_online_catalog.mjs', 'scripts/fixtures/OnlineAppPreview.vue', 'scripts/online_fixture/catalog.py',
     'scripts/online_fixture/catalog_origin.py', 'frontend/src/views/Online.vue', 'frontend/src/components/OnlineSourcesPanel.vue',
     'frontend/src/App.vue', 'frontend/src/styles/base.css', 'frontend/src/components/OnlinePlayerModal.vue',
+    'frontend/src/components/OnlineProxyProfiles.vue', 'frontend/src/onlineSourceNetwork.js', 'frontend/src/styles/online-source.css',
     'frontend/src/components/OnlineHostDialog.vue', 'frontend/src/components/Spinner.vue', 'frontend/src/components/JzButton.vue',
     'frontend/src/components/EmptyState.vue', 'frontend/src/components/BrowseToolbar.vue', 'frontend/src/components/OnlineSkeleton.vue',
     'frontend/src/components/OnlineBrowseResults.vue', 'frontend/src/components/OnlineContinueRow.vue', 'frontend/src/components/OnlineRecordsView.vue',
@@ -2453,6 +2690,7 @@ try {
         '--autoplay-policy=no-user-gesture-required'] })
     report.browser = { version: browser.version(), executable: chromium.executablePath() }
     await setup()
+    if (selectedCase === 'all' || selectedCase === 'network-config') await networkConfiguration()
     if (selectedCase === 'all' || selectedCase === 'page-resolver') await pageResolver()
     if (selectedCase === 'all' || selectedCase === 'hosts') await hostRepair()
     if (selectedCase === 'all' || selectedCase === 'discovery') await discovery()
@@ -2473,8 +2711,10 @@ try {
     assert.ok(!report.finalMetrics.origin_calls.some(call => call.app_credentials), 'Application credentials never reach the source')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'api'), 'The API uses its own network-purpose client')
     if (selectedCase === 'metadata-recovery') assert.ok(!report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Metadata recovery never requests media')
-    else if (!['discovery', 'loading', 'loading-feedback', 'image-cache', 'categories'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
-    assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'image'), 'Posters use their image-purpose client')
+    else if (!['discovery', 'loading', 'loading-feedback', 'image-cache', 'categories', 'network-config'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
+    if (selectedCase === 'network-config') assert.ok(!report.finalMetrics.client_calls.some(call => call.purpose === 'media'),
+      'Network configuration checks never request source media')
+    else assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'image'), 'Posters use their image-purpose client')
     assert.deepEqual(report.errors, [], 'No browser runtime, Vue or unexpected console errors')
     assert.deepEqual(report.unexpectedRequests, [], 'No foreign origin or local playback/cast API request')
     assert.deepEqual(report.unexpectedResponses, [], 'Clean scenarios have no unexpected HTTP errors')

@@ -2,6 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { api } from '../src/api.js'
 
+test('successful deletion with a 204 response does not try to parse an empty JSON body', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 204 }))
+  assert.equal(await api('/api/online/network/profiles/isolated', { method: 'DELETE' }), null)
+})
+
 function tokenStorage(t) {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
   Object.defineProperty(globalThis, 'localStorage', { configurable: true,

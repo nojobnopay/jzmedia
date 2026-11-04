@@ -25,6 +25,16 @@ def protected(tmp_path, monkeypatch):
     client.close()
 
 
+@pytest.fixture
+def unprotected(tmp_path, monkeypatch):
+    import app.store._base as base
+    monkeypatch.setattr(base, "DB_PATH", str(tmp_path / "unprotected-viewing.db"))
+    store.init_db()
+    client = TestClient(app)
+    yield client
+    client.close()
+
+
 def test_password_is_hashed_and_not_general_settings(protected):
     with viewing._connection() as c:
         encoded = c.execute("SELECT password_hash FROM protection_settings").fetchone()[0]
@@ -172,6 +182,38 @@ def test_unknown_device_session_never_falls_back_to_normal(protected, transport,
         assert fresh.get("/api/viewing/session").json()["mode"] == "normal"
     finally:
         fresh.close()
+
+
+def test_unprotected_browser_bootstrap_recovers_an_unknown_cookie(unprotected):
+    unprotected.cookies.set(viewing.COOKIE, "previous-local-instance", domain="testserver.local", path="/")
+    response = unprotected.get("/api/viewing/session")
+    assert response.status_code == 200
+    assert response.json()["mode"] == "normal"
+    assert not response.json()["enabled"] and not response.json()["management_unlocked"]
+    assert "session_token" not in response.json()
+    assert "httponly" in response.headers["set-cookie"].lower()
+    secret = unprotected.cookies.get(viewing.COOKIE)
+    assert secret and secret != "previous-local-instance"
+    assert viewing.resolve(secret)[0] is not None
+    # Subsequent startup reads retain the new device instead of replacing
+    # it again, so progress ownership and mode identity stay stable.
+    again = unprotected.get("/api/viewing/session")
+    assert again.status_code == 200 and "set-cookie" not in again.headers
+    with viewing._connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM viewing_sessions").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("transport", ["tv_header", "tv_cookie", "browser_write"])
+def test_unprotected_unknown_credentials_are_not_replaced_outside_browser_bootstrap(unprotected, transport):
+    unprotected.cookies.set(viewing.COOKIE, "previous-local-instance")
+    headers = ({viewing.HEADER: "unknown-tv-session"} if transport == "tv_header"
+               else {"X-Viewing-Client": "tv"} if transport == "tv_cookie" else {})
+    response = (unprotected.post("/api/viewing/activity", json={}) if transport == "browser_write"
+                else unprotected.get("/api/viewing/session", headers=headers))
+    assert response.status_code == 401 and response.json()["code"] == "viewing_locked"
+    assert "set-cookie" not in response.headers
+    with viewing._connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM viewing_sessions").fetchone()[0] == 0
 
 
 def test_playback_renewal_does_not_extend_management_and_pause_starts_idle_window(protected, monkeypatch):

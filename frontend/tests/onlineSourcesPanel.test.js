@@ -14,7 +14,7 @@ async function field(ui, id, value) { element(ui, id).props['onUpdate:modelValue
 async function submit(ui, attr) { await ui.find(node => node.type === 'form' && attr in node.props).props.onSubmit({ preventDefault() {} }); await flush() }
 
 async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail = false, policyFailures = 0, catalogGate = null,
-  routeQuery = {}, hostCheckGate = null, hostApplyGate = null, hostApplyFailures = 0, hostReport = null, extraSources = [] } = {}) {
+  routeQuery = {}, hostCheckGate = null, hostApplyGate = null, hostApplyFailures = 0, hostReport = null, extraSources = [], profileGate = null } = {}) {
   const requests = [], source = { id: SOURCE, name: '演示来源', provider: 'maccms', api_base_url: 'https://api.example/',
     allowed_hosts: ['api.example'], enabled: true, priority: 100, provider_options: {} }
   const sourceList = [source, ...extraSources.map(item => ({ ...source, ...item }))]
@@ -39,6 +39,10 @@ async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail 
     if (path === '/api/online/network/profiles') {
       if (options.method === 'POST') return { id: PROFILE, name: body.name, mode: body.mode, proxy_url: body.proxy_url, has_credentials: !!(body.username || body.password) }
       return { items: profiles }
+    }
+    if (path === '/api/online/network/profiles/' + PROFILE) {
+      if (profileGate) await profileGate.promise
+      return { ...profiles.find(item => item.id === PROFILE), ...body }
     }
     if (path === '/api/online/network/default') return { rule: { mode: 'direct', profile_id: null } }
     if (path === '/api/online/sources/' + SOURCE + '/network') {
@@ -215,4 +219,37 @@ test('host approval is a busy write that blocks other source editors until it fi
   assert.equal(button(ui, '编辑 演示来源').props.disabled, true)
   gate.resolve(); await applying; await flush()
   assert.equal(draft.busy(), false)
+})
+
+test('a proxy draft protects the untouched source form and participates in settings discard', async t => {
+  const { ui, requests, draft } = await mount(t, { profiles: [{ id: PROFILE, mode: 'proxy', name: '已有代理', proxy_url: 'http://proxy.example:7890' }] })
+  await click(ui, '编辑 演示来源')
+  await click(ui, '编辑代理 已有代理')
+  await field(ui, 'online-profile-host', 'new-proxy.example')
+  assert.equal(draft.dirty(), true)
+  assert.equal(element(ui, 'online-source-name').props.disabled, true)
+  assert.equal(button(ui, '保存来源').props.disabled, true)
+  await submit(ui, 'data-online-source-form')
+  assert.equal(requests.some(call => call.method === 'PATCH'), false)
+  draft.discard(); await flush()
+  assert.equal(draft.dirty(), false)
+  assert.equal(element(ui, 'online-profile-host'), undefined)
+})
+
+test('a pending proxy edit blocks host approval and cannot leave host actions permanently busy', async t => {
+  const gate = deferred(); t.after(() => gate.resolve())
+  const { ui, requests, draft } = await mount(t, { profileGate: gate, routeQuery: { source: SOURCE, item: 'movie-7' },
+    profiles: [{ id: PROFILE, mode: 'proxy', name: '已有代理', proxy_url: 'http://proxy.example:7890' }] })
+  await submit(ui, 'data-online-host-form')
+  await click(ui, '编辑代理 已有代理')
+  await field(ui, 'online-profile-host', 'new-proxy.example')
+  const saving = ui.find(node => node.type === 'form' && 'data-online-proxy-form' in node.props).props.onSubmit({ preventDefault() {} })
+  await flush()
+  assert.equal(draft.busy(), true)
+  assert.equal(button(ui, '加入允许列表').props.disabled, true)
+  await click(ui, '加入允许列表')
+  assert.equal(requests.some(call => call.path.endsWith('/allow-hosts')), false)
+  gate.resolve(); await saving; await flush()
+  assert.equal(draft.busy(), false)
+  assert.equal(button(ui, '关闭检查').props.disabled, false)
 })

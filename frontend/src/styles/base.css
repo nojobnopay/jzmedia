@@ -41,6 +41,9 @@ body { font-family: var(--jz-font-family); margin: 0; background: var(--jz-bg); 
 :where(option, optgroup) { background: var(--jz-surface-2); color: var(--jz-text); }
 :where(option:disabled, optgroup:disabled, optgroup:disabled option) { color: var(--jz-text-faint); }
 :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea):not(:where(.player-dlg *)) { min-height: var(--jz-control-current); }
+/* Native selects may ignore line-height when sizing themselves. Match the
+   single-line input/button floor: 1.4em text + two 8px paddings + two 1px borders. */
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select:not([multiple]):not([size]), select:not([multiple])[size="1"]):not(:where(.player-dlg *, .online-player-dlg *)) { min-height: max(var(--jz-control-current), calc(1.4em + 18px)); }
 :where(.bar button, .play-row button, .settings-layout button, .fs-toolbar button, .acts button):not(:where(.player-dlg *)) { min-height: var(--jz-control-current); }
 :where(input, select, textarea) { max-width: 100%; }
 :where(input[type="checkbox"], input[type="radio"], input[type="range"]) { accent-color: var(--jz-accent); }

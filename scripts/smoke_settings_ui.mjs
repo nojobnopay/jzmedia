@@ -2817,7 +2817,7 @@ async function checkSettingsDrafts(browser, base) {
     { id: 2, name: '演示媒体库乙', source: 'smb', path: '/demo/remote', smb_host: 'demo.invalid', smb_share: 'videos', smb_username: 'demo', smb_subpath: '', smb_connect_host: '',
       enabled: true, read_only: false, movie_count: 0, episode_count: 0 },
   ]
-  const writes = [], checks = [], releases = []
+  const writes = [], checks = [], releases = [], formGeometry = []
   let failSettings = false, settingsGate = null
   const gate = () => {
     let release, started
@@ -2901,6 +2901,56 @@ async function checkSettingsDrafts(browser, base) {
   const go = async (label, sec) => { await nav(label).click(); await page.waitForURL(url => url.searchParams.get('sec') === sec) }
   const collectionsLink = () => page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '合集', exact: true })
   try {
+    const alignmentOutput = path.join(root, 'output/playwright/settings-form-alignment')
+    await mkdir(alignmentOutput, { recursive: true })
+    for (const width of [1440, 1024, 390, 320]) {
+      await page.setViewportSize({ width, height: width > 700 ? 1000 : 844 })
+      await page.goto(base + '/settings?sec=sec-tmdb')
+      await token.waitFor()
+      const fontSize = width === 1024 ? 20 : 16
+      await page.evaluate(size => { document.documentElement.style.fontSize = size + 'px' }, fontSize)
+      await page.locator('.tmdb-options summary').click()
+      const fields = await page.locator('.tmdb-option-fields input').evaluateAll(elements => elements.map(input => {
+        const rect = input.getBoundingClientRect()
+        return { id: input.id, x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+      }))
+      assert.ok(fields.every(field => field.height >= (width <= 700 ? 43.5 : 39.5) && field.height < 60),
+        'TMDB fields keep their intended size when hints differ or text grows')
+      assert.ok(Math.max(...fields.map(field => field.height)) - Math.min(...fields.map(field => field.height)) < 1,
+        'TMDB native controls share a consistent height')
+      await page.locator('.tmdb-options').screenshot({ path: path.join(alignmentOutput, `tmdb-${width}.png`) })
+
+      await page.goto(base + '/settings?sec=sec-libraries')
+      await page.getByRole('button', { name: '添加媒体库', exact: true }).click()
+      await page.evaluate(size => { document.documentElement.style.fontSize = size + 'px' }, fontSize)
+      const create = page.locator('.create-library-form')
+      const source = create.locator('.lib-form').first().getByRole('combobox').first()
+      await source.selectOption('smb')
+      await create.locator('input[name="jz-smb-connect"]').waitFor()
+      // Deliberately do not submit the connection test: this is a layout check,
+      // so it must never read a user's share or an external SMB host.
+      const connection = await create.locator('input[name="jz-smb-connect"]').boundingBox()
+      const testAction = await create.getByRole('button', { name: '测试连接', exact: true }).boundingBox()
+      assert.ok(connection && testAction)
+      if (width > 700) assert.ok(Math.abs(connection.y + connection.height - testAction.y - testAction.height) < 1,
+        'SMB connection test aligns with the input bottom instead of the label top')
+      else {
+        assert.ok(testAction.y >= connection.y + connection.height, 'Phone SMB testing follows the full-width input')
+        assert.ok(testAction.height >= 43.5 && testAction.width >= 43.5, 'Phone SMB testing retains a 44px target')
+      }
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false,
+        'Settings fields remain inside each viewport with long hints and larger text')
+      await create.screenshot({ path: path.join(alignmentOutput, `smb-${width}.png`) })
+      formGeometry.push({ width, fontSize, tmdb: fields, smb: { connection, testAction } })
+      await source.selectOption('local')
+      assert.equal(await unloadBlocked(), false, 'Layout checks restore the unsaved source choice without writing it')
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.evaluate(() => { document.documentElement.style.fontSize = '' })
+    await writeFile(path.join(alignmentOutput, 'geometry.json'), JSON.stringify({ mocked: true, realVue: true,
+      controlsOnly: true, formGeometry }, null, 2) + '\n')
+    checks.push('1440/1024/390/320 settings form geometry: TMDB field sizing, SMB test/input alignment, 20px text and phone targets; no connection requests')
+
     // Unvisited credential forms must not exist for password managers to fill.
     // Exercise both a deep link and navigation from the default overview.
     for (const entry of ['sec-online', 'sec-status']) {
@@ -3164,7 +3214,8 @@ async function checkSettingsDrafts(browser, base) {
     checks.push('390px category cancellation, safe default focus, Tab trap, Escape restore and no overflow')
     const report = path.join(root, 'output/playwright/settings-drafts')
     await mkdir(report, { recursive: true })
-    await writeFile(path.join(report, 'checks.json'), JSON.stringify({ mocked: true, realVue: true, checks, writes: writes.map(({ key }) => key) }, null, 2) + '\n')
+    await writeFile(path.join(report, 'checks.json'), JSON.stringify({ mocked: true, realVue: true, checks, formGeometry,
+      writes: writes.map(({ key }) => key) }, null, 2) + '\n')
     console.log('PASS settings drafts: ' + checks.join('; '))
   } catch (error) {
     const report = path.join(root, 'output/playwright/settings-drafts')

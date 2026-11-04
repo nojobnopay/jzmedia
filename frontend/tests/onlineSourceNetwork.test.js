@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { emptyOnlineSourceForm, resolveSourceNetworkChoice, networkChoiceSummary, proxyProfilePayload } from '../src/onlineSourceNetwork.js'
+import { emptyOnlineSourceForm, resolveSourceNetworkChoice, networkChoiceSummary, proxyProfilePayload,
+  proxyProfileForm, proxyProfilePatchPayload } from '../src/onlineSourceNetwork.js'
 
 const PROFILE = 'np_' + '1'.repeat(32)
 
@@ -13,6 +14,22 @@ test('new sources are enabled while existing independent network choices retain 
   assert.deepEqual(resolveSourceNetworkChoice(inherited, 'api', { mode: 'proxy', profile_id: PROFILE }), { choice: 'profile:' + PROFILE, from: 'application' })
   assert.deepEqual(resolveSourceNetworkChoice(inherited, 'media', { mode: 'proxy', profile_id: PROFILE }), { choice: 'direct', from: 'media' })
   assert.equal(networkChoiceSummary('profile:missing', []), '网络配置暂不可用')
+})
+
+test('saved proxy editing round-trips endpoints and leaves blank credentials unchanged', () => {
+  for (const endpoint of ['http://[::1]:7890', 'http://proxy.example', 'https://proxy.example']) {
+    const form = proxyProfileForm({ name: 'NAS 既有代理', proxy_url: endpoint, has_credentials: true })
+    const patch = proxyProfilePatchPayload(form)
+    assert.equal(new URL(patch.proxy_url).origin, new URL(endpoint).origin)
+    assert.equal(patch.name, 'NAS 既有代理')
+    assert.equal('username' in patch, false)
+    assert.equal('password' in patch, false)
+    assert.equal('mode' in patch, false)
+    assert.deepEqual(proxyProfilePatchPayload({ ...form, password: 'new-secret' }), { ...patch, password: 'new-secret' })
+    assert.deepEqual(proxyProfilePatchPayload({ ...form, clear_credentials: true }), { ...patch, clear_credentials: true })
+  }
+  assert.equal(networkChoiceSummary('profile:' + PROFILE, [{ id: PROFILE, mode: 'proxy', name: 'NAS 既有代理', proxy_url: 'http://127.0.0.1:7890' }]),
+    '代理 · NAS 既有代理 · http://127.0.0.1:7890')
 })
 
 test('proxy fields produce a server endpoint and separate write-only credentials', () => {

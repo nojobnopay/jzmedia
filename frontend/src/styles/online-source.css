@@ -8,8 +8,21 @@
 .online-network-advanced > summary, .online-proxy-auth > summary { cursor: pointer; min-height: var(--jz-control-current); display: flex; align-items: center; }
 .online-network-overrides { color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.7; }
 .online-proxy-endpoint { overflow-wrap: anywhere; }
-.online-host-form { display: flex; flex-wrap: wrap; align-items: end; gap: var(--jz-gap-m); max-width: 650px; margin-block: var(--jz-gap-l); }
-.online-host-form .jz-field { flex: 1 1 260px; margin: 0; }
+.online-default-network { margin-block: var(--jz-gap-l); }
+.online-default-network .jz-field { margin: 0; }
+.online-proxy-list { display: grid; gap: var(--jz-gap-m); }
+.online-proxy-row { display: flex; flex-wrap: wrap; align-items: start; gap: var(--jz-gap-m); border-top: 1px solid var(--jz-border); padding-top: var(--jz-gap-m); }
+.online-proxy-description { flex: 1 1 260px; min-width: 0; }
+.online-proxy-description h4 { margin: 0; overflow-wrap: anywhere; }
+.online-proxy-description p { color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.7; }
+.online-proxy-description summary { display: flex; align-items: center; min-height: var(--jz-control-current); cursor: pointer; }
+.online-proxy-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--jz-gap-s) var(--jz-gap-m); font-size: var(--jz-font-s); }
+.online-proxy-details dt { color: var(--jz-text-dim); }
+.online-proxy-details dd { margin: 0; overflow-wrap: anywhere; }
+.online-proxy-delete { flex-basis: 100%; }
+.online-proxy-delete .jz-button { margin-right: var(--jz-gap-s); }
+.online-host-form { max-width: 650px; margin-block: var(--jz-gap-l); }
+.online-host-form .jz-field { margin: 0; }
 .online-host-report { margin-block: var(--jz-gap-l); }
 .online-host-report p { line-height: 1.7; }
 .online-host-list { display: grid; gap: var(--jz-gap-xs); list-style: none; margin: var(--jz-gap-m) 0; padding: 0; }
@@ -22,4 +35,5 @@
   .online-connection-choice { max-width: none; }
   .online-network-advanced > summary, .online-proxy-auth > summary { min-height: var(--jz-touch-target); }
   .online-host-form .jz-button, .online-host-check > a { min-height: var(--jz-touch-target); }
+  .online-proxy-description summary { min-height: var(--jz-touch-target); }
 }

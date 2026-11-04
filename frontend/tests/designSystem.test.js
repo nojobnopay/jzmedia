@@ -6,6 +6,25 @@ import { loadSfc } from './helpers/loadSfc.js'
 
 const button = await loadSfc(new URL('../src/components/JzButton.vue', import.meta.url))
 const dialog = await loadSfc(new URL('../src/components/JzDialog.vue', import.meta.url))
+const field = await loadSfc(new URL('../src/components/JzField.vue', import.meta.url))
+
+test('field actions keep the control label, validation description and form submit semantics', async () => {
+  const render = error => renderToString(createSSRApp({ render: () => h(field, {
+    id: 'service-connection', label: '服务默认连接', hint: '仅影响继承服务默认的来源。', error,
+  }, {
+    default: scope => h('select', { id: scope.id, 'aria-describedby': scope.describedby, 'aria-invalid': scope.invalid },
+      h('option', { value: 'direct' }, '直连')),
+    actions: () => h(button, { type: 'submit' }, () => '保存连接'),
+  }) }))
+  const html = await render('')
+  assert.match(html, /<label[^>]*for="service-connection"/)
+  assert.match(html, /<select[^>]*id="service-connection"[^>]*aria-describedby="service-connection-description"/)
+  assert.match(html, /<button[^>]*type="submit"/)
+  assert.match(html, /id="service-connection-description"[^>]*>仅影响继承服务默认的来源。/)
+  const invalid = await render('连接配置暂不可用')
+  assert.match(invalid, /aria-invalid="true"/)
+  assert.match(invalid, /id="service-connection-description"[^>]*role="alert"[^>]*>连接配置暂不可用/)
+})
 
 test('shared button keeps native form semantics and disables pending actions', async () => {
   const html = await renderToString(createSSRApp({ render: () => h(button, { loading: true, variant: 'primary', name: 'save', 'aria-label': '保存设置' }, () => '保存') }))

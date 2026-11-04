@@ -21,7 +21,28 @@ export function networkChoiceSummary(choice, profiles) {
   if (choice === 'new-proxy') return '新代理（待保存）'
   const profile = profiles.find(item => 'profile:' + item.id === choice)
   if (!profile) return '网络配置暂不可用'
-  return profile.mode === 'proxy' ? `代理 · ${profile.name}` : `直连 · ${profile.name}`
+  return profile.mode === 'proxy' ? `代理 · ${profile.name} · ${profile.proxy_url}` : `直连 · ${profile.name}`
+}
+
+export function proxyProfileForm(profile) {
+  const url = new URL(profile.proxy_url)
+  return { name: profile.name, protocol: url.protocol.slice(0, -1), host: url.hostname,
+    port: url.port || (url.protocol === 'https:' ? '443' : '80'), username: '', password: '', clear_credentials: false }
+}
+
+export function proxyProfilePatchPayload(form) {
+  const payload = proxyProfilePayload(form)
+  const name = String(form.name || '').trim()
+  if (!name || name.length > 128 || [...name].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
+    throw new Error('请填写有效的代理配置名称。')
+  }
+  const patch = { name, proxy_url: payload.proxy_url }
+  if (form.clear_credentials) patch.clear_credentials = true
+  else {
+    if (payload.username) patch.username = payload.username
+    if (payload.password) patch.password = payload.password
+  }
+  return patch
 }
 
 export function proxyProfilePayload(form, sourceName) {

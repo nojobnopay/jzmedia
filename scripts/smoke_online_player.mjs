@@ -220,6 +220,30 @@ async function layout(page, width) {
     'Every visible phone control retains a 44px touch target')
   return state
 }
+async function fullscreenLayout(page, label) {
+  await page.waitForFunction(() => {
+    const stage = document.querySelector('.online-player-stage')
+    return getComputedStyle(document.querySelector('.online-player-controls')).opacity
+      === (stage.classList.contains('controls-hidden') ? '0' : '1')
+  })
+  await page.screenshot({ path: path.join(output, `player-fullscreen-${label}.png`) })
+  const geometry = await page.evaluate(() => {
+    const rect = selector => {
+      const value = document.querySelector(selector).getBoundingClientRect()
+      return { x: value.x, y: value.y, width: value.width, height: value.height, bottom: value.bottom }
+    }
+    return { stage: rect('.online-player-stage'), picture: rect('.online-player-picture'),
+      video: rect('.online-player-video'), controls: rect('.online-player-controls'),
+      hidden: document.querySelector('.online-player-stage').classList.contains('controls-hidden') }
+  })
+  for (const name of ['picture', 'video']) for (const axis of ['x', 'y', 'width', 'height']) {
+    assert.ok(Math.abs(geometry[name][axis] - geometry.stage[axis]) < 1,
+      `Fullscreen ${name} ${axis} spans the stage; controls must not reserve picture space (${label})`)
+  }
+  assert.ok(Math.abs(geometry.controls.bottom - geometry.stage.bottom) < 1,
+    'Fullscreen controls overlay the bottom of the stage')
+  return geometry
+}
 async function matrix() {
   for (const width of [1440, 390]) for (const transport of ['mp4', 'hls']) {
     phase = { name: `matrix-${width}-${transport}`, expectedHttp: false }
@@ -253,8 +277,19 @@ async function matrix() {
       await page.getByRole('button', { name: '全屏', exact: true }).click()
       await page.waitForFunction(() => !!document.fullscreenElement)
       await layout(page, width)
+      const fullscreen = [await fullscreenLayout(page, `${width}-${transport}`)]
+      if (width <= 700) {
+        await page.getByRole('button', { name: '退出全屏', exact: true }).click()
+        await page.waitForFunction(() => !document.fullscreenElement)
+        await page.setViewportSize({ width: 844, height: 390 })
+        await page.getByRole('button', { name: '全屏', exact: true }).click()
+        await page.waitForFunction(() => !!document.fullscreenElement)
+        await layout(page, 844)
+        fullscreen.push(await fullscreenLayout(page, `${width}-landscape-${transport}`))
+      }
       await page.getByRole('button', { name: '退出全屏', exact: true }).click()
       await page.waitForFunction(() => !document.fullscreenElement)
+      if (width <= 700) await page.setViewportSize({ width, height: 844 })
       await page.getByRole('dialog').getByRole('button', { name: '播放', exact: true }).click()
       await advancing(page, seek.time)
       const savedAt = (await pause(page)).time
@@ -267,7 +302,7 @@ async function matrix() {
       assert.ok(resumed.time >= savedAt - .7, 'Reopening resumes this identity on its original timeline')
       await closePlayer(page, { keyboard: true, focusKey: key })
       await backendChildren(phase.name)
-      passed({ case: phase.name, firstFrameMs, progress, initial, paused, seek, savedAt, resumed,
+      passed({ case: phase.name, firstFrameMs, progress, initial, paused, seek, savedAt, resumed, fullscreen,
         releaseMs: release.releaseMs, passed: ['decoded frames', 'clock', 'pause', 'absolute seek', 'rate', 'mute',
           'fullscreen', 'menu/focus', 'close release', 'resume', 'Escape', 'layout'] })
     } finally { await closeContext(context) }
@@ -283,6 +318,30 @@ async function matrix() {
     await closePlayer(narrow.page)
     passed({ case: phase.name, firstFrameMs, progress, geometry })
   } finally { await closeContext(narrow.context) }
+  phase = { name: 'matrix-fullscreen-controls', expectedHttp: false }
+  const touch = await newPage(390)
+  try {
+    await open(touch.page, 'movie-mp4')
+    await touch.page.setViewportSize({ width: 844, height: 390 })
+    await touch.page.getByRole('button', { name: '全屏', exact: true }).click()
+    await touch.page.waitForFunction(() => !!document.fullscreenElement)
+    const visible = await fullscreenLayout(touch.page, 'controls-visible')
+    await touch.page.waitForFunction(() => !window.__jzOnlinePlayer.snapshot().controlsVisible)
+    const hidden = await fullscreenLayout(touch.page, 'controls-hidden')
+    assert.equal(hidden.hidden, true)
+    assert.deepEqual(hidden.picture, visible.picture, 'Auto-hiding controls never moves or resizes the video')
+    const before = await readPlayer(touch.page)
+    await touch.page.touchscreen.tap(422, 195)
+    await touch.page.waitForFunction(() => window.__jzOnlinePlayer.snapshot().controlsVisible)
+    assert.equal((await readPlayer(touch.page)).paused, before.paused, 'First tap reveals controls without pausing')
+    const revealed = await fullscreenLayout(touch.page, 'controls-revealed')
+    assert.deepEqual(revealed.picture, visible.picture, 'Revealing controls keeps the full-screen picture centered')
+    await touch.page.getByRole('button', { name: '退出全屏', exact: true }).click()
+    await touch.page.waitForFunction(() => !document.fullscreenElement)
+    await touch.page.setViewportSize({ width: 390, height: 844 })
+    await closePlayer(touch.page)
+    passed({ case: phase.name, visible, hidden, revealed })
+  } finally { await closeContext(touch.context) }
   phase = { name: 'native-hls-capability', expectedHttp: false }
   const capability = await newPage()
   const native = await capability.page.evaluate(() => !!document.createElement('video').canPlayType('application/vnd.apple.mpegurl'))

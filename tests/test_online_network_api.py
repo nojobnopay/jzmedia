@@ -88,6 +88,61 @@ def test_rules_reference_profiles_and_block_deletion_until_unreferenced(client):
     assert client.delete(f"/api/online/network/profiles/{pid}").status_code == 204
 
 
+def test_editing_a_selected_proxy_preserves_identity_credentials_and_all_source_rules(client):
+    sid = client.post("/api/online/sources", json=SOURCE).json()["id"]
+    created = client.post("/api/online/network/profiles", json={
+        **PROXY, "name": "NAS 既有代理（隔离测试）",
+    }).json()
+    profile_path = f"/api/online/network/profiles/{created['id']}"
+    source_path = f"/api/online/sources/{sid}/network"
+    rule = {"mode": "proxy", "profile_id": created["id"]}
+    policy = client.patch(source_path, json={"default": rule, "media": rule}).json()
+
+    edited = client.patch(profile_path, json={
+        "name": "已修改的共享代理", "proxy_url": "http://127.0.0.1:17892",
+        "connect_timeout_seconds": 8.0, "read_timeout_seconds": 30.0,
+        "max_connections": 6, "ca_file": "/isolated/proxy-ca.pem",
+    })
+    assert edited.status_code == 200, edited.text
+    profile = edited.json()
+    assert profile["id"] == created["id"]
+    assert profile["has_credentials"] is True
+    assert profile["proxy_url"] == "http://127.0.0.1:17892"
+    assert profile["connect_timeout_seconds"] == 8.0
+    assert profile["read_timeout_seconds"] == 30.0
+    assert profile["max_connections"] == 6
+    assert profile["ca_file"] == "/isolated/proxy-ca.pem"
+    assert client.get(profile_path).json() == profile
+    assert client.get("/api/online/network/profiles").json() == {"items": [profile]}
+    assert client.get(source_path).json() == policy
+    assert PROXY["username"] not in edited.text and PROXY["password"] not in edited.text
+
+
+def test_switching_source_default_keeps_explicit_media_override_and_other_source_references(client):
+    sid = client.post("/api/online/sources", json=SOURCE).json()["id"]
+    other_sid = client.post("/api/online/sources", json={**SOURCE, "name": "另一隔离来源"}).json()["id"]
+    profile = client.post("/api/online/network/profiles", json=PROXY).json()
+    profile_path = f"/api/online/network/profiles/{profile['id']}"
+    source_path = f"/api/online/sources/{sid}/network"
+    other_path = f"/api/online/sources/{other_sid}/network"
+    rule = {"mode": "proxy", "profile_id": profile["id"]}
+    assert client.patch(source_path, json={"default": rule, "media": rule}).status_code == 200
+    assert client.patch(other_path, json={"image": rule}).status_code == 200
+
+    assert client.patch(source_path, json={"default": {"mode": "direct"}}).status_code == 200
+    assert client.get(source_path + "/effective", params={"purpose": "api"}).json()["mode"] == "direct"
+    media = client.get(source_path + "/effective", params={"purpose": "media"}).json()
+    assert media["mode"] == "proxy" and media["selected_by"] == "purpose"
+    assert media["profile_id"] == profile["id"]
+    assert client.delete(profile_path).status_code == 409
+
+    assert client.patch(source_path, json={"media": {"mode": "inherit"}}).status_code == 200
+    assert client.get(source_path + "/effective", params={"purpose": "media"}).json()["mode"] == "direct"
+    assert client.delete(profile_path).status_code == 409
+    assert client.patch(other_path, json={"image": {"mode": "inherit"}}).status_code == 200
+    assert client.delete(profile_path).status_code == 204
+
+
 @pytest.mark.parametrize("payload", [{}, {"rule": {"mode": "inherit"}},
                                      {"rule": None}, {"rule": {"mode": "direct"}, "other": True}])
 def test_invalid_default_does_not_change_saved_rule(client, payload):

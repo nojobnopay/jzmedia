@@ -81,6 +81,7 @@ export async function api(path, opts = {}) {
     if (!r.ok) {
       throw _httpError(r.status, await r.text(), silentViewing, silentAuth)
     }
+    if (r.status === 204) return null
     return r.json()
   } catch (e) {
     if (e && e.name === 'AbortError') {

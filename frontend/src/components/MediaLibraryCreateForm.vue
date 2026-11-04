@@ -275,7 +275,7 @@ input, select { min-width: 0 !important; width: 100%; max-width: 100%; box-sizin
 .lib-form label { display: flex; flex-direction: column; gap: 8px; font-size: var(--jz-font-m); }
 .lib-form label.ck { grid-column: 1 / -1; flex-direction: row; align-items: center; min-height: 40px; }
 .lib-form label.ck input { width: 16px; height: 16px; }
-.lib-form > button { justify-self: start; }
+.lib-form > button { justify-self: start; align-self: end; }
 .vid-form { border-top: 1px solid var(--jz-border); padding-top: 20px; }
 .vid-line { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr 100px auto; gap: 10px; align-items: center; }
 .form-sec-title { grid-column: 1 / -1; color: var(--jz-text); font-size: var(--jz-font-m); font-weight: 600; }

@@ -10,9 +10,18 @@ from .. import viewing
 router = APIRouter(prefix="/api/viewing", tags=["viewing"])
 
 
-def _session(request, response):
+def _session(request, response, *, recover_unknown_cookie=False):
     supplied = request.headers.get(viewing.HEADER) or request.cookies.get(viewing.COOKIE, "")
     session, secret, _ = viewing.resolve(supplied, create=not supplied)
+    # Local instances and ports share a hostname's browser cookies. A restored
+    # or temporary database may no longer know that cookie. Only the browser's
+    # unprotected bootstrap may replace it; protected devices and explicit TV
+    # credentials continue to fail closed instead of changing viewing scope.
+    if (session is None and recover_unknown_cookie
+            and not request.headers.get(viewing.HEADER)
+            and request.headers.get("x-viewing-client") != "tv"
+            and not viewing.enabled()):
+        session, secret, _ = viewing.resolve(create=True)
     if session is None:
         viewing.error("viewing_locked", "设备会话已失效，请重新连接服务", 401)
     if secret and request.headers.get("x-viewing-client") != "tv":
@@ -36,7 +45,7 @@ def _subject(request):
 
 @router.get("/session")
 def get_session(request: Request, response: Response):
-    session, secret = _session(request, response)
+    session, secret = _session(request, response, recover_unknown_cookie=True)
     return _result(request, session, secret)
 
 
