@@ -834,6 +834,99 @@ def test_repeated_segment_path_does_not_start_ambiguous_lookahead(harness):
     harness.cache.release(ticket)
 
 
+def test_ambiguous_seek_retires_previous_window_and_cancels_its_download(harness):
+    session = harness.session()
+    resources = harness.resources(session, 7)
+    harness.remember(session, [resources[0], resources[1], resources[2], resources[3],
+                               resources[1], resources[4], resources[5]])
+    first = harness.cache.demand(session, resources[0])
+    harness.run()
+    # The ambiguous resource is already being prefetched; requesting it cannot
+    # identify which occurrence is meant, so unrelated stale work must stop.
+    ticket = harness.cache.demand(session, resources[1])
+    harness.drain()
+    harness.cache.release(first)
+    harness.cache.release(ticket)
+    assert not harness.cache._windows
+    assert [read[1] for read in harness.reads] == [resources[0].id, resources[1].id]
+
+
+def test_variant_switch_retires_old_window_but_keeps_parallel_audio(harness):
+    session = harness.session()
+    low = harness.resources(session, 8, prefix="low")
+    high = harness.resources(session, 8, prefix="high")
+    audio = harness.resources(session, 8, prefix="audio")
+    manifests = harness.resources(session, 3, prefix="playlist", kind="manifest")
+    h = harness
+    h.cache.remember_master(session, "master", [(manifests[0].path(session.id), "variant"),
+                                                 (manifests[1].path(session.id), "variant"),
+                                                 (manifests[2].path(session.id), "AUDIO")])
+    for manifest, resources in zip(manifests, (low, high, audio)):
+        h.remember(session, resources, manifest=manifest.id)
+    for resource in (low[0], audio[0], high[0]):
+        ticket = h.cache.demand(session, resource)
+        h.drain()
+        h.cache.release(ticket)
+    assert set(h.cache._windows) == {(session.id, manifests[1].id), (session.id, manifests[2].id)}
+
+
+def test_failed_admission_does_not_evict_other_session_cache():
+    harness = Harness(prefetch_session_bytes=64, prefetch_global_bytes=64, max_session_active=2)
+    first, second = harness.session("first"), harness.session("second")
+    old = harness.resources(first, 12, prefix="old")
+    new = harness.resources(second, 20, prefix="new")
+    harness.remember(second, new)
+    for resource in old:
+        ticket = harness.cache.demand(first, resource)
+        harness.run()
+        harness.cache.release(ticket)
+    ticket = harness.cache.demand(second, new[0])
+    harness.run()
+    harness.cache.release(ticket)
+    before = {key for key in harness.cache._entries if key[0] == first.id}
+    assert harness.cache.stats()["active"] == 2
+    with pytest.raises(SessionError, match="prefetch_busy"):
+        harness.cache.demand(second, new[15])
+    assert {key for key in harness.cache._entries if key[0] == first.id} == before
+    harness.registry.close_all()
+    harness.drain()
+
+
+def test_nearby_audio_and_video_share_capacity_without_background_churn():
+    harness = Harness(prefetch_session_bytes=32, prefetch_global_bytes=128, max_session_active=2)
+    session = harness.session()
+    video = harness.resources(session, 30, prefix="video")
+    audio = harness.resources(session, 30, prefix="audio")
+    harness.remember(session, video, manifest="video")
+    harness.remember(session, audio, manifest="audio")
+    for resource in (video[0], audio[0]):
+        ticket = harness.cache.demand(session, resource)
+        harness.drain()
+        harness.cache.release(ticket)
+        harness.drain()
+    assert (session.id, video[1].id) in harness.cache._entries
+    assert (session.id, audio[1].id) in harness.cache._entries
+    count = len(harness.reads)
+    for _ in range(5):
+        harness.registry.maintain_prefetch()
+        harness.drain()
+    assert len(harness.reads) == count
+    for resource in (video[1], audio[1]):
+        ticket = harness.cache.demand(session, resource)
+        assert ticket.cached
+        harness.drain()
+        harness.cache.release(ticket)
+        harness.drain()
+    assert (session.id, video[2].id) in harness.cache._entries
+    assert (session.id, audio[2].id) in harness.cache._entries
+    count = len(harness.reads)
+    harness.registry.maintain_prefetch()
+    harness.drain()
+    assert len(harness.reads) == count
+    harness.registry.close_all()
+    harness.drain()
+
+
 def test_validated_length_restores_two_downloads_while_wanted_cached_segments_remain():
     harness = Harness(prefetch_session_bytes=16, prefetch_global_bytes=16)
     session = harness.session()

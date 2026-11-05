@@ -75,6 +75,19 @@ def prefetch_origin():
                     lines.extend(["#EXTINF:4,", f"segments/{index}.ts?signature=fixture-secret"])
                 body = ("\n".join([*lines, "#EXT-X-ENDLIST"]) + "\n").encode()
                 mime = "application/vnd.apple.mpegurl"
+            elif path == "/master-switch.m3u8":
+                body = (b'#EXTM3U\n'
+                        b'#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="sound",NAME="main",URI="audio-switch.m3u8"\n'
+                        b'#EXT-X-STREAM-INF:BANDWIDTH=100000,AUDIO="sound"\nlow-switch.m3u8\n'
+                        b'#EXT-X-STREAM-INF:BANDWIDTH=200000,AUDIO="sound"\nhigh-switch.m3u8\n')
+                mime = "application/vnd.apple.mpegurl"
+            elif path in {"/low-switch.m3u8", "/high-switch.m3u8", "/audio-switch.m3u8"}:
+                track = path.split("-")[0].removeprefix("/")
+                lines = ["#EXTM3U", "#EXT-X-TARGETDURATION:4"]
+                for index in range(6):
+                    lines.extend(["#EXTINF:4,", f"switch/{track}/{index}.ts"])
+                body = ("\n".join([*lines, "#EXT-X-ENDLIST"]) + "\n").encode()
+                mime = "application/vnd.apple.mpegurl"
             elif path == "/long.m3u8":
                 lines = ["#EXTM3U", "#EXT-X-TARGETDURATION:4"]
                 for index in range(LONG_SEGMENT_COUNT):
@@ -95,6 +108,12 @@ def prefetch_origin():
                     self.send_error(404)
                     return
                 body, mime = bytes([int(match[1]) % 256]) * LONG_SEGMENT_BYTES, "video/mp2t"
+            elif path.startswith("/switch/"):
+                match = re.fullmatch(r"/switch/(?:low|high|audio)/([0-9]+)\.ts", path)
+                if not match or int(match[1]) >= 6:
+                    self.send_error(404)
+                    return
+                body, mime = SEGMENTS[int(match[1])], "video/mp2t"
             else:
                 match = re.fullmatch(r"/segments/([0-9]+)\.ts", path)
                 if not match or int(match[1]) >= len(SEGMENTS):
@@ -234,6 +253,33 @@ def assert_segment(result, index):
     response = result["response"]
     assert response.status_code == 200
     assert response.content == SEGMENTS[index]
+
+
+def test_master_variant_switch_retires_old_video_but_keeps_audio(prefetch_bridge, prefetch_origin):
+    harness = prefetch_bridge("/master-switch.m3u8")
+    with TestClient(harness.app) as client:
+        master = client.get(harness.url)
+        assert master.status_code == 200
+        variants = re.findall(r"^(/api/online/sessions/[^\n]+)$", master.text, re.MULTILINE)
+        audio_path = re.search(r'URI="(/api/online/sessions/[^"]+)"', master.text).group(1)
+        assert len(variants) == 2
+
+        def segments(path):
+            response = client.get(path)
+            assert response.status_code == 200
+            return re.findall(r"^(/api/online/sessions/[^\n]+)$", response.text, re.MULTILINE)
+
+        low, high, audio = map(segments, (*variants, audio_path))
+        for resources in (low, audio, high):
+            response = client.get(resources[0])
+            assert response.status_code == 200
+        cache = harness.registry._media_cache
+        low_id, high_id, audio_id = (path.rsplit("/", 1)[-1] for path in (*variants, audio_path))
+        assert wait_until(lambda: harness.registry.stats()["active_requests"] == 0)
+        assert set(cache._windows) == {(harness.session.id, high_id), (harness.session.id, audio_id)}
+        assert (harness.session.id, low_id) not in cache._windows
+        assert any(row["path"] == "/switch/high/1.ts" for row in prefetch_origin.records)
+        assert any(row["path"] == "/switch/audio/1.ts" for row in prefetch_origin.records)
 
 
 def test_manifest_and_head_do_not_start_speculative_media_reads(prefetch_bridge, prefetch_origin):
@@ -730,7 +776,7 @@ def test_three_foreground_segments_keep_two_origin_reader_cap(prefetch_bridge, p
         third_done, third = fetch_later(client, paths[2], prefetch_origin)
         assert third_done.wait(3)
         assert "error" not in third
-        assert third["response"].status_code == 429
+        assert third["response"].status_code == 503
         assert not segment_reads(prefetch_origin, 2)
         assert harness.registry.stats()["active_requests"] == 2
         gate0.set()

@@ -380,7 +380,7 @@ def _plan(body, base_url):
     return result
 
 
-def rewrite_manifest(body: bytes, base_url: str, register, *, on_media=None) -> bytes:
+def rewrite_manifest(body: bytes, base_url: str, register, *, on_media=None, on_master=None) -> bytes:
     """Rewrite validated VOD references via ``register(url, kind=, byte_range=)``.
 
     ``byte_range`` is an inclusive ``(start, end)`` pair. The callback must return
@@ -398,8 +398,11 @@ def rewrite_manifest(body: bytes, base_url: str, register, *, on_media=None) -> 
         raise ManifestError("invalid_hls_registrar")
     if on_media is not None and not callable(on_media):
         raise ManifestError("invalid_hls_media_callback")
+    if on_master is not None and not callable(on_master):
+        raise ManifestError("invalid_hls_master_callback")
     lines, total = [], 0
     segments = []
+    master_paths = []
     duration, init_path, gap = 0.0, None, False
     collect_media = on_media is not None and "#EXT-X-I-FRAMES-ONLY" not in plan
 
@@ -420,6 +423,8 @@ def rewrite_manifest(body: bytes, base_url: str, register, *, on_media=None) -> 
                     gap = True
         elif isinstance(node, _Reference):
             line = path(node)
+            if node.kind == "manifest":
+                master_paths.append((line, "variant"))
             if collect_media and node.kind == "segment":
                 segments.append(MediaSegment(line, duration, init_path, gap))
                 gap = False
@@ -428,6 +433,9 @@ def rewrite_manifest(body: bytes, base_url: str, register, *, on_media=None) -> 
             if node.reference is not None:
                 reference_path = path(node.reference)
                 attributes = _replace(attributes, "URI", reference_path)
+                if node.tag == "#EXT-X-MEDIA":
+                    media_type = next(item.value for item in node.attributes if item.name == "TYPE")
+                    master_paths.append((reference_path, media_type))
                 if collect_media and node.tag == "#EXT-X-MAP":
                     init_path = reference_path
             line = node.tag + ":" + ",".join(
@@ -440,4 +448,6 @@ def rewrite_manifest(body: bytes, base_url: str, register, *, on_media=None) -> 
     rewritten = ("\n".join(lines) + "\n").encode("utf-8")
     if collect_media and segments:
         on_media(tuple(segments))
+    if on_master is not None and master_paths:
+        on_master(tuple(master_paths))
     return rewritten

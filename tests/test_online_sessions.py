@@ -228,7 +228,7 @@ def test_concurrent_reservations_are_atomic_and_actual_bytes_stay_charged(regist
     for worker in workers:
         worker.join(timeout=2)
         assert not worker.is_alive()
-    assert len(admitted) == 1 and rejected == ["byte_budget_exhausted"]
+    assert len(admitted) == 1 and rejected == ["request_limit"]
     lease = admitted[0]
     lease.consume(17)
     assert session.bytes_consumed == registry.stats()["consumed_bytes"] == 17
@@ -241,6 +241,87 @@ def test_concurrent_reservations_are_atomic_and_actual_bytes_stay_charged(regist
     with pytest.raises(SessionError, match="^byte_budget_exhausted$"):
         registry.acquire(session, 20)
     assert session.bytes_consumed == 37
+
+
+def test_session_byte_window_expires_conservatively_but_keeps_lifetime_stats(clock, limits):
+    registry = SessionRegistry(replace(limits, ttl_seconds=100, idle_seconds=100,
+                                       session_byte_window_seconds=10), clock=clock)
+    session = create(registry)
+    with registry.acquire(session, 30) as lease:
+        for _ in range(30):
+            lease.consume(1)
+    assert session._window_bytes == 30 and len(session._byte_buckets) == 1
+    # All bytes in second 100 remain charged until that entire bucket is past
+    # the 10-second window. A request for 30 still cannot be admitted at 110.9.
+    clock.now = 110.9
+    with pytest.raises(SessionError, match="^byte_budget_exhausted$"):
+        registry.acquire(session, 30)
+    clock.now = 111.0
+    with registry.acquire(session, 30) as lease:
+        lease.consume(30)
+    assert session._window_bytes == 30
+    assert session.bytes_consumed == registry.stats()["consumed_bytes"] == 60
+    registry.close_all()
+
+
+def test_global_reserved_byte_pressure_is_transient(registry):
+    first = create(registry)
+    second = create(registry, owner=OTHER_OWNER)
+    lease = registry.acquire(first, 30)
+    with pytest.raises(SessionError, match="^request_limit$"):
+        registry.acquire(second, 20)
+    lease.close()
+    with registry.acquire(second, 20):
+        pass
+
+
+def test_long_playback_keeps_only_bounded_time_buckets(clock, limits):
+    registry = SessionRegistry(replace(limits, ttl_seconds=100, idle_seconds=100,
+                                       session_byte_window_seconds=10), clock=clock)
+    session = create(registry)
+    for second in range(30):
+        clock.now = 100.5 + second
+        with registry.acquire(session, 1) as lease:
+            lease.consume(1)
+        assert len(session._byte_buckets) <= 11
+        assert session._window_bytes <= 11
+    assert session.bytes_consumed == 30
+    registry.close_all()
+
+
+def test_sliding_window_counts_live_reservations_and_cancelled_bytes(clock, limits):
+    registry = SessionRegistry(replace(limits, ttl_seconds=100, idle_seconds=100,
+                                       session_byte_window_seconds=10), clock=clock)
+    session = create(registry)
+    lease = registry.acquire(session, 30)
+    lease.consume(10)
+    lease.abort()
+    # Worker retains its remaining reservation after cancellation, so the
+    # conflict remains temporary even as the previous read leaves the window.
+    clock.now = 111.0
+    with pytest.raises(SessionError, match="^request_limit$"):
+        registry.acquire(session, 30)
+    lease.close()
+    with registry.acquire(session, 30) as replacement:
+        replacement.consume(30)
+    assert session.bytes_consumed == 40 and session._window_bytes == 30
+    registry.close_all()
+
+
+def test_prefetch_leaves_budget_headroom_for_current_playback(clock, limits):
+    registry = SessionRegistry(replace(limits, max_session_bytes=160, max_reserved_bytes=300,
+                                       max_segment_response_bytes=10, ttl_seconds=100,
+                                       idle_seconds=100), clock=clock)
+    session = create(registry)
+    for _ in range(15):
+        with registry.acquire(session, 10, kind="segment", background=True) as lease:
+            lease.consume(10)
+    with pytest.raises(SessionError, match="^byte_budget_exhausted$"):
+        registry.acquire(session, 10, kind="segment", background=True)
+    with registry.acquire(session, 10, kind="segment") as lease:
+        lease.consume(10)
+    assert session._window_bytes == 160
+    registry.close_all()
 
 
 def test_response_cap_is_checked_before_reservation_and_overread_is_rejected(registry):

@@ -516,7 +516,7 @@ def test_two_streams_hold_slots_until_cancelled_workers_really_exit(bridge, upst
         try:
             assert upstream["two_blocked"].wait(timeout=1)
             rejected = client.get(harness.url, headers={"Range": "bytes=0-7"})
-            assert rejected.status_code == 429 and rejected.json()["code"] == "request_limit"
+            assert rejected.status_code == 503 and rejected.json()["code"] == "request_limit"
             harness.registry.close(harness.session.id, OWNER)
             assert both_finishing.wait(timeout=1)
             assert harness.registry.stats()["active_requests"] == 2

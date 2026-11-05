@@ -23,6 +23,12 @@ export async function loadSfc(filename, overrides = {}) {
     const binding = names.startsWith('{') ? names.replace(/\bas\b/g, ':') : names
     code = code.replace(full, 'const ' + binding + ' = modules[' + i + ']' + (names.startsWith('{') ? '' : '.default'))
   }
+  // The player lazily imports hls.js; let the component harness substitute an
+  // event-capable loader without requiring a browser MediaSource.
+  if (overrides['hls.js']) {
+    const i = modules.push(overrides['hls.js']) - 1
+    code = code.replace(/import\(['"]hls\.js['"]\)/g, `Promise.resolve(modules[${i}])`)
+  }
   code = code.replace(/import\s+['"][^'"]+\.css['"];?/g, '')
   // Vite supplies this build constant; the Node component harness is not DEV.
   code = code.replace(/\bimport\.meta\.env\.DEV\b/g, 'false')

@@ -59,7 +59,11 @@ def _failure(error):
         category = str(error)
         if category in {"session_not_found", "resource_not_found", "session_closed", "session_expired"}:
             status = 404
-        elif category in {"request_limit", "session_limit", "byte_budget_exhausted", "resource_limit"}:
+        elif category == "request_limit":
+            # Temporary upstream/foreground slot pressure can clear without a
+            # new session. Standard media clients retry 503, unlike most 4xx.
+            status = 503
+        elif category in {"session_limit", "byte_budget_exhausted", "resource_limit"}:
             status = 429
         elif category in {"operation_timeout", "request_timeout", "network_timeout"}:
             status = 504
@@ -485,7 +489,9 @@ class _Transfer:
                     try:
                         body = rewrite_manifest(bytes(content), str(response.url), register,
                                                 on_media=lambda segments: _media_cache(self.registry).remember(
-                                                    self.session, self.resource.id, segments))
+                                                    self.session, self.resource.id, segments),
+                                                on_master=lambda paths: _media_cache(self.registry).remember_master(
+                                                    self.session, self.resource.id, paths))
                     except Exception:
                         # A later URI may fail target or resource validation
                         # after earlier references were registered. Revoke the

@@ -71,6 +71,7 @@ class CacheStore:
         self._entries = OrderedDict()
         self._timelines = OrderedDict()
         self._windows = OrderedDict()
+        self._masters = OrderedDict()
         self._failed = set()
         # Pending retries only belong to current windows. The spent budget is
         # session-long and bounded by the registry's resource inventory, so a
@@ -114,6 +115,32 @@ class CacheStore:
                 self._windows.pop(removed, None)
             self._retire_retries_locked()
 
+    def remember_master(self, session, manifest_id, paths):
+        """Record mutually exclusive roles from a fully validated master.
+
+        Only siblings of the same master and role can retire each other.
+        Unknown or conflicting relationships remain independent.
+        """
+        with self._lock:
+            if session.cancelled.is_set():
+                return
+            key = session.id, manifest_id
+            self._masters[key] = tuple((self._resource_id(path), role) for path, role in paths)
+            self._masters.move_to_end(key)
+            while (len(self._masters) > 256
+                   or sum(len(paths) for paths in self._masters.values()) > self.registry.limits.max_global_resources
+                   or sum(len(paths) for (owner, _), paths in self._masters.items() if owner == session.id)
+                   > self.registry.limits.max_resources):
+                session_full = sum(len(paths) for (owner, _), paths in self._masters.items()
+                                   if owner == session.id) > self.registry.limits.max_resources
+                removed = next(key for key in self._masters if not session_full or key[0] == session.id)
+                self._masters.pop(removed)
+
+    def _roles_locked(self, timeline_key):
+        session_id, manifest_id = timeline_key
+        return {(master_id, role) for (owner, master_id), paths in self._masters.items()
+                if owner == session_id for path, role in paths if path == manifest_id}
+
     def _discard_locked(self, entry):
         if self._entries.get(entry.key) is entry:
             self._entries.pop(entry.key)
@@ -145,6 +172,15 @@ class CacheStore:
         wanted = self._desired_locked()
         self._retry_at = {key: due for key, due in self._retry_at.items() if key in wanted}
 
+    def _cancel_unwanted_locked(self, session, resource):
+        wanted = self._desired_locked()
+        for entry in list(self._entries.values()):
+            if (entry.session is session and not entry.future.done() and not entry.waiters
+                    and entry.resource.id != resource.id
+                    and entry.lease.background and entry.key not in wanted):
+                entry.obsolete = True
+                entry.lease.abort()
+
     def _anchor_locked(self, session, resource):
         if resource.kind != "segment":
             return
@@ -154,8 +190,20 @@ class CacheStore:
                 matches.extend((key, segments, index) for index, segment in enumerate(segments)
                                if self._resource_id(segment.path) == resource.id)
         if len(matches) != 1:
-            return  # Repeated paths do not identify a unique play position.
+            # A repeated resource cannot identify the requested play position.
+            # Stop speculative work for those ambiguous timelines rather than
+            # continuing to download an obsolete window after a seek.
+            for key, _segments, _position in matches:
+                self._windows.pop(key, None)
+            self._retire_retries_locked()
+            self._cancel_unwanted_locked(session, resource)
+            return
         timeline_key, segments, position = matches[0]
+        roles = self._roles_locked(timeline_key)
+        if len(roles) == 1:
+            for other in list(self._windows):
+                if other != timeline_key and other[0] == session.id and self._roles_locked(other) == roles:
+                    self._windows.pop(other, None)
         desired, elapsed, count = [], 0.0, 0
         for segment in segments[position + 1:]:
             if elapsed >= self._seconds or count >= self._segment_limit:
@@ -170,38 +218,45 @@ class CacheStore:
         self._windows[timeline_key] = tuple(dict.fromkeys(desired))
         self._windows.move_to_end(timeline_key)
         self._retire_retries_locked()
-        wanted = self._desired_locked()
-        for entry in list(self._entries.values()):
-            if (entry.session is session and not entry.future.done() and not entry.waiters
-                    and entry.resource.id != resource.id
-                    and entry.lease.background and entry.key not in wanted):
-                entry.obsolete = True
-                entry.lease.abort()
+        self._cancel_unwanted_locked(session, resource)
 
     def _size_locked(self, session_id=None):
         return sum(entry.reserved for entry in self._entries.values()
                    if session_id is None or entry.session.id == session_id)
 
-    def _room_locked(self, session, size, foreground):
+    def _room_locked(self, session, size, foreground, key):
+        """Plan evictions without changing cache state before admission."""
         if size > min(self._session_limit, self._global_limit):
-            return False
-        wanted = self._desired_locked() if not foreground else set()
-        while (self._size_locked() + size > self._global_limit
-               or self._size_locked(session.id) + size > self._session_limit
-               or len(self._entries) >= self._entry_limit):
-            session_full = self._size_locked(session.id) + size > self._session_limit
-            victim = next((entry for entry in self._entries.values()
-                           if entry.future.done() and not entry.waiters and entry.key not in wanted
-                           and (not session_full or entry.session is session)), None)
+            return None
+        ranks = {}
+        for window in self._windows.values():
+            for index, wanted in enumerate(window):
+                ranks[wanted] = min(index, ranks.get(wanted, index))
+        priority = ranks.get(key, float("inf"))
+        candidates = [entry for entry in self._entries.values()
+                      if entry.future.done() and not entry.waiters
+                      and (foreground or ranks.get(entry.key, float("inf")) > priority)]
+        if not foreground:
+            # Preserve the nearer portion of every window before speculative
+            # distant data, including when another track or session arrives.
+            candidates.sort(key=lambda entry: ranks.get(entry.key, float("inf")), reverse=True)
+        total, owned, count = self._size_locked(), self._size_locked(session.id), len(self._entries)
+        victims = []
+        while (total + size > self._global_limit or owned + size > self._session_limit
+               or count >= self._entry_limit):
+            session_full = owned + size > self._session_limit
+            victim = next((entry for entry in candidates if not session_full or entry.session is session), None)
             if victim is None:
-                return False
-            self._discard_locked(victim)
-        return True
+                return None
+            candidates.remove(victim)
+            victims.append(victim)
+            total -= victim.reserved
+            owned -= victim.reserved if victim.session is session else 0
+            count -= 1
+        return victims
 
     def _new_locked(self, session, resource, background):
         size = self.registry.response_limit(resource.kind)
-        if not self._room_locked(session, size, foreground=not background):
-            raise CacheUnavailable("online_cache_capacity")
         active = [entry for entry in self._entries.values()
                   if entry.session is session and not entry.future.done()]
         if len(active) >= 2:
@@ -212,7 +267,12 @@ class CacheStore:
                     victim.obsolete = True
                     victim.lease.abort()
             raise SessionError("prefetch_busy")
+        victims = self._room_locked(session, size, foreground=not background, key=(session.id, resource.id))
+        if victims is None:
+            raise CacheUnavailable("online_cache_capacity")
         lease = self.registry.acquire(session, size, kind=resource.kind, background=background)
+        for victim in victims:
+            self._discard_locked(victim)
         entry = _Entry(session, resource, lease, Future(), size, prefetched=background)
         self._entries[entry.key] = entry
         return entry
@@ -292,6 +352,9 @@ class CacheStore:
 
     def close_session(self, session):
         with self._lock:
+            for key in list(self._masters):
+                if key[0] == session.id:
+                    self._masters.pop(key, None)
             for key in list(self._timelines):
                 if key[0] == session.id:
                     self._timelines.pop(key, None)
@@ -369,45 +432,55 @@ class CacheStore:
             now = self._clock()
             if now < self._foreground_until:
                 return
-            attempted = set()
-            for timeline_key, window in list(self._windows.items()):
-                remembered = self._timelines.get(timeline_key)
-                if remembered is None:
-                    continue
-                session = remembered[0]
-                for key in window:
-                    if key in attempted or key in self._entries:
+            blocked = set()
+            while True:
+                candidates = []
+                for timeline_key, window in list(self._windows.items()):
+                    remembered = self._timelines.get(timeline_key)
+                    if remembered is None or timeline_key in blocked:
                         continue
-                    retry = key in self._failed
-                    if retry:
-                        due = self._retry_at.get(key)
-                        if due is None:
+                    for index, key in enumerate(window):
+                        if key in self._entries:
                             continue
-                        if now < due:
-                            # Keep useful in-flight reads, but do not spend a
-                            # free lane far beyond a temporarily missing head.
-                            break
-                    attempted.add(key)
-                    active = [entry for entry in self._entries.values()
-                              if entry.session is session and not entry.future.done()]
-                    foreground = any(entry.session is session and entry.waiters
-                                     for entry in self._entries.values())
-                    if (len(active) >= 2 or sum(entry.lease.background for entry in active)
-                            >= (1 if foreground else 2)):
+                        retry = key in self._failed
+                        if retry:
+                            due = self._retry_at.get(key)
+                            if due is None:
+                                continue
+                            if now < due:
+                                break
+                        candidates.append((index, timeline_key, key, remembered[0], retry))
                         break
-                    try:
-                        resource = self.registry.resource(session, key[1])
-                        if resource.kind not in {"segment", "map"}:
-                            continue
-                        entry = self._new_locked(session, resource, True)
-                    except (SessionError, CacheUnavailable):
-                        break
-                    if retry:
-                        self._retried.add(key)
-                        self._retry_at.pop(key, None)
-                        self._failed.discard(key)
-                        self._automatic_retries += 1
-                    launch.append(entry)
+                if not candidates:
+                    break
+                # Closer missing fragments take precedence. Stable ordering
+                # rotates after each admission so equally close tracks share
+                # the available lanes instead of filling one entire window.
+                _index, timeline_key, key, session, retry = min(candidates, key=lambda item: item[0])
+                active = [entry for entry in self._entries.values()
+                          if entry.session is session and not entry.future.done()]
+                foreground = any(entry.session is session and entry.waiters
+                                 for entry in self._entries.values())
+                if (len(active) >= 2 or sum(entry.lease.background for entry in active)
+                        >= (1 if foreground else 2)):
+                    blocked.add(timeline_key)
+                    continue
+                try:
+                    resource = self.registry.resource(session, key[1])
+                    if resource.kind not in {"segment", "map"}:
+                        blocked.add(timeline_key)
+                        continue
+                    entry = self._new_locked(session, resource, True)
+                except (SessionError, CacheUnavailable):
+                    blocked.add(timeline_key)
+                    continue
+                if retry:
+                    self._retried.add(key)
+                    self._retry_at.pop(key, None)
+                    self._failed.discard(key)
+                    self._automatic_retries += 1
+                launch.append(entry)
+                self._windows.move_to_end(timeline_key)
         self._launch(launch)
 
     def stats(self):

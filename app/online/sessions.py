@@ -5,7 +5,7 @@ from an HTTP request, opens an upstream response, or starts a background thread.
 The application calls sweep() and rechecks its source/access gates periodically.
 """
 
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass, field, fields
 import hmac
 import math
@@ -43,6 +43,7 @@ class SessionLimits:
     max_source_active: int = 4
     max_session_active: int = 2
     max_session_bytes: int = 8 * 1024**3
+    session_byte_window_seconds: float = 600.0
     max_reserved_bytes: int = 256 * 1024**2
     max_mp4_response_bytes: int = 8 * 1024**2
     max_segment_response_bytes: int = 32 * 1024**2
@@ -113,6 +114,8 @@ class OnlineSession:
     cancelled: threading.Event = field(default_factory=threading.Event, repr=False)
     bytes_consumed: int = 0
     bytes_reserved: int = 0
+    _window_bytes: int = field(default=0, repr=False)
+    _byte_buckets: deque = field(default_factory=deque, repr=False)
     _resources: dict = field(default_factory=dict, repr=False)
     _resource_keys: dict = field(default_factory=dict, repr=False)
     _leases: dict = field(default_factory=dict, repr=False)
@@ -379,6 +382,15 @@ class SessionRegistry:
                 raise SessionError("resource_not_found")
             return resource
 
+    def _prune_byte_window_locked(self, session, now):
+        # Aggregate by whole monotonic second and expire only after the entire
+        # bucket is outside the window. This conservatively accounts for up to
+        # one extra second while bounding metadata independently of chunk count.
+        cutoff = now - self.limits.session_byte_window_seconds
+        while session._byte_buckets and session._byte_buckets[0][0] + 1 <= cutoff:
+            _, count = session._byte_buckets.popleft()
+            session._window_bytes -= count
+
     def acquire(self, session, reserve_bytes, *, kind=None, background=False):
         maximum = self.response_limit(kind) if kind is not None else max(
             self.limits.max_mp4_response_bytes, self.limits.max_segment_response_bytes,
@@ -399,10 +411,21 @@ class SessionRegistry:
             session_full = len(session._leases) >= self.limits.max_session_active
             source_full = self._source_active[session.source_id] >= self.limits.max_source_active
             global_full = len(self._leases) >= self.limits.max_active
-            session_budget = session.bytes_consumed + session.bytes_reserved + reserve_bytes > self.limits.max_session_bytes
+            self._prune_byte_window_locked(session, self._clock())
+            used = session._window_bytes + session.bytes_reserved + reserve_bytes
+            session_budget = used > self.limits.max_session_bytes
             global_budget = self._reserved + reserve_bytes > self.limits.max_reserved_bytes
-            if session_full or source_full or global_full or session_budget or global_budget:
-                failure = "byte_budget_exhausted" if session_budget or global_budget else "request_limit"
+            # Speculation cannot spend the entire time-window budget: keep up
+            # to one maximum segment, capped at 1/16 of small test/configured
+            # budgets, for an immediately needed foreground request.
+            headroom = min(self.limits.max_segment_response_bytes, self.limits.max_session_bytes // 16)
+            background_budget = background and used > self.limits.max_session_bytes - headroom
+            if session_full or source_full or global_full or session_budget or global_budget or background_budget:
+                # Reservations from other live workers are temporary; only
+                # actual consumption plus this request's own reserve makes the
+                # session window exhausted until an old bucket expires.
+                exhausted = session._window_bytes + reserve_bytes > self.limits.max_session_bytes
+                failure = "byte_budget_exhausted" if exhausted or background_budget else "request_limit"
                 if not background:
                     # Preemption interrupts I/O but never releases its slot early.
                     # The asynchronous caller retries only this transient case.
@@ -461,10 +484,20 @@ class SessionRegistry:
                 raise SessionError("response_byte_limit")
             lease.consumed_bytes += count
             lease.session.bytes_consumed += count
+            now = self._clock()
+            self._prune_byte_window_locked(lease.session, now)
+            if count:
+                bucket = int(now)
+                if lease.session._byte_buckets and lease.session._byte_buckets[-1][0] == bucket:
+                    previous_bucket, previous_count = lease.session._byte_buckets.pop()
+                    lease.session._byte_buckets.append((previous_bucket, previous_count + count))
+                else:
+                    lease.session._byte_buckets.append((bucket, count))
+                lease.session._window_bytes += count
             lease.session.bytes_reserved -= count
             self._reserved -= count
             self._consumed += count
-            lease.session.last_activity = self._clock()
+            lease.session.last_activity = now
         # Actual bytes already read remain charged if cancellation races with
         # delivery of a chunk. A cancelled request may not refund those bytes.
         self.check_lease(lease)

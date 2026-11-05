@@ -20,16 +20,18 @@ function eventTarget() {
 
 // Run the real SFC setup/load/teardown and real progress writer with a media
 // element double. Native decoding itself is covered by the browser fixture.
-async function player(t, claimResponse, { sessionProblem = null, durationSeconds = 24, initialPosition = 0 } = {}) {
+async function player(t, claimResponse, { sessionProblem = null, durationSeconds = 24, initialPosition = 0,
+  hlsClass = null } = {}) {
   const mounted = [], beforeUnmount = [], unmounted = [], refs = [], requests = [], notices = []
   const page = eventTarget()
-  const globals = new Map(['window', 'document'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
+  const globals = new Map(['window', 'document', 'navigator'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
   Object.defineProperty(globalThis, 'window', { configurable: true, value: page })
   Object.defineProperty(globalThis, 'document', { configurable: true, value: eventTarget() })
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { userAgent: 'Chromium' } })
   let playCalls = 0, sessionCount = 0, frameCallback
   const video = Vue.markRaw({ currentTime: 0, paused: true, readyState: 0,
     buffered: { length: 0 }, volume: 1, muted: false, src: '',
-    pause() { this.paused = true },
+    canPlayType() { return '' }, pause() { this.paused = true },
     play() { this.paused = false; playCalls++; return Promise.resolve() },
     load() { this.currentTime = 0 }, removeAttribute(name) { if (name === 'src') this.src = '' },
     requestVideoFrameCallback(callback) { frameCallback = callback; return 1 },
@@ -43,7 +45,7 @@ async function player(t, claimResponse, { sessionProblem = null, durationSeconds
       if (sessionProblem) throw sessionProblem
       const sessionId = String(++sessionCount).repeat(43)
       return { identity: IDENTITY, session_id: sessionId, media_url: `/api/online/sessions/${sessionId}/media`,
-        transport: 'mp4', processing: 'passthrough', seekable: true, duration_seconds: durationSeconds,
+        transport: hlsClass ? 'hls' : 'mp4', processing: 'passthrough', seekable: true, duration_seconds: durationSeconds,
         time_offset_seconds: 0, expires_at: Math.floor(Date.now() / 1000) + 7200 }
     }
     if (path === '/api/online/state/progress/claim') return claimResponse(body)
@@ -63,6 +65,7 @@ async function player(t, claimResponse, { sessionProblem = null, durationSeconds
     }) },
     '../viewing.js': { registerViewingPlaybackCleanup: () => () => {}, refreshViewing: async () => {} },
     '../useFocusTrap.js': { useFocusTrap: () => ({ isTop: () => true }) },
+    ...(hlsClass ? { 'hls.js': { default: hlsClass } } : {}),
   })
   const scope = Vue.effectScope()
   let render, exposed
@@ -155,6 +158,95 @@ function controlledTimers(t) {
     },
   }
 }
+
+function fakeHlsClass() {
+  return class FakeHls {
+    static Events = { MANIFEST_PARSED: 'manifest', LEVEL_LOADED: 'level', AUDIO_TRACKS_UPDATED: 'audio',
+      SUBTITLE_TRACKS_UPDATED: 'subtitle', ERROR: 'error' }
+    static ErrorTypes = { MEDIA_ERROR: 'mediaError' }
+    static isSupported() { return true }
+    static instance = null
+    constructor(config) { this.config = config; this.handlers = new Map(); this.constructor.instance = this }
+    on(event, callback) { this.handlers.set(event, callback) }
+    emit(event, data = {}) { this.handlers.get(event)?.(event, data) }
+    loadSource() {}
+    attachMedia() {}
+    startLoad() {}
+    destroy() { this.destroyed = true }
+  }
+}
+
+test('HLS seek waits through the bounded fragment attempts and gives a clear limit error', async t => {
+  const timers = controlledTimers(t), FakeHls = fakeHlsClass()
+  const ui = await player(t, () => grant(), { hlsClass: FakeHls })
+  const hls = FakeHls.instance
+  assert.ok(hls)
+  assert.equal(hls.config.fragLoadPolicy.default.maxLoadTimeMs, 50000)
+  assert.equal(hls.config.fragLoadPolicy.default.errorRetry.maxNumRetry, 2)
+  assert.equal(timers.count(100000), 1, 'the manifest has time for its bounded attempts')
+  hls.emit(FakeHls.Events.MANIFEST_PARSED)
+  assert.equal(timers.count(100000), 0)
+  assert.equal(timers.count(165000), 1, 'the first fragment has its own retry budget')
+  hls.emit(FakeHls.Events.ERROR, { fatal: false, type: 'networkError', details: 'fragLoadError', response: { code: 503 } })
+  assert.equal(ui.snapshot().activeHls, true, 'a retryable transient response keeps the player alive')
+  ui.frame(); ui.event('playing')
+  ui.seekbar().onCommit({ target: { value: '18' } })
+  assert.equal(timers.count(10000), 0)
+  assert.equal(timers.count(165000), 1)
+  assert.equal(ui.snapshot().activeHls, true)
+  ui.event('seeked')
+  assert.equal(timers.count(165000), 0)
+  hls.emit(FakeHls.Events.ERROR, { fatal: true, type: 'networkError', details: 'fragLoadError', response: { code: 429 } })
+  assert.match(ui.text(), /在线取流已达到限制，请稍后重新加载/)
+  assert.equal(ui.snapshot().activeHls, false)
+  assert.equal(hls.destroyed, true)
+})
+
+test('native seek stays alive beyond 10 seconds but still stops after its bound', async t => {
+  const timers = controlledTimers(t)
+  const ui = await player(t, () => grant())
+  ui.frame(); ui.event('playing')
+  ui.seekbar().onCommit({ target: { value: '18' } })
+  assert.equal(timers.count(10000), 0)
+  assert.equal(timers.count(60000), 1)
+  assert.match(ui.video.src, /\/media$/)
+  timers.take(60000)()
+  assert.equal(ui.video.src, '')
+  assert.ok(ui.snapshot().errors.includes('online_seek_timeout'))
+})
+
+test('expired sessions can renew after playback progresses but rapid failures cannot loop', async t => {
+  let now = Date.now()
+  t.mock.method(Date, 'now', () => now)
+  t.mock.method(globalThis, 'fetch', async () => ({ status: 404, ok: false }))
+  const ui = await player(t, () => grant())
+  const sessions = () => ui.requests.filter(value => value.path === '/api/online/sessions').length
+  ui.frame(); ui.video.currentTime = 2; ui.timeUpdate()
+  ui.video.error = { code: 2 }; ui.event('error'); await flush()
+  assert.equal(sessions(), 2)
+  ui.video.error = null; ui.frame(); ui.event('playing'); ui.video.currentTime = 5; ui.timeUpdate()
+  now += 61000
+  ui.video.error = { code: 2 }; ui.event('error'); await flush()
+  assert.equal(sessions(), 3, 'a later session expiry must not exhaust a lifetime renewal count')
+  ui.video.error = null; ui.frame(); ui.event('playing'); ui.video.currentTime = 5.5; ui.timeUpdate()
+  now += 61000
+  ui.video.error = { code: 2 }; ui.event('error'); await flush()
+  assert.equal(sessions(), 3, 'a new session without meaningful progress must not repeatedly reload')
+  assert.match(ui.text(), /播放会话已失效/)
+})
+
+test('an idle expiry may renew without position progress after the idle interval', async t => {
+  let now = Date.now()
+  t.mock.method(Date, 'now', () => now)
+  t.mock.method(globalThis, 'fetch', async () => ({ status: 404, ok: false }))
+  const ui = await player(t, () => grant())
+  ui.frame(); ui.video.currentTime = 2; ui.timeUpdate()
+  ui.video.error = { code: 2 }; ui.event('error'); await flush()
+  ui.video.error = null; ui.frame(); ui.event('playing'); ui.video.currentTime = 2; ui.timeUpdate()
+  now += 301000
+  ui.video.error = { code: 2 }; ui.event('error'); await flush()
+  assert.equal(ui.requests.filter(value => value.path === '/api/online/sessions').length, 3)
+})
 
 test('online buffering waits for an actual post-startup stall and clears when playback can advance', async t => {
   const timers = controlledTimers(t)

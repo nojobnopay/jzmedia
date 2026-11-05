@@ -332,6 +332,29 @@ def test_master_and_iframe_playlists_never_publish_prefetch_timeline(body):
     assert published == []
 
 
+def test_master_publishes_validated_roles_only_after_all_references_are_rewritten():
+    body = (b'#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="en",URI="audio.m3u8"\n'
+            b'#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=100,URI="iframe.m3u8"\n'
+            b'#EXT-X-STREAM-INF:BANDWIDTH=200,AUDIO="a"\nvideo.m3u8\n')
+    published, registrar = [], Registrar()
+    hls.rewrite_manifest(body, BASE, registrar, on_master=published.append)
+    prefix = "/api/online/sessions/opaque-session/resources/"
+    assert published == [((prefix + "r1", "AUDIO"), (prefix + "r3", "variant"))]
+
+    published = []
+    calls = Registrar()
+
+    def late_failure(url, **kwargs):
+        result = calls(url, **kwargs)
+        if len(calls.calls) == 3:
+            raise RuntimeError("failed_target")
+        return result
+
+    with pytest.raises(RuntimeError, match="failed_target"):
+        hls.rewrite_manifest(body, BASE, late_failure, on_master=published.append)
+    assert published == []
+
+
 def test_invalid_manifest_never_registers_or_publishes_partial_timeline():
     registrar = Registrar()
     published = []

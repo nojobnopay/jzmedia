@@ -123,7 +123,7 @@ let resumeApplied = false
 let frameHandle = null, frameVideo = null, resizeObserver = null
 let hideTimer = null, hintTimer = null, seekTimer = null, startupTimer = null, surfaceTimer = null
 let bufferTimer = null, bufferTicket = 0, lastMediaTime = 0
-let overlayAtPointerDown = true, presentedFrames = 0, renewals = 0, lastRenewal = -Infinity
+let overlayAtPointerDown = true, presentedFrames = 0, lastRenewal = -Infinity, renewalPosition = 0
 let diagnosing = false
 const errors = []
 const identityKey = computed(() => { try { return onlineIdentityKey(props.onlineIdentity) } catch { return '' } })
@@ -180,9 +180,9 @@ function waitForMedia(event) {
   }, 300)
 }
 function mediaReady(event) { if (validEvent(event)) clearBuffering() }
-function armStartup(video, gen) {
+function armStartup(video, gen, timeout = engine.value === 'hls' ? 165000 : 60000) {
   clearStartup()
-  startupTimer = setTimeout(() => { if (current(gen, video) && !firstFrame.value) fail('online_startup_timeout', '视频加载超时，请检查连接后重试') }, 60000)
+  startupTimer = setTimeout(() => { if (current(gen, video) && !firstFrame.value) fail('online_startup_timeout', '视频加载超时，请检查连接后重试') }, timeout)
 }
 function detachMedia() {
   clearStartup()
@@ -244,7 +244,7 @@ function errorMessage(problem) {
     online_access_revoked: '观看权限已变化，请重新连接服务',
     session_limit: '当前设备或来源的播放会话已满，请先关闭其他播放',
     request_limit: '当前取流请求较多，请稍后重试',
-    byte_budget_exhausted: '本次播放已达到流量限额，请重新加载',
+    byte_budget_exhausted: '在线取流暂时达到流量限额，请稍后重新加载',
   }[problem?.code] || '暂时无法加载视频，请检查连接后重试')
 }
 function watchFrames(video, gen) {
@@ -288,6 +288,9 @@ async function mountSource(video, result, gen, signal) {
     return
   }
   engine.value = 'hls'
+  // Allow the manifest's three 30s attempts before switching to the fragment
+  // budget when its playlist is ready.
+  armStartup(video, gen, 100000)
   const player = hls = new Hls({ autoStartLoad: false, debug: false, startPosition: pendingStart,
     maxBufferLength: 30, maxMaxBufferLength: 60, backBufferLength: 30, maxBufferSize: 30 * 1024 ** 2,
     nudgeMaxRetry: 1, maxLiveSyncPlaybackRate: 1,
@@ -298,6 +301,7 @@ async function mountSource(video, result, gen, signal) {
   const active = () => current(gen, video) && hls === player && !signal.aborted
   player.on(Hls.Events.MANIFEST_PARSED, () => {
     if (!active()) return
+    armStartup(video, gen)
     updateTracks(); player.startLoad(pendingStart); void attemptPlay()
   })
   player.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
@@ -327,6 +331,8 @@ async function mountSource(video, result, gen, signal) {
     if ([401, 403].includes(Number(data.response?.code))) {
       void refreshViewing().catch(() => {})
       fail('online_access_revoked', '观看权限已变化，请重新连接服务')
+    } else if (Number(data.response?.code) === 429) {
+      fail('online_media_limit', '在线取流已达到限制，请稍后重新加载')
     } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
       fail(category, '此设备无法解析或解码视频，请选择其他来源或设备')
     } else {
@@ -347,7 +353,7 @@ async function load({ start = position.value, paused: keepPaused = false, recove
   firstFrame.value = false; startupGapRecoveries.value = 0; presentedFrames = 0
   audios.value = []; subtitles.value = []; audioIndex.value = 0; subtitleIndex.value = -1
   buffered.value = []; dragging.value = false; endedOnce = false; diagnosing = false; resumeApplied = false
-  if (!recovering) { renewals = 0; lastRenewal = -Infinity }
+  if (!recovering) { lastRenewal = -Infinity; renewalPosition = 0 }
   pendingStart = Math.max(0, Number.isFinite(Number(start)) ? Number(start) : 0)
   position.value = pendingStart; pauseWanted = !!keepPaused; paused.value = !!keepPaused
   lastMediaTime = pendingStart
@@ -388,9 +394,14 @@ function renew() {
   // the gateway's protocol policy. Show that startup failure explicitly; a
   // follow-up 404 must not conceal it as a successful session renewal.
   if (!firstFrame.value && Date.now() < Number(descriptor.value?.expires_at || 0) * 1000) return false
-  if (renewals >= 1 || Date.now() - lastRenewal < 30000) return false
-  renewals++; lastRenewal = Date.now()
   const snapshot = capture()
+  const now = Date.now(), elapsed = now - lastRenewal
+  // Permit later expiry recovery, but don't repeatedly recreate a session that
+  // immediately fails at the same position. A long pause can expire a session
+  // without advancing media, so allow a fresh attempt after the idle interval.
+  if (elapsed < 60000 || (Number.isFinite(lastRenewal) && elapsed < 300000
+      && (!firstFrame.value || Math.abs((snapshot?.position || 0) - renewalPosition) < 1))) return false
+  lastRenewal = now; renewalPosition = snapshot?.position || 0
   save(snapshot)
   void load({ start: snapshot?.position || 0, paused: snapshot?.paused ?? true, recovering: true })
   return true
@@ -477,7 +488,10 @@ function doSeek(value) {
     videoEl.value.currentTime = target; position.value = target; pendingStart = target; seeking.value = true
     clearTimeout(seekTimer)
     const gen = generation
-    seekTimer = setTimeout(() => { if (current(gen) && seeking.value) fail('online_seek_timeout', '跳转暂未完成，请重新加载或选择其他来源') }, 10000)
+    // Three HLS fragment attempts can each take 50s, plus retry delays.
+    // Native playback has a single 45s gateway deadline and a shorter bound.
+    const seekDeadline = engine.value === 'hls' ? 165000 : 60000
+    seekTimer = setTimeout(() => { if (current(gen) && seeking.value) fail('online_seek_timeout', '跳转暂未完成，请重新加载或选择其他来源') }, seekDeadline)
     save(undefined, 'seek')
   } catch { notify('当前设备暂时无法跳转到此位置') }
 }
