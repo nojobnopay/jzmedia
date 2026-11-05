@@ -317,4 +317,4 @@ def test_schema_37_media_cache_upgrade_preserves_rows_as_unverified(tmp_path, mo
     with sqlite3.connect(database) as connection:
         assert connection.execute('SELECT source_revision,duration FROM media_info').fetchone() == ('', 120)
         assert 'source_revision' in {row[1] for row in connection.execute('PRAGMA table_info(scan_state)')}
-        assert connection.execute('PRAGMA user_version').fetchone()[0] == 38
+        assert connection.execute('PRAGMA user_version').fetchone()[0] == _base.SCHEMA_VERSION
