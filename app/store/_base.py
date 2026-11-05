@@ -20,6 +20,7 @@ from .online_schema import ONLINE_SCHEMA_STATEMENTS
 from .network_schema import NETWORK_SCHEMA_STATEMENTS
 from .online_state_schema import ONLINE_STATE_SCHEMA_STATEMENTS
 from .online_artwork_schema import ONLINE_ARTWORK_SCHEMA_STATEMENTS
+from .online_cache_schema import ONLINE_CACHE_SCHEMA_STATEMENTS
 
 logger = get_logger("store")
 
@@ -521,7 +522,8 @@ SCHEMA = "".join([_MEDIA_LIBRARIES_DDL, _LIBRARIES_DDL, _MOVIES_DDL, _EXTRAS_DDL
                   ";\n".join(ONLINE_SCHEMA_STATEMENTS) + ";\n",
                   ";\n".join(NETWORK_SCHEMA_STATEMENTS) + ";\n",
                   ";\n".join(ONLINE_STATE_SCHEMA_STATEMENTS) + ";\n",
-                  ";\n".join(ONLINE_ARTWORK_SCHEMA_STATEMENTS) + ";\n"])
+                  ";\n".join(ONLINE_ARTWORK_SCHEMA_STATEMENTS) + ";\n",
+                  ";\n".join(ONLINE_CACHE_SCHEMA_STATEMENTS) + ";\n"])
 
 _MOVIE_INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_movies_year ON movies(year)",
@@ -577,7 +579,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "online_network_default"}
 
 
-SCHEMA_VERSION = 38
+SCHEMA_VERSION = 39
 
 
 def _columns(c, table: str) -> set:
@@ -1449,6 +1451,12 @@ def _m38(c) -> None:
     ])
 
 
+def _m39(c) -> None:
+    """Durable online downloads survive viewing sessions and source failures."""
+    for statement in ONLINE_CACHE_SCHEMA_STATEMENTS:
+        c.execute(statement)
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
@@ -1456,7 +1464,7 @@ _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (22, _m22), (23, _m23),                      (24, _m24), (25, _m25),
                     (26, _m26), (27, _m27), (28, _m28), (29, _m29), (30, _m30),
                     (31, _m31), (32, _m32), (33, _m33), (34, _m34), (35, _m35), (36, _m36),
-                    (37, _m37), (38, _m38)]
+                    (37, _m37), (38, _m38), (39, _m39)]
 
 
 def init_db() -> None:

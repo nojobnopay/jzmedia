@@ -181,7 +181,7 @@ fun TvOnlinePlayer(api: JzApi, request: OnlinePlaybackRequest, onClose: () -> Un
             it.player = controller.player; it.keepScreenOn = state.playing
         }, onRelease = { it.keepScreenOn = false; it.player = null })
         if (state.loading && state.error == null) Box(Modifier.align(Alignment.Center)
-            .background(DesignTokens.SurfaceRaised).padding(24.dp)) { Text("正在准备在线原片…") }
+            .background(DesignTokens.SurfaceRaised).padding(24.dp)) { Text(if (request.localCache) "正在准备本地缓存…" else "正在准备在线原片…") }
         if (preview != null && !controls) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
             .background(Color.Black.copy(alpha = .88f)).padding(28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("跳转至 ${playbackTime(preview!!)} / ${playbackTime(state.duration)}", style = MaterialTheme.typography.headlineSmall)
@@ -191,7 +191,7 @@ fun TvOnlinePlayer(api: JzApi, request: OnlinePlaybackRequest, onClose: () -> Un
             .fillMaxWidth().background(Color.Black.copy(alpha = .88f)).padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(request.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("在线原片 · ${state.transport.uppercase()} · 由本电视解码", color = Muted)
+            Text("${if (request.localCache) "本地缓存" else "在线原片"} · ${state.transport.uppercase()} · 由本电视解码", color = Muted)
             Box(Modifier.fillMaxWidth().height(48.dp).onFocusChanged { seekFocused = it.isFocused }
                 .onPreviewKeyEvent { event ->
                     if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
@@ -233,6 +233,9 @@ fun TvOnlinePlayer(api: JzApi, request: OnlinePlaybackRequest, onClose: () -> Un
                 item { TvAction("前进10秒", { controller.skip(10.0) }, enabled = state.seekable && state.duration > 0 && !state.ended, icon = "forward10") }
                 item { TvAction("播放设置", { menu = "settings" }, icon = "settings") }
                 if (state.nextLoading) item { TvAction("取消连续播放", controller::cancelNext) }
+                if (state.networkNext != null) item { TvAction("联网播放下一集", {
+                    controller.consumeNetworkNext()?.let { value -> controller.close(); next(value) }
+                }, icon = "forward") }
                 item { TvAction("退出播放", ::leave, icon = "close") }
             }
         }

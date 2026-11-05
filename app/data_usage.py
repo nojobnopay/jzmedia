@@ -65,6 +65,9 @@ def _scan() -> dict:
     root = Path(settings.data_dir)
     data_root = os.path.abspath(root)
     excluded_media = _media_paths(data_root)
+    # Saved online episodes are persistent media, with their own occupancy and
+    # free-space guard; they must not consume the disposable-cache budget.
+    excluded_media.add(os.path.abspath(os.environ.get("ONLINE_CACHE_DIR") or os.path.join(data_root, "online-cache")))
     parts = {"database": 0, "posters": 0, "previews": 0,
              "transcode": 0, "other": 0}
     errors = 0

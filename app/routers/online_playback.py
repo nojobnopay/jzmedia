@@ -13,7 +13,7 @@ from fastapi.routing import APIRoute
 from ..network.client import NetworkRequestError
 from ..network.guard import NetworkOperation, NetworkOperationError, operation_context
 from ..network.policy import NetworkPolicyError
-from ..online import gateway, providers, service
+from ..online import cache, gateway, providers, service
 from ..online.models import OnlinePlaybackDescriptor, OnlinePlaybackIdentity
 from ..online.sessions import SessionError
 
@@ -45,8 +45,9 @@ class _CreateAttempt:
     request can reclaim a result already published by that worker.
     """
 
-    def __init__(self, identity, access):
+    def __init__(self, identity, access, *, cache_only=False):
         self._identity, self._access = identity, access
+        self._cache_only = cache_only
         self._registry = service.registry
         self._lock = threading.Lock()
         self.cancelled = threading.Event()
@@ -71,7 +72,8 @@ class _CreateAttempt:
     def _run(self):
         if self.cancelled.is_set():
             raise service.PlaybackError("online_create_cancelled", 410)
-        session = service.create(self._identity, self._access)
+        session = (service.create(self._identity, self._access, cache_only=True) if self._cache_only
+                   else service.create(self._identity, self._access))
         with self._lock:
             cancelled = self.cancelled.is_set()
             if not cancelled:
@@ -164,6 +166,8 @@ class OnlinePlaybackRoute(APIRoute):
                 return _error("invalid_online_playback_request", 422)
             except service.PlaybackError as error:
                 return _error(error.category, error.status)
+            except cache.CacheError as error:
+                return _error(error.category, error.status)
             except providers.ProviderError as error:
                 from ..online.catalog import provider_error_status
                 return _error(error.category, provider_error_status(error))
@@ -194,7 +198,10 @@ router = APIRouter(prefix="/api/online", tags=["online-playback"], route_class=O
 @router.post("/sessions", response_model=OnlinePlaybackDescriptor, status_code=201)
 async def create_session(body: OnlinePlaybackIdentity, request: Request):
     access = await run_in_threadpool(service.capture_access, request)
-    attempt = _CreateAttempt(body, access)
+    cache_only = request.headers.get("x-online-cache-only")
+    if cache_only not in {None, "true"}:
+        raise service.PlaybackError("invalid_online_playback_request", 422)
+    attempt = _CreateAttempt(body, access, cache_only=cache_only == "true")
     request.state.online_creation = attempt
     attempt.watch(request)
     task = asyncio.create_task(run_in_threadpool(attempt.run), name="online-session-create")
@@ -228,6 +235,9 @@ async def _stream(request, session_id, resource_id=None):
     session = await run_in_threadpool(service.authorize, session_id, access)
     resource = (await run_in_threadpool(service.registry.resource, session, resource_id)
                 if resource_id is not None else session.entry)
+    if session.cache_id is not None:
+        from ..online.cache_playback import stream_response
+        return await stream_response(request, service.registry, session, resource)
     return await gateway.stream_response(request, service.registry, session, resource)
 
 

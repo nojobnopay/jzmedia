@@ -41,6 +41,20 @@ test('identity is stable, exact and detached from caller metadata', () => {
   assert.deepEqual(validateOnlineIdentity(MOVIE), { ...MOVIE, episode_id: null })
 })
 
+test('cache-only playback and renewal keep the local-only header while an explicit network play omits it', async () => {
+  const calls = []
+  const player = client({ request: async (path, options) => { calls.push({ path, options }); return descriptor() } })
+  const controller = createOnlinePlaybackController({ client: player })
+  await controller.begin(MOVIE, { cacheOnly: true })
+  await controller.begin(MOVIE, { cacheOnly: true })
+  await controller.begin(MOVIE)
+  assert.equal(calls[0].options.headers['X-Online-Cache-Only'], 'true')
+  assert.equal(calls[1].options.headers['X-Online-Cache-Only'], 'true')
+  assert.equal(calls[2].options.headers, undefined)
+  assert.deepEqual(JSON.parse(calls[0].options.body), validateOnlineIdentity(MOVIE))
+  await controller.close()
+})
+
 for (const [name, value] of Object.entries({
   null: null, array: [], localId: { ...MOVIE, item_id: 12 },
   stringObject: { ...MOVIE, source_id: Object(MOVIE.source_id) },

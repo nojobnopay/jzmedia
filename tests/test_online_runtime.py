@@ -29,6 +29,8 @@ def test_maintenance_is_singleton_fails_closed_and_has_clean_shutdown(monkeypatc
     monkeypatch.setattr(runtime.service.registry, "close_all", close_all)
     monkeypatch.setattr(runtime.gateway, "start_workers", lambda: None)
     monkeypatch.setattr(runtime.gateway, "shutdown_workers", lambda: calls.append("stop"))
+    monkeypatch.setattr(runtime.cache, "start", lambda: None)
+    monkeypatch.setattr(runtime.cache, "shutdown", lambda: None)
 
     async def scenario():
         await runtime.start()
@@ -64,6 +66,8 @@ def test_connection_maintenance_failure_discards_idle_clients_without_revoking_s
     monkeypatch.setattr(runtime.service.registry, "close_all", lambda: calls.append("revoke"))
     monkeypatch.setattr(runtime.gateway, "start_workers", lambda: None)
     monkeypatch.setattr(runtime.gateway, "shutdown_workers", lambda: None)
+    monkeypatch.setattr(runtime.cache, "start", lambda: None)
+    monkeypatch.setattr(runtime.cache, "shutdown", lambda: None)
     monkeypatch.setattr(pool, "start", lambda: calls.append("start"))
     monkeypatch.setattr(pool, "sweep", fail_sweep)
     monkeypatch.setattr(pool, "clear", clear)

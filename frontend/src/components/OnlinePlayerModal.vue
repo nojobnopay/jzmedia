@@ -97,7 +97,7 @@ import '../player.css'
 import '../onlinePlayer.css'
 
 const props = defineProps({ onlineIdentity: { type: Object, required: true }, title: { type: String, default: '' },
-  initialPosition: { type: Number, default: 0 }, prepareSession: { type: Function, default: null } })
+  initialPosition: { type: Number, default: 0 }, prepareSession: { type: Function, default: null }, cacheOnly: Boolean })
 const emit = defineEmits(['close', 'progress', 'ended', 'session'])
 const dialogEl = ref(null), stageEl = ref(null), videoEl = ref(null)
 const volumeControl = ref(null), quickControls = ref(null)
@@ -215,6 +215,8 @@ function fail(category, message) {
 }
 function errorMessage(problem) {
   return ({
+    online_cache_not_ready: '本地缓存已删除或尚未完成，请返回本地缓存核对后重试',
+    online_cache_corrupt: '本地缓存文件缺失或损坏，请删除后重新缓存',
     provider_not_ready: '视频源适配器尚未启用，请稍后重试',
     provider_resolution_failed: '视频源暂时无法提供播放地址，请稍后重试',
     invalid_provider_response: '视频源返回的资料格式不受支持，请选择其他来源',
@@ -370,7 +372,7 @@ async function load({ start = position.value, paused: keepPaused = false, recove
   try {
     await api('/api/viewing/session', { signal: control.signal, timeout: 10000 })
     if (!current(gen, video) || control.signal.aborted) return
-    const result = await controller.begin(identity, { signal: control.signal })
+    const result = await controller.begin(identity, { signal: control.signal, cacheOnly: props.cacheOnly })
     if (!current(gen, video) || control.signal.aborted) { await client.release(result.session_id); return }
     descriptor.value = result; transport.value = result.transport
     emit('session', { identity: result.identity, session_id: result.session_id })

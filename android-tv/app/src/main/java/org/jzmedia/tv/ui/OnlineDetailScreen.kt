@@ -98,6 +98,7 @@ internal fun onlineEpisodeKey(lineId: String, entry: OnlineEntry, index: Int): S
         ?: "detail:unavailable:$lineId:$index"
 
 internal fun onlineEntryUnavailableReason(entry: OnlineEntry): String = when (entry.reason) {
+    "cache_not_ready" -> "此集尚未完成本地缓存，请在网页管理缓存"
     "host_not_allowed", "target_host_not_allowed" -> "媒体主机尚未加入此来源允许列表"
     else -> "当前线路不支持直接播放，请选择其他线路"
 }
@@ -209,6 +210,9 @@ internal fun OnlineDetailScreen(
     onAutoplayChange: (Boolean) -> Unit,
     onCheckHosts: () -> Unit = {},
     hostDialogOpen: Boolean = false,
+    localCache: Boolean = false,
+    canOpenOnline: Boolean = false,
+    onOpenOnline: () -> Unit = {},
 ) {
     val list = rememberLazyListState(ui.scrollIndex, ui.scrollOffset)
     val heroActions = rememberLazyListState()
@@ -239,6 +243,7 @@ internal fun OnlineDetailScreen(
     }
     val heroFocusKeys = buildList {
         add("detail:play"); add("detail:favorite")
+        if (localCache && canOpenOnline) add("detail:online")
         if (detail.description.isNotBlank() || detail.attribution.isNotEmpty()) add("detail:description")
         if (onlineDetailNeedsHosts(detail)) add("detail:hosts")
         add("detail:more")
@@ -352,7 +357,7 @@ internal fun OnlineDetailScreen(
                         Modifier.width(posterWidth).height(posterWidth * 1.5f))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(detail.item.title, style = MaterialTheme.typography.headlineMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(listOf(if (detail.item.kind == "tv") "剧集" else "电影", detail.year, detail.source.name)
+                        Text(listOf(if (localCache) "本地缓存" else if (detail.item.kind == "tv") "剧集" else "电影", detail.year, detail.source.name)
                             .filter(String::isNotBlank).joinToString(" · "), color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         LazyRow(state = heroActions, horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(8.dp)) {
                             item {
@@ -363,6 +368,10 @@ internal fun OnlineDetailScreen(
                                 TvAction(if (item?.favorite == true) "取消收藏" else "收藏", { ui.markUserInteraction(); item?.let(onFavorite) },
                                     Modifier.detailFocus("detail:favorite"), enabled = item != null && !mutationBusy,
                                     icon = if (item?.favorite == true) "heart-filled" else "heart")
+                            }
+                            if (localCache && canOpenOnline) item {
+                                TvAction("联网查看分集", { ui.markUserInteraction(); onOpenOnline() },
+                                    Modifier.detailFocus("detail:online"), enabled = !starting, icon = "forward")
                             }
                             if (detail.description.isNotBlank() || detail.attribution.isNotEmpty()) item {
                                 TvAction("完整简介", { ui.markUserInteraction(); descriptionDialog = true }, Modifier.detailFocus("detail:description"), icon = "info")
@@ -494,6 +503,7 @@ internal fun OnlineDetailScreen(
             if (detail.item.kind == "tv") TvAction("自动播放下一集：${if (autoplay) "开启" else "关闭"}",
                 { ui.markUserInteraction(); onAutoplayChange(!autoplay) }, Modifier.focusRequester(dialogFocus), selected = autoplay)
             Text("只影响本电视当前观看模式；连播按同源同线原顺序，不跳过不支持的分集。", color = Muted)
+            if (localCache) Text("下一集未缓存时会停止，选择“联网播放下一集”后才会联网。", color = Muted)
             TvAction("关闭", { moreDialog = false; ui.focus("detail:more", focusMemory) },
                 if (detail.item.kind == "tv") Modifier else Modifier.focusRequester(dialogFocus))
         }

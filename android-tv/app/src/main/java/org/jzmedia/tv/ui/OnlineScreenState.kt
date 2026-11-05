@@ -14,6 +14,8 @@ import org.jzmedia.tv.data.OnlineSearchSession
 import org.jzmedia.tv.data.OnlineSources
 import org.jzmedia.tv.data.OnlineCategory
 import org.jzmedia.tv.data.ApiException
+import org.jzmedia.tv.data.OnlineCacheDetail
+import org.jzmedia.tv.data.OnlineCacheLibrary
 
 /** Content stays in memory for this server/viewing identity, never SavedState or preferences. */
 class OnlineScreenState {
@@ -43,6 +45,10 @@ class OnlineScreenState {
     var detailExternalId by mutableStateOf("")
     var detailLoading by mutableStateOf(false)
     var detailError by mutableStateOf("")
+    var cacheDetail by mutableStateOf<OnlineCacheDetail?>(null)
+    var cacheItemId by mutableStateOf("")
+    var detailOnlineRequested by mutableStateOf(false)
+    var cacheLibrary by mutableStateOf<OnlineCacheLibrary?>(null)
     var lineId by mutableStateOf("")
     var item by mutableStateOf<OnlineItemState?>(null)
     var library by mutableStateOf<OnlineLibrary?>(null)
@@ -62,8 +68,8 @@ class OnlineScreenState {
     private var lifetime = 0L
     private val positions = linkedMapOf<String, OnlinePagePosition>()
     internal var pendingFocus: String? = null
-    val showingDetail: Boolean get() = detailExternalId.isNotBlank()
-    val contentKey: String get() = if (showingDetail) "detail:$detailSourceId:$detailExternalId"
+    val showingDetail: Boolean get() = detailExternalId.isNotBlank() || cacheItemId.isNotBlank()
+    val contentKey: String get() = if (showingDetail) "detail:$detailSourceId:${cacheItemId.ifBlank { detailExternalId }}"
         else if (section == "search") "catalogue:$sourceId:$loadedSelection:$searchPage" else "section:$section"
 
     internal fun attach(): Long = (++lifetime).also {
@@ -109,10 +115,15 @@ class OnlineScreenState {
             results = null; searchSession = null; categories = emptyList(); categoryId = ""; categoryRoot = ""; channelSelections = emptyMap()
             year = ""; yearInput = ""; query = ""; loadedQuery = ""
             loadedSelection = null; searchPage = 1; searching = false; searchError = ""; cataloguePending = true
-            detail = null; detailSourceId = ""; detailExternalId = ""; detailError = ""; item = null
-            detailLoading = false; starting = false; pendingFocus = null
-            positions.clear()
-            detailUi.reset()
+            val preserveCache = cacheDetail != null && value.enabled && old?.scopeToken == value.scopeToken
+            if (!preserveCache) {
+                detail = null; detailSourceId = ""; detailExternalId = ""; detailError = ""; item = null
+                cacheDetail = null; cacheItemId = ""
+                detailLoading = false; starting = false; pendingFocus = null
+                positions.clear()
+                detailUi.reset()
+            }
+            if (old != null && old.scopeToken != value.scopeToken) cacheLibrary = null
             keyboard = false
         }
         return invalidated
@@ -232,6 +243,12 @@ internal fun onlineFocusItemIndex(state: OnlineScreenState, key: String): Int? {
         return null
     }
     if (state.section != "search") {
+        if (state.section == "cache") {
+            if (key == "online:refresh-cache") return body
+            if (key == "online:retry-library") return body + 1
+            return state.cacheLibrary?.items.orEmpty().indexOfFirst { "online:cache:${it.itemId}" == key }
+                .takeIf { it >= 0 }?.let { body + 1 + it }
+        }
         if (key == "online:retry-library") return body
         val rows = state.library?.items.orEmpty()
         if (key == "online:previous-library" || key == "online:next-library") return body + rows.size

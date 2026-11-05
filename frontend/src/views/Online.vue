@@ -1,15 +1,15 @@
 <template>
   <div class="browse-page online-page">
-    <header v-show="browseVisible" class="browse-heading online-heading"><h1>在线</h1><div class="online-heading-actions"><JzButton v-if="safeMode" variant="ghost" icon="history" data-online-records-open @click="showRecords()">我的记录</JzButton><router-link v-if="!isChildren" class="manage-link" to="/settings?sec=sec-online">管理视频源</router-link></div></header>
+    <header v-show="browseVisible" class="browse-heading online-heading"><h1>在线</h1><div class="online-heading-actions"><JzButton v-if="safeMode" variant="ghost" icon="download" data-online-cache-open @click="showCache()">本地缓存</JzButton><JzButton v-if="safeMode" variant="ghost" icon="history" data-online-records-open @click="showRecords()">我的记录</JzButton><router-link v-if="!isChildren" class="manage-link" to="/settings?sec=sec-online">管理视频源</router-link></div></header>
     <EmptyState v-if="isChildren" state="empty" title="儿童模式暂不支持在线内容" text="切换观看模式后再浏览。" />
     <template v-else-if="safeMode">
       <p v-if="stateNotice" class="online-state-notice" data-online-state-notice role="status">{{ stateNotice }}</p>
       <div v-if="((searching && results.length && browseVisible) || (libraryLoading && libraryRows.length && recordsVisible)) && !categoriesOpen && !hostDialog && !playing" class="online-loading-feedback" data-online-loading-feedback role="status" aria-live="polite" aria-atomic="true"><Spinner :size="20" /><span>{{ recordsVisible ? '正在更新观看记录…' : browseLoadingText }}</span></div>
       <div v-if="nextLoading" class="online-next-state" data-online-next-loading role="status"><span class="online-loading-label"><Spinner :size="20" />正在读取下一集…</span><JzButton @click="cancelNext">取消连续播放</JzButton></div>
-      <template v-if="loadingSources"><OnlineSkeleton v-if="pageView === 'browse'" label="正在加载视频源" /></template>
-      <EmptyState v-else-if="sourcesError" state="error" title="视频源加载失败" :text="sourcesError" retry @retry="loadSources" />
-      <EmptyState v-else-if="!enabled" state="empty" title="在线点播尚未启用" text="在设置中启用在线点播并添加视频源；已有记录仍会保留。"><router-link to="/settings?sec=sec-online">打开在线视频源设置</router-link></EmptyState>
-      <EmptyState v-else-if="!sources.length" state="empty" title="还没有可用的视频源" text="从来源目录选择视频源，即可浏览和搜索；也支持添加自定义接口。"><router-link to="/settings?sec=sec-online">添加视频源</router-link></EmptyState>
+      <template v-if="loadingSources && !cacheContext"><OnlineSkeleton v-if="pageView === 'browse'" label="正在加载视频源" /></template>
+      <EmptyState v-else-if="sourcesError && !cacheContext" state="error" title="视频源加载失败" :text="sourcesError" retry @retry="loadSources" />
+      <EmptyState v-else-if="!enabled && !cacheContext" state="empty" title="在线点播尚未启用" text="在设置中启用在线点播并添加视频源；已有记录仍会保留。"><router-link to="/settings?sec=sec-online">打开在线视频源设置</router-link></EmptyState>
+      <EmptyState v-else-if="!sources.length && !cacheContext" state="empty" title="还没有可用的视频源" text="从来源目录选择视频源，即可浏览和搜索；也支持添加自定义接口。"><router-link to="/settings?sec=sec-online">添加视频源</router-link></EmptyState>
       <template v-else>
         <div v-show="browseVisible" ref="browseTools" class="online-browse-tools" data-online-browse-tools>
         <form class="online-search" data-online-search aria-label="搜索在线视频" @submit.prevent="(!searching || searchProgress) && search(1)">
@@ -58,7 +58,7 @@
         <p v-if="selectedSource?.provider === 'open_catalog'" class="online-discovery-note">Blender 开放影片</p>
         </div>
         <div v-if="detailLoading"><JzButton variant="ghost" icon="arrow-left" @click="backToResults">{{ detailReturnLabel }}</JzButton><OnlineSkeleton variant="detail" label="正在加载详情" /></div>
-        <EmptyState v-else-if="detailError" state="error" title="详情加载失败" :text="detailError" retry @retry="openDetail(lastDetailId)"><JzButton @click="backToResults">{{ detailReturnLabel }}</JzButton></EmptyState>
+        <EmptyState v-else-if="detailError" state="error" title="详情加载失败" :text="detailError" retry @retry="retryDetail"><JzButton @click="backToResults">{{ detailReturnLabel }}</JzButton></EmptyState>
         <section v-else-if="detail" ref="detailRoot" class="online-detail" data-online-detail>
           <JzButton variant="ghost" icon="arrow-left" @click="backToResults">{{ detailReturnLabel }}</JzButton>
           <header class="online-detail-heading" data-online-detail-heading>
@@ -71,10 +71,13 @@
               <ul v-if="detailGenres.length" class="online-genre-tags" aria-label="题材"><li v-for="genre in detailGenres" :key="genre">{{ genre }}</li></ul>
             </div>
           <div class="online-detail-actions">
-            <JzButton variant="primary" icon="play" data-online-primary-play :data-online-detail-resume="primaryIsResume ? '' : undefined" :disabled="!primaryEntry || itemStateLoading || starting || nextLoading" :loading="itemStateLoading || starting" @click="play(primaryEntry)">{{ primaryPlayLabel }}</JzButton>
+            <JzButton variant="primary" icon="play" data-online-primary-play :data-online-detail-resume="primaryIsResume ? '' : undefined" :disabled="!primaryEntry || itemStateLoading || starting || nextLoading || cacheContext && !enabled" :loading="itemStateLoading || starting" @click="play(primaryEntry)">{{ primaryPlayLabel }}</JzButton>
             <JzButton :data-online-favorite="detail.item.id" :icon="itemState?.favorite ? 'heart-filled' : 'heart'" :disabled="!itemState || mutationBusy.has(detail.item.id)" @click="favoriteDetail">{{ itemState?.favorite ? '取消收藏' : '收藏' }}</JzButton>
+            <JzButton v-if="detail.item.kind === 'tv' && selectedLine" icon="download" :disabled="starting || nextLoading || !enabled" data-online-cache-create @click="openCacheDialog">缓存剧集</JzButton>
           </div>
           </header>
+          <p v-if="detailCached" class="online-scope" data-online-cache-detail-note>本地缓存 · 资料与集序来自保存时的快照；未缓存的集数会在联网播放前请你确认。<JzButton variant="ghost" icon="refresh" @click="refreshDetailCache">刷新缓存状态</JzButton></p>
+          <p v-if="cacheContext && !enabled" class="online-scope" role="status">在线点播已关闭，可删除缓存；重新启用后观看。</p>
           <p v-if="lastEntry" class="online-last-watched" data-online-last-watched>
             <span>{{ itemState.last_progress.completed ? '上次已看完' : '上次观看' }}：{{ lastLine?.label }}<span v-if="detail.item.kind === 'tv'"> · {{ lastEntry.label }}</span><span v-if="!itemState.last_progress.completed"> · {{ fmt(itemState.last_progress.position) }}</span></span>
             <JzButton v-if="lastEntry.identity.line_id !== lineId" variant="ghost" data-online-detail-locate-last :disabled="starting || itemStateLoading || nextLoading" @click="locateLastEntry">定位上次观看</JzButton>
@@ -89,7 +92,7 @@
             <h3>播放线路</h3>
             <div class="online-lines" role="group" aria-label="播放线路"><JzButton v-for="line in detail.lines" :key="line.id" :data-online-line="line.id" :aria-pressed="line.id === lineId" @click="selectLine(line.id)">{{ line.label }}</JzButton></div>
             <p class="online-scope">{{ selectedLine?.label || '暂无线路' }}<span v-if="selectedLine"> · {{ selectedLine.entries.length }} {{ detail.item.kind === 'tv' ? '集' : '个播放版本' }}</span></p>
-            <OnlineEpisodes v-if="selectedLine" ref="episodePicker" :item-key="detail.item.id" :line-id="lineId" :kind="detail.item.kind" :entries="selectedLine.entries" :busy="starting || itemStateLoading || nextLoading" :current-identity="playing?.identity || null" :last-identity="lastEntry?.identity || null" :reason-label="unsupportedReason" @play="play($event)" />
+            <OnlineEpisodes v-if="selectedLine" ref="episodePicker" :item-key="detail.item.id" :line-id="lineId" :kind="detail.item.kind" :entries="selectedLine.entries" :cache-entries="detailCacheEntries" :playback-disabled="cacheContext && !enabled" :busy="starting || itemStateLoading || nextLoading" :current-identity="playing?.identity || null" :last-identity="lastEntry?.identity || null" :reason-label="unsupportedReason" @play="play($event)" />
             <EmptyState v-else state="empty" title="此来源暂无可播放线路" text="选择其他来源或稍后重新查询。" />
             <label v-if="detail.item.kind === 'tv'" class="online-autoplay"><input v-model="autoplay" type="checkbox" data-online-autoplay @change="autoplayChanged" />自动播放下一集（当前浏览器）</label>
             <p v-if="detail.item.kind === 'tv'" class="online-scope online-autoplay-note">只按当前来源和线路的原始顺序连续播放，不跳过片尾，不跨季。</p>
@@ -123,9 +126,12 @@
       <div v-show="recordsVisible" ref="libraryRoot">
         <OnlineRecordsView :rows="libraryRows" :section="librarySection" :offset="libraryOffset" :total="libraryTotal" :loading="libraryLoading" :error="libraryError" :mode-text="modeText" :disabled="loadingSources || !!sourcesError" :starting="starting" :mutation-busy="mutationBusy" :reason-label="availabilityReason" @section="selectLibrary" @page="loadLibrary" @refresh="loadLibrary()" @back="showBrowse" @detail="openSaved($event, false)" @resume="openSaved($event, true)" @favorite="favoriteRow" @clear="clearHistory" />
       </div>
+        <OnlineCacheView v-if="pageView === 'cache'" v-show="cacheVisible" ref="cacheView" :active="cacheVisible && safeMode" @back="showBrowse" @detail="openCacheItem" @changed="refreshDetailCache" @status="cacheStatus" />
     </template>
     <OnlineHostDialog v-if="hostDialog && safeMode && !playing" :key="hostDialog.key" :source-id="hostDialog.source" :external-id="hostDialog.externalId" :title="hostDialog.title" :source-name="hostDialog.sourceName" :current="hostDialogCurrent" :refresh="refreshHostDetail" @close="closeHostDialog" />
-    <OnlinePlayerModal v-if="playing" :key="playing.key" :online-identity="playing.identity" :title="playing.title" :initial-position="playing.position" :prepare-session="playing.prepareSession" @close="playing.close" @progress="playing.progress" @ended="playing.ended" />
+    <OnlinePlayerModal v-if="playing" :key="playing.key" :online-identity="playing.identity" :title="playing.title" :initial-position="playing.position" :cache-only="playing.local" :prepare-session="playing.prepareSession" @close="playing.close" @progress="playing.progress" @ended="playing.ended" />
+    <OnlineCacheDialog v-if="cacheDialog && detail && selectedLine && safeMode" :key="detail.item.id + lineId" :detail="detail" :line="selectedLine" :entries="detailCacheEntries" @close="cacheDialog = false" @created="cacheCreated" />
+    <JzDialog v-if="networkPrompt && safeMode" title="此集尚未缓存" :busy="starting" @close="networkPrompt = null"><p>“{{ networkPrompt.label }}”没有完整的本地缓存。是否连接视频源在线播放？</p><p v-if="networkError" class="online-cache-error" role="alert">{{ networkError }}</p><template #footer><JzButton :disabled="starting" @click="networkPrompt = null">暂不播放</JzButton><JzButton variant="primary" :loading="starting" :disabled="starting" data-online-cache-network-confirm @click="playFromNetwork">联网播放</JzButton></template></JzDialog>
   </div>
 </template>
 
@@ -157,10 +163,14 @@ import OnlineEpisodes from '../components/OnlineEpisodes.vue'
 import MediaOverview from '../components/MediaOverview.vue'
 import OnlineHostDialog from '../components/OnlineHostDialog.vue'
 import { createOnlineHostReminders } from '../onlineHosts.js'
+import { createOnlineCacheClient, onlineCachedEntry, onlineCacheError } from '../onlineCache.js'
+import OnlineCacheView from '../components/OnlineCacheView.vue'
+import OnlineCacheDialog from '../components/OnlineCacheDialog.vue'
 import '../styles/online.css'
 
 const client = createOnlineCatalogClient(), nextClient = createOnlineCatalogClient(), stateClient = createOnlineStateClient()
 const continueClient = createOnlineStateClient()
+const cacheDetailClient = createOnlineCacheClient(), cacheNextClient = createOnlineCacheClient()
 const searchProgressClient = createOnlineCatalogClient()
 const refreshClient = createOnlineRefreshClient(), refreshSourcesClient = createOnlineCatalogClient()
 const route = useRoute(), router = useRouter()
@@ -187,7 +197,8 @@ const hostDialog = ref(null), hostReminders = createOnlineHostReminders()
 const playing = ref(null), starting = ref(false), nextLoading = ref(false), stateNotice = ref('')
 const itemStateLoading = ref(false), detailRoot = ref(null), detailTitle = ref(null), episodePicker = ref(null)
 const browseTools = ref(null), libraryRoot = ref(null)
-const pageView = ref(route.query.view === 'records' ? 'records' : 'browse')
+const pageView = ref(pageViewFor(route.query.view)), cacheView = ref(null)
+const detailCached = ref(false), detailCacheEntries = ref([]), cacheItemId = ref(''), cacheDialog = ref(false), networkPrompt = ref(null), networkError = ref('')
 const continueRows = ref([]), continueLoading = ref(true), continueError = ref('')
 const librarySection = ref(recordTab(route.query.tab)), libraryRows = ref([]), libraryOffset = ref(0), libraryTotal = ref(0), libraryScope = ref('')
 const libraryLoading = ref(true), libraryError = ref(''), mutationBusy = ref(new Set())
@@ -209,14 +220,19 @@ const selectedCategoryName = computed(() => categorySelectionLabel(categoryId.va
 const loadedCategoryName = computed(() => categorySelectionLabel(loadedCategoryId.value, loadedCategoryScope.value) || (loadedCategoryId.value ? '所选分类' : ''))
 const canBrowse = computed(() => selectedSource.value?.capabilities?.browse || selectedSource.value?.provider === 'open_catalog')
 const canSearch = computed(() => !!sourceId.value && (query.value.trim().length > 0 || canBrowse.value))
-const selectedLine = computed(() => detail.value?.lines.find(line => line.id === lineId.value))
-const needsHostUpdate = computed(() => detail.value?.lines.some(line => line.entries.some(entry => ['host_not_allowed', 'target_host_not_allowed'].includes(entry.reason))))
+const selectedLine = computed(() => {
+  const line = detail.value?.lines.find(line => line.id === lineId.value)
+  return line && detailCached.value ? { ...line, entries: line.entries.map(entry => onlineCachedEntry(detailCacheEntries.value, entry.identity)?.state === 'ready' ? { ...entry, supported: true, reason: '' } : entry) } : line
+})
+const needsHostUpdate = computed(() => !detailCached.value && detail.value?.lines.some(line => line.entries.some(entry => ['host_not_allowed', 'target_host_not_allowed'].includes(entry.reason))))
 const lastQuery = ref({ page: 1, query: '' })
 const browseLoadingText = computed(() => lastQuery.value.query.trim() ? '正在搜索…' : `正在加载第 ${lastQuery.value.page} 页…`)
 const surfaceVisible = computed(() => !detail.value && !detailLoading.value && !detailError.value)
 const browseVisible = computed(() => pageView.value === 'browse' && surfaceVisible.value)
 const recordsVisible = computed(() => pageView.value === 'records' && surfaceVisible.value)
-const detailReturnLabel = computed(() => pageView.value === 'records' ? '返回我的记录' : '返回搜索结果')
+const cacheVisible = computed(() => pageView.value === 'cache' && surfaceVisible.value)
+const cacheContext = computed(() => pageView.value === 'cache' || detailCached.value)
+const detailReturnLabel = computed(() => pageView.value === 'cache' ? '返回本地缓存' : pageView.value === 'records' ? '返回我的记录' : '返回搜索结果')
 const lastEntry = computed(() => findEntry(detail.value, itemState.value?.last_progress?.identity) || null)
 const lastLine = computed(() => detail.value?.lines.find(line => line.id === lastEntry.value?.identity.line_id))
 const resumeEntry = computed(() => !itemState.value?.last_progress?.completed ? lastEntry.value : null)
@@ -260,8 +276,9 @@ function categorySelectionLabel(id, scope) {
 }
 function current(turn) { return !disposed && turn === generation && safeMode.value }
 function navigationCurrent(ticket) { return !disposed && safeMode.value && ticket === navigationGeneration }
+function pageViewFor(value) { return ['records', 'cache'].includes(value) ? value : 'browse' }
 function recordTab(value) { return ['continue', 'favorites', 'history'].includes(value) ? value : 'continue' }
-function routeKey(value) { return JSON.stringify([value.view || '', value.tab || '', value.source || '', value.item || '']) }
+function routeKey(value) { return JSON.stringify([value.view || '', value.tab || '', value.source || '', value.item || '', value.cache_item || '']) }
 function writeRoute(value, replace = false) {
   handledRoute = routeKey(value)
   const navigate = replace ? router.replace : router.push
@@ -269,7 +286,7 @@ function writeRoute(value, replace = false) {
 }
 function surfaceQuery(view = pageView.value) {
   return { ...(sourceId.value ? { source: sourceId.value } : {}),
-    ...(view === 'records' ? { view: 'records', tab: librarySection.value } : {}) }
+    ...(view === 'records' ? { view: 'records', tab: librarySection.value } : view === 'cache' ? { view: 'cache' } : {}) }
 }
 function captureSurface() {
   if (browseVisible.value) rememberBrowse()
@@ -317,7 +334,8 @@ async function restoreSurface(origin, ticket) {
       if (changedSource) { healthGeneration++; healthClient.cancel(); health.value = null; void loadHealth() }
     } else resetBrowse()
   }
-  if (pageView.value === 'records') await loadLibrary()
+  if (pageView.value === 'cache') { await nextTick(); await cacheView.value?.refresh?.() }
+  else if (pageView.value === 'records') await loadLibrary()
   else if (staleBrowse) await search(staleBrowse.page, staleBrowse.query, { force: true, position: staleBrowse.position, navigationTicket: ticket })
   else if (!searched.value && canBrowse.value) await search(1, '', { navigationTicket: ticket })
   await nextTick()
@@ -330,6 +348,7 @@ async function restoreSurface(origin, ticket) {
       element = libraryRoot.value?.querySelector?.('[' + origin.recordFocus.attribute + '="' + origin.recordFocus.key + '"]')
     }
     if (element?.isConnected && !element.disabled) element.focus?.({ preventScroll: true })
+    else if (cacheVisible.value) cacheView.value?.focus?.()
     else if (recordsVisible.value) libraryRoot.value?.querySelector?.('h1')?.focus?.({ preventScroll: true })
   } else if (position === positionIntent && browseVisible.value) await restoreBrowse()
   scheduleAutomaticRefresh()
@@ -364,13 +383,93 @@ async function showBrowse(navigate = true, navigationTicket = null) {
   if (!navigationCurrent(ticket)) return
   rememberRecordsSurface()
   pageView.value = 'browse'
+  if (!sources.value.length && !loadingSources.value) { homeReturn = null; if (navigate) void writeRoute(surfaceQuery('browse')); await loadSources(); return }
   await restoreSurface(homeReturn, ticket)
   if (navigate && navigationCurrent(ticket)) void writeRoute(surfaceQuery('browse'))
+}
+async function showCache(navigate = true, navigationTicket = null) {
+  const ticket = navigationTicket ?? ++navigationGeneration
+  if (!navigationCurrent(ticket)) return
+  if (browseVisible.value) homeReturn = captureSurface()
+  rememberRecordsSurface()
+  cancelAutomaticRefresh(); cancelRelated(true); categoriesOpen.value = false
+  if (searching.value) { generation++; cancelCatalogue(); searching.value = false }
+  pageView.value = 'cache'
+  if (navigate) void writeRoute(surfaceQuery('cache'))
+  await nextTick()
+  if (navigationCurrent(ticket) && cacheVisible.value) { globalThis.window?.scrollTo?.({ top: 0, behavior: 'instant' }); cacheView.value?.focus?.() }
+}
+function applyCacheSnapshot(value) {
+  cacheStatus(value.enabled !== false)
+  detailCacheEntries.value = value.entries
+  detail.value = { ...value.detail, lines: value.detail.lines.map(line => ({ ...line,
+    entries: line.entries.map(entry => onlineCachedEntry(value.entries, entry.identity)?.state === 'ready' ? { ...entry, supported: true, reason: '' } : entry) })) }
+  detailCached.value = true; cacheItemId.value = value.detail.item.id
+  lastDetailId.value = value.external_id || detail.value.item.external_id || lastDetailId.value
+}
+async function openCacheItem(item, selectedEntry = null, options = {}) {
+  const navigation = options.navigationTicket ?? ++navigationGeneration
+  if (!navigationCurrent(navigation)) return
+  rememberDetailOrigin(); cancelAutomaticRefresh(); cancelRelated(true); cancelCatalogue(); closeHostDialog(false)
+  const turn = ++generation
+  loadingSources.value = false
+  positionIntent++; itemStateGeneration++; cacheDialog.value = false; networkPrompt.value = null
+  pageView.value = 'cache'; cacheItemId.value = item.item_id; detailCached.value = true
+  void closePlayer(); detail.value = null; itemState.value = null; detailLoading.value = true; detailError.value = ''
+  if (!options.routeSync) void writeRoute({ ...surfaceQuery('cache'), cache_item: item.item_id })
+  try {
+    const value = await cacheDetailClient.detail(item.item_id)
+    if (!current(turn) || !navigationCurrent(navigation) || !value) return
+    applyCacheSnapshot(value); sourceId.value = value.detail.source.id
+    const wanted = selectedEntry && findEntry(detail.value, selectedEntry.identity)
+    lineId.value = wanted?.identity.line_id || detail.value.lines.find(line => line.entries.some(entry => onlineCachedEntry(value.entries, entry.identity)?.state === 'ready'))?.id || detail.value.lines[0]?.id || ''
+    detailLoading.value = false; void showDetailTop(turn)
+    await readItemState(detail.value, turn)
+    if (!current(turn) || !navigationCurrent(navigation)) return
+    if (!wanted && resumeEntry.value && onlineCachedEntry(value.entries, resumeEntry.value.identity)?.state === 'ready') lineId.value = resumeEntry.value.identity.line_id
+    if (wanted) await play(wanted)
+  } catch (problem) { if (current(turn) && navigationCurrent(navigation)) detailError.value = onlineCacheError(problem) }
+  finally { if (current(turn) && navigationCurrent(navigation)) detailLoading.value = false }
+}
+function retryDetail() { if (pageView.value === 'cache' && cacheItemId.value) void openCacheItem({ item_id: cacheItemId.value }); else void openDetail(lastDetailId.value) }
+async function refreshDetailCache() {
+  const id = detail.value?.item.id, turn = generation
+  if (!id) return
+  try { const value = await cacheDetailClient.detail(id); if (current(turn) && detail.value?.item.id === id) { detailCacheEntries.value = value?.entries || []; if (value) cacheStatus(value.enabled !== false) } }
+  catch { if (current(turn) && detail.value?.item.id === id) detailCacheEntries.value = [] }
+}
+async function openCacheDialog() { const turn = generation, line = lineId.value; await refreshDetailCache(); if (current(turn) && enabled.value && line === lineId.value && detail.value && selectedLine.value) cacheDialog.value = true }
+function cacheStatus(value) { enabled.value = value; if (!value) { cacheDialog.value = false; networkPrompt.value = null } }
+function cacheCreated() { cacheDialog.value = false; stateNotice.value = '已加入后台缓存队列，关闭网页后会继续。可在“本地缓存”查看进度。'; void refreshDetailCache() }
+async function playFromNetwork() {
+  const wanted = networkPrompt.value, turn = generation
+  if (!wanted || starting.value || !detail.value || !enabled.value) return
+  starting.value = true; networkError.value = ''
+  try {
+    const value = await client.detail(wanted.identity.source_id, lastDetailId.value)
+    if (!current(turn) || networkPrompt.value !== wanted || !value) return
+    const entry = findEntry(value, wanted.identity)
+    if (!entry) { networkError.value = '当前来源已无法播放此集，请选择其他线路。'; return }
+    detail.value = value; detailCached.value = false; networkPrompt.value = null
+    lineId.value = wanted.identity.line_id; starting.value = false
+    await play(entry)
+  } catch (problem) { if (current(turn)) networkError.value = onlineCatalogError(problem) }
+  finally { if (current(turn)) starting.value = false }
 }
 async function syncRoute() {
   const query = { ...route.query }, key = routeKey(query)
   if (handledRoute === key || !safeMode.value) return
   const ticket = ++navigationGeneration
+  if (query.view === 'cache') {
+    handledRoute = key
+    if (typeof query.cache_item === 'string' && /^itm_[0-9a-f]{32}$/.test(query.cache_item)) {
+      if (detail.value?.item.id !== query.cache_item) await openCacheItem({ item_id: query.cache_item }, null, { routeSync: true, navigationTicket: ticket })
+    } else {
+      if (!surfaceVisible.value) await backToResults(false, ticket)
+      if (navigationCurrent(ticket)) await showCache(false, ticket)
+    }
+    return
+  }
   const records = query.view === 'records', target = onlineRouteTarget(query)
   if (loadingSources.value) return // The pending source read consumes the latest route, not its initial target.
   handledRoute = key
@@ -537,7 +636,7 @@ function cancelRelated(clear = false, defer = false) {
   else if (defer && interrupted && !related.value) { relatedError.value = null; relatedDeferred.value = true }
 }
 async function loadRelated(immediate = false) {
-  if (!safeMode.value || !detail.value || detailLoading.value || hostDialog.value || playing.value || starting.value || nextLoading.value || selectedSource.value?.capabilities?.related !== true) return
+  if (!safeMode.value || !detail.value || detailCached.value || detailLoading.value || hostDialog.value || playing.value || starting.value || nextLoading.value || selectedSource.value?.capabilities?.related !== true) return
   const turn = ++relatedGeneration, view = generation, source = sourceId.value, externalId = lastDetailId.value
   relatedLoading.value = true; relatedError.value = null; relatedDeferred.value = false
   try {
@@ -622,7 +721,7 @@ async function refreshHostDetail() {
 }
 function sameIdentity(a, b) { try { return onlineIdentityKey(a) === onlineIdentityKey(b) } catch { return false } }
 function findEntry(data, identity) { return data?.lines?.flatMap(line => line.entries).find(entry => entry.supported && entry.identity && sameIdentity(entry.identity, identity)) || null }
-function cancelNext() { nextIntent++; nextLoading.value = false; nextClient.cancel() }
+function cancelNext() { nextIntent++; nextLoading.value = false; nextClient.cancel(); cacheNextClient.cancel() }
 function autoplayChanged() { saveOnlineAutoplay(autoplay.value, mode); if (!autoplay.value) cancelNext() }
 function availabilityReason(reason) { return reason === 'online_source_disabled' || reason === 'online_disabled' ? '来源或在线功能已停用，记录仍会保留' : '当前内容暂不可播放，记录仍会保留' }
 function textValues(values) { return Array.isArray(values) ? [...new Set(values.filter(value => typeof value === 'string' && value))].slice(0, 32) : [] }
@@ -712,7 +811,7 @@ async function loadSources(preferredSourceId = '') {
     const usePreferred = preferred && initialNavigation === navigationGeneration
     target = usePreferred ? null : onlineRouteTarget(route.query)
     if (!usePreferred) {
-      pageView.value = route.query.view === 'records' ? 'records' : 'browse'
+      pageView.value = pageViewFor(route.query.view)
       librarySection.value = recordTab(route.query.tab)
       handledRoute = routeKey(route.query)
     }
@@ -734,7 +833,8 @@ async function loadSources(preferredSourceId = '') {
     if (current(turn)) {
       loadingSources.value = false
       if (!sourcesError.value && enabled.value) {
-        if (target?.externalId && sourceId.value === target.sourceId) void openDetail(target.externalId, { routeSync: true, navigationTicket: navigationGeneration })
+        if (pageView.value === 'cache') { if (route.query.cache_item) void openCacheItem({ item_id: route.query.cache_item }, null, { routeSync: true }) }
+        else if (target?.externalId && sourceId.value === target.sourceId) void openDetail(target.externalId, { routeSync: true, navigationTicket: navigationGeneration })
         else if (target?.externalId) stateNotice.value = '该来源已停用或不存在，请选择其他来源。'
         else if (pageView.value === 'records') void loadLibrary()
         else if (restored?.response) void restoreBrowse()
@@ -1065,11 +1165,16 @@ async function openDetail(externalId, options = {}) {
   const turn = ++generation, source = sourceId.value
   searching.value = false
   lineSelectionIntent = 0; itemStateGeneration++; itemStateLoading.value = false; categoriesOpen.value = false
+  cacheDialog.value = false; networkPrompt.value = null; detailCached.value = false; detailCacheEntries.value = []; cacheItemId.value = ''
   void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = true; lastDetailId.value = externalId
   try {
-    const response = await client.detail(source, externalId)
+    const cached = await cacheDetailClient.lookup(source, externalId)
+    if (!current(turn) || !navigationCurrent(navigation)) return
+    const response = cached?.detail || await client.detail(source, externalId)
     if (!current(turn) || !navigationCurrent(navigation) || !response) return
-    detail.value = response; lineId.value = response.lines?.find(line => line.entries.some(entry => entry.supported && entry.identity))?.id || response.lines?.[0]?.id || ''
+    if (cached) applyCacheSnapshot(cached)
+    else detail.value = response
+    lineId.value = detail.value.lines?.find(line => line.entries.some(entry => entry.supported && entry.identity))?.id || detail.value.lines?.[0]?.id || ''
     detailLoading.value = false
     void showDetailTop(turn)
     await readItemState(response, turn)
@@ -1082,7 +1187,7 @@ async function openDetail(externalId, options = {}) {
     lineId.value = entry.identity.line_id
     await play(entry)
   } catch (error) { if (current(turn) && navigationCurrent(navigation)) detailError.value = onlineCatalogError(error) }
-  finally { if (current(turn) && navigationCurrent(navigation)) { detailLoading.value = false; void loadHealth(); if (detail.value && !detailError.value) { openHostDialog(true); void loadRelated() } } }
+  finally { if (current(turn) && navigationCurrent(navigation)) { detailLoading.value = false; if (!detailCached.value) { void loadHealth(); if (detail.value && !detailError.value) { openHostDialog(true); void loadRelated() } } } }
 }
 async function openSaved(row, resume) {
   if (!row.available || !safeMode.value || loadingSources.value || sourcesError.value) return
@@ -1102,6 +1207,7 @@ async function backToResults(navigate = true, navigationTicket = null) {
   const origin = detailOrigin
   detailOrigin = null
   cancelRelated(true)
+  cacheDialog.value = false; networkPrompt.value = null; cacheDetailClient.cancel(); detailCached.value = false; detailCacheEntries.value = []
   itemStateGeneration++; itemStateLoading.value = false
   generation++; cancelCatalogue(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false; searching.value = false
   if (origin) {
@@ -1112,7 +1218,7 @@ async function backToResults(navigate = true, navigationTicket = null) {
     if (detailReturnFocus === target) clearDetailReturnFocus()
     return
   }
-  if (navigate && route.query.item) void writeRoute(surfaceQuery(), true)
+  if (navigate && (route.query.item || route.query.cache_item)) void writeRoute(surfaceQuery(), true)
   if (pageView.value === 'records') { await loadLibrary(); return }
   let restoring
   if (!searched.value && canBrowse.value) restoring = search(1, '', { navigationTicket: ticket })
@@ -1158,10 +1264,14 @@ async function closePlayer() {
   playIntent++; cancelNext(); starting.value = false
   const run = activeRun
   await stopRun(run)
-  if (run && !disposed && safeMode.value) { refreshRecords(); void loadHealth() }
+  if (run && !disposed && safeMode.value) { refreshRecords(); if (!run.local) void loadHealth() }
 }
 async function play(entry, { automatic = false } = {}) {
   if (!entry?.supported || !entry.identity || !safeMode.value || !detail.value) return
+  if (cacheContext.value && !enabled.value) return
+  if (detailCached.value && onlineCachedEntry(detailCacheEntries.value, entry.identity)?.state !== 'ready') {
+    networkError.value = ''; networkPrompt.value = entry; return
+  }
   cancelAutomaticRefresh()
   closeHostDialog(false)
   cancelRelated(false, true)
@@ -1179,7 +1289,7 @@ async function play(entry, { automatic = false } = {}) {
   const remembered = progress.get(identity)
   const position = state ? saved?.updated_at > 0 ? saved.completed ? 0 : saved.position : 0 : remembered?.position || 0
   const run = { key: ++runId, intent, identity, source: identity.source_id, externalId: lastDetailId.value,
-    itemId: data.item.id, endedHandled: false, stopping: null, writer: null }
+    itemId: data.item.id, local: detailCached.value, endedHandled: false, stopping: null, writer: null }
   run.writer = createOnlineProgressWriter({ identity, scopeToken: state?.scope_token,
     revision: saved?.writer_revision || 0,
     onNotice: (message, code) => {
@@ -1189,7 +1299,7 @@ async function play(entry, { automatic = false } = {}) {
     onSaved: value => { if (!disposed && activeRun === run && safeMode.value && itemState.value?.item_id === identity.item_id) itemState.value = { ...itemState.value, last_progress: value, selected_progress: value } },
   })
   activeRun = run
-  playing.value = { key: run.key, identity, title: data.item.title + (data.item.kind === 'tv' ? ' · ' + entry.label : ''), position,
+  playing.value = { key: run.key, identity, local: run.local, title: data.item.title + (data.item.kind === 'tv' ? ' · ' + entry.label : ''), position,
     prepareSession: value => activeRun === run && !run.stopping ? run.writer.session(value) : false,
     progress: value => {
       if (activeRun !== run || !sameIdentity(value.identity, identity) || value.first_frame !== true) return
@@ -1209,9 +1319,20 @@ async function onEnded(run, identity) {
   const ticket = ++nextIntent, view = generation
   nextLoading.value = shouldContinue
   await stopRun(run)
-  if (!disposed && safeMode.value) { refreshRecords(); void loadHealth() }
+  if (!disposed && safeMode.value) { refreshRecords(); if (!run.local) void loadHealth() }
   if (!shouldContinue || disposed || ticket !== nextIntent || view !== generation || !safeMode.value || !autoplay.value) return
   try {
+    if (run.local) {
+      const snapshot = await cacheNextClient.detail(run.itemId)
+      if (disposed || ticket !== nextIntent || view !== generation || !safeMode.value || !autoplay.value || !snapshot) return
+      applyCacheSnapshot(snapshot)
+      const entries = detail.value.lines.find(line => line.id === identity.line_id)?.entries || []
+      const index = entries.findIndex(entry => sameIdentity(entry.identity, identity)), entry = index >= 0 ? entries[index + 1] : null
+      if (!entry) { stateNotice.value = index < 0 ? '当前缓存的线路或分集已变化，请手动选集。' : '当前线路已播放完毕。'; return }
+      lineId.value = identity.line_id; nextLoading.value = false
+      if (onlineCachedEntry(snapshot.entries, entry.identity)?.state !== 'ready') { networkError.value = ''; networkPrompt.value = entry; return }
+      await play(entry, { automatic: true }); return
+    }
     const fresh = await nextClient.detail(run.source, run.externalId)
     if (disposed || ticket !== nextIntent || view !== generation || !safeMode.value || !autoplay.value || !fresh) return
     const entry = nextOnlineEpisode(fresh, identity)
@@ -1269,6 +1390,7 @@ const stopCleanup = registerViewingPlaybackCleanup(async () => {
   clearDetailReturnFocus()
   recordSurfaces.clear()
   cancelRelated(true)
+  clearCacheWork()
   clearOnlineBrowse(); cacheScope = ''; positionIntent++; homeReturn = detailOrigin = null; continueRows.value = []; continueError.value = ''; suspendedWork = null
   generation++; libraryGeneration++; continueGeneration++; playIntent++; cancelNext(); cancelCatalogue(); stateClient.cancel(); continueClient.cancel()
   healthGeneration++; healthClient.cancel(); health.value = null; healthError.value = ''; healthLoading.value = false
@@ -1284,6 +1406,7 @@ watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locally
   clearDetailReturnFocus()
   recordSurfaces.clear()
   cancelRelated(true)
+  clearCacheWork()
   clearOnlineBrowse(); cacheScope = ''; positionIntent++
   homeReturn = detailOrigin = null; continueRows.value = []; continueError.value = ''; continueLoading.value = false
   generation++; libraryGeneration++; continueGeneration++; cancelCatalogue(); stateClient.cancel(); continueClient.cancel(); cancelNext()
@@ -1294,7 +1417,7 @@ watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locally
   void closePlayer()
   suspendedWork = { type: 'sources' }
   const turn = generation
-  if (safeMode.value) void nextTick(() => { if (current(turn)) { suspendedWork = null; void loadSources(); refreshRecords() } })
+  if (safeMode.value) void nextTick(() => { if (current(turn)) { suspendedWork = null; loadPage() } })
 }, { flush: 'sync' })
 watch(() => viewing.suspended, suspended => {
   positionIntent++
@@ -1303,12 +1426,14 @@ watch(() => viewing.suspended, suspended => {
     cancelAutomaticRefresh()
     closeHostDialog(false)
     cancelRelated(true)
+    cacheDetailClient.cancel(); cacheNextClient.cancel(); cacheDialog.value = false; networkPrompt.value = null
     categoriesOpen.value = false; categoryQuery.value = ''
     // Verification temporarily hides content. It does not revoke an otherwise
     // unchanged session or discard the selected detail and active player.
     if (!detail.value && !detailLoading.value && !detailError.value) browsePosition = captureOnlinePosition(browseRoot.value) || browsePosition
     if (loadingSources.value) suspendedWork = { type: 'sources' }
-    else if (detailLoading.value && !detail.value) suspendedWork = { type: 'detail', id: lastDetailId.value }
+    else if (detailLoading.value && !detail.value) suspendedWork = detailCached.value && cacheItemId.value
+      ? { type: 'cache-detail', itemId: cacheItemId.value } : { type: 'detail', id: lastDetailId.value }
     else if (searching.value) suspendedWork = { type: 'search', page: lastQuery.value.page, query: lastQuery.value.query,
       category: lastQuery.value.categoryId, categoryScope: lastQuery.value.categoryScope, year: lastQuery.value.year, channelId: lastQuery.value.channelId,
       more: lastQuery.value.more, offset: lastQuery.value.offset, filter: lastQuery.value.filter,
@@ -1325,21 +1450,22 @@ watch(() => viewing.suspended, suspended => {
   if (routeKey(route.query) !== handledRoute) {
     // Back/forward remains available while verification hides the page. That
     // newer destination wins over the cancelled detail or catalogue request.
-    if (work?.type === 'sources' || loadingSources.value) void loadSources()
+    if (work?.type === 'sources' || loadingSources.value) { pageView.value = pageViewFor(route.query.view); loadPage() }
     else {
       // A cancelled detail is still a navigation surface until syncRoute
       // restores its origin; it must not capture a new origin from empty UI.
-      if (work?.type === 'detail' && !detail.value) detailLoading.value = true
+      if (['detail', 'cache-detail'].includes(work?.type) && !detail.value) detailLoading.value = true
       void syncRoute()
     }
     refreshRecords()
     return
   }
-  if (work?.type === 'sources') void loadSources()
+  if (work?.type === 'sources') loadPage()
+  else if (work?.type === 'cache-detail') void openCacheItem({ item_id: work.itemId }, null, { routeSync: true })
   else if (work?.type === 'detail') void openDetail(work.id)
   else if (work?.type === 'search') { categoryId.value = work.category; searchCategoryScope.value = work.categoryScope || 'exact'; channelId.value = work.channelId || ''; setYear(work.year || ''); void search(work.page, work.query, { force: work.force, more: work.more, offset: work.offset, filter: work.filter, position: work.position }) }
   else {
-    void loadHealth()
+    if (!detailCached.value) void loadHealth()
     if (detail.value) {
       const turn = generation
       // Refresh the current detail before the secondary history shelf. Both
@@ -1353,7 +1479,7 @@ watch(() => viewing.suspended, suspended => {
 }, { flush: 'sync' })
 onMounted(() => {
   globalThis.document?.addEventListener?.('visibilitychange', visibilityChanged)
-  if (safeMode.value) { void loadSources(); refreshRecords() }
+  if (safeMode.value) loadPage()
   else loadingSources.value = libraryLoading.value = continueLoading.value = false
 })
 onBeforeUnmount(() => rememberBrowse())
@@ -1365,9 +1491,21 @@ onUnmounted(() => {
   closeHostDialog(false); hostReminders.clear()
   clearDetailReturnFocus()
   cancelRelated(true); relatedClient.close()
+  clearCacheWork(); cacheDetailClient.close(); cacheNextClient.close()
   disposed = true; generation++; libraryGeneration++; healthGeneration++; playIntent++; cancelNext(); client.close(); searchProgressClient.close(); stopProgressPolling(); nextClient.close(); stateClient.close(); continueClient.close(); healthClient.close(); stopCleanup()
   void stopRun(activeRun)
 })
+function clearCacheWork() {
+  cacheDetailClient.cancel(); cacheNextClient.cancel(); cacheDialog.value = false; networkPrompt.value = null
+  detailCacheEntries.value = []; detailCached.value = false; cacheItemId.value = ''; networkError.value = ''
+}
+function loadPage() {
+  if (pageView.value === 'cache') {
+    handledRoute = routeKey(route.query)
+    loadingSources.value = continueLoading.value = libraryLoading.value = false
+    if (typeof route.query.cache_item === 'string' && /^itm_[0-9a-f]{32}$/.test(route.query.cache_item)) void openCacheItem({ item_id: route.query.cache_item }, null, { routeSync: true })
+  } else { void loadSources(); refreshRecords() }
+}
 watch(() => route.query, () => { void syncRoute() }, { deep: true })
 watch(() => [browseVisible.value, safeMode.value, loadingSources.value, searching.value,
   starting.value, !!playing.value, nextLoading.value, categoriesOpen.value, !!hostDialog.value], () => {

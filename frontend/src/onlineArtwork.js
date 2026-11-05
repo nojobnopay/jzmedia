@@ -8,7 +8,7 @@ const MAX_TASKS = 256
 const READ_SECONDS = 12
 const MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const VIEWING_CODES = new Set(['online_access_revoked', 'viewing_session_required', 'viewing_session_invalid', 'online_children_unavailable', 'viewing_locked'])
-const PATH = /^\/api\/online\/catalog\/artwork\/src_[0-9a-f]{32}\/[0-9a-f]{32}$/
+const PATH = /^\/api\/online\/(?:catalog\/artwork\/src_[0-9a-f]{32}\/[0-9a-f]{32}|cache\/artwork\/itm_[0-9a-f]{32})$/
 
 export function onlineArtworkPath(value) {
   return typeof value === 'string' && PATH.exec(value)?.[0] === value ? value : ''

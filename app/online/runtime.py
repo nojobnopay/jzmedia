@@ -7,7 +7,7 @@ import time
 
 from fastapi.concurrency import run_in_threadpool
 
-from . import api_pool, artwork, gateway, health, image_pool, service
+from . import api_pool, artwork, cache, gateway, health, image_pool, service
 
 
 _task = None
@@ -53,6 +53,7 @@ async def start():
     if _task is None or _task.done():
         api_pool.start()
         image_pool.start()
+        await run_in_threadpool(cache.start)
         _task = asyncio.create_task(_maintain(), name="online-session-maintenance")
 
 
@@ -64,6 +65,7 @@ async def shutdown():
         with suppress(asyncio.CancelledError):
             await task
     await run_in_threadpool(service.registry.close_all)
+    await run_in_threadpool(cache.shutdown)
     gateway.shutdown_workers()
     await run_in_threadpool(api_pool.shutdown)
     await run_in_threadpool(image_pool.shutdown)

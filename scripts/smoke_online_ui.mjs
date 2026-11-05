@@ -221,6 +221,7 @@ try {
         res.writeHead(200, { 'Content-Type': 'image/webp' }); res.end(bytes); return
       }
       if (key.startsWith('/api/')) {
+        if (key === '/api/online/cache/lookup') { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ code: 'online_cache_not_found' })); return }
         const chunks = []; for await (const chunk of req) chunks.push(chunk)
         const raw = Buffer.concat(chunks).toString(), body = raw ? JSON.parse(raw) : undefined
         if (state.delay === 'browse' && /\/catalog\/(browse|search)$/.test(key) || state.delay === 'session' && key === '/api/online/sessions') await delayResponse(res)
@@ -252,7 +253,7 @@ try {
     })
     const page = currentPage = await context.newPage(); currentWidth = width; page.setDefaultTimeout(10000)
     page.on('pageerror', error => report.errors.push(String(error)))
-    page.on('console', message => { if (message.type() === 'error' && !/503 \(Service Unavailable\)/.test(message.text())) report.errors.push(message.text()) })
+    page.on('console', message => { if (message.type() === 'error' && !/(?:503 \(Service Unavailable\)|404 \(Not Found\))/.test(message.text())) report.errors.push(message.text()) })
     await go(page, base)
     await page.locator('[data-online-result]').first().waitFor()
     await capture(page, 'home', width)

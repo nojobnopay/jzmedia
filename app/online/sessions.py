@@ -119,6 +119,9 @@ class OnlineSession:
     _resources: dict = field(default_factory=dict, repr=False)
     _resource_keys: dict = field(default_factory=dict, repr=False)
     _leases: dict = field(default_factory=dict, repr=False)
+    cache_id: str | None = field(default=None, repr=False)
+    _local_files: dict = field(default_factory=dict, repr=False)
+    _local_readers: dict = field(default_factory=dict, repr=False)
 
     @property
     def source_id(self):
@@ -306,6 +309,72 @@ class SessionRegistry:
                         self._cancelled_pending.discard(pending_id)
                         self._clients.discard(id(client))
                 self._close_client(client)
+
+    def create_local(self, identity, owner, cache_id, package, *, duration_seconds=None, context=None):
+        """Publish an owned disk session without constructing a network client."""
+        try:
+            identity = OnlinePlaybackIdentity.model_validate(identity)
+            transport = package["transport"]
+            names = package["files"]
+            if (not _owner(owner) or transport not in {"mp4", "hls"}
+                    or not isinstance(cache_id, str) or not isinstance(names, list)
+                    or package["entry_name"] not in names or len(names) != len(set(names))
+                    or any(not isinstance(name, str) or not name or len(name) > 512 for name in names)):
+                raise SessionError("invalid_session_configuration")
+            session_id = secrets.token_urlsafe(32)
+            now = self._clock()
+            expires_at = max(1, math.ceil(self._wall_clock() + self.limits.ttl_seconds))
+            OnlinePlaybackDescriptor(identity=identity, session_id=session_id, transport=transport,
+                                     seekable=True, duration_seconds=duration_seconds, expires_at=expires_at)
+            resources = {}
+            for name in names:
+                kind = ("manifest" if name.endswith(".m3u8") else
+                        "mp4" if transport == "mp4" and name == package["entry_name"] else
+                        "subtitle" if name.endswith(".vtt") else "segment")
+                resources[name] = Resource(secrets.token_urlsafe(24), kind, name)
+            session = OnlineSession(session_id, identity, transport, owner, None,
+                                    resources[package["entry_name"]], now, now + self.limits.ttl_seconds,
+                                    expires_at, now, self.limits.idle_seconds,
+                                    duration_seconds=duration_seconds, context=context, cache_id=cache_id,
+                                    _local_files=resources)
+            self.sweep()
+            with self._lock:
+                records = [(s.owner, s.source_id) for s in self._sessions.values()] + list(self._pending.values())
+                if (len(records) >= self.limits.max_sessions
+                        or sum(o == owner for o, _s in records) >= self.limits.max_owner_sessions
+                        or sum(s == identity.source_id for _o, s in records) >= self.limits.max_source_sessions):
+                    raise SessionError("session_limit")
+                size = sum(len(name.encode("utf-8")) for name in names)
+                if (len(names) > self.limits.max_resources
+                        or self._resource_count + len(names) > self.limits.max_global_resources
+                        or self._resource_bytes + size > self.limits.max_resource_url_bytes):
+                    raise SessionError("resource_limit")
+                for resource in resources.values():
+                    self._add_resource_locked(session, resource)
+                self._sessions[session_id] = session
+            return session
+        except (ValueError, TypeError, KeyError):
+            raise SessionError("invalid_session_configuration") from None
+
+    def attach_local_reader(self, session, close):
+        """Closing a disk session also closes every admitted file descriptor."""
+        key = object()
+        with self._lock:
+            if not self._live_locked(session):
+                close()
+                raise SessionError("session_closed")
+            if (len(session._local_readers) >= self.limits.max_source_active
+                    or sum(len(candidate._local_readers) for candidate in self._sessions.values()) >= self.limits.max_active):
+                close()
+                raise SessionError("request_limit")
+            session._local_readers[key] = close
+
+        def detach():
+            with self._lock:
+                session._local_readers.pop(key, None)
+            close()
+
+        return detach
 
     def _live_locked(self, session):
         now = self._clock()
@@ -565,7 +634,10 @@ class SessionRegistry:
         if self._media_cache is not None:
             callbacks.append(lambda: self._media_cache.close_session(session))
         self._clients.discard(id(session.client))
-        callbacks.append(session.client.close)
+        if session.client is not None:
+            callbacks.append(session.client.close)
+        callbacks.extend(session._local_readers.values())
+        session._local_readers.clear()
         return callbacks
 
     def close(self, session_id, owner):
@@ -587,7 +659,11 @@ class SessionRegistry:
         _run_callbacks(callbacks)
 
     def revoke_source(self, source_id):
-        self._revoke(lambda session: session.source_id == source_id, lambda pending: pending[1] == source_id)
+        self._revoke(lambda session: session.source_id == source_id and session.cache_id is None,
+                     lambda pending: pending[1] == source_id)
+
+    def close_cache(self, cache_id):
+        self._revoke(lambda session: session.cache_id == cache_id, lambda _pending: False)
 
     def close_owner(self, owner):
         self._revoke(lambda session: _same_owner(session.owner, owner), lambda pending: _same_owner(pending[0], owner))

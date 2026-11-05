@@ -133,13 +133,14 @@ export function createOnlinePlaybackClient({ request = api, releaseRequest = del
     return result
   }
 
-  async function create(identity, { signal } = {}) {
+  async function create(identity, { signal, cacheOnly = false } = {}) {
     if (disposed) throw new OnlinePlaybackError('online_player_closed')
     const expected = validateOnlineIdentity(identity)
     if (signal?.aborted) throw new OnlinePlaybackError('online_cancelled')
     let value
     try {
       value = await request('/api/online/sessions', { method: 'POST', signal, timeout: 45000,
+        ...(cacheOnly ? { headers: { 'X-Online-Cache-Only': 'true' } } : {}),
         body: JSON.stringify(expected) })
     } catch (error) {
       if (signal?.aborted || disposed) throw new OnlinePlaybackError('online_cancelled')
@@ -174,7 +175,7 @@ export function createOnlinePlaybackController({ client = createOnlinePlaybackCl
   let current = null
   let disposed = false
 
-  async function begin(identity, { signal } = {}) {
+  async function begin(identity, { signal, cacheOnly = false } = {}) {
     if (disposed) throw new OnlinePlaybackError('online_player_closed')
     const turn = ++generation
     pending?.abort()
@@ -189,7 +190,7 @@ export function createOnlinePlaybackController({ client = createOnlinePlaybackCl
     try {
       if (previous) await client.release(previous.session_id)
       if (!active()) throw new OnlinePlaybackError('online_cancelled')
-      const descriptor = await client.create(identity, { signal: controller.signal })
+      const descriptor = await client.create(identity, { signal: controller.signal, cacheOnly })
       if (!active()) {
         await client.release(descriptor.session_id)
         throw new OnlinePlaybackError('online_cancelled')

@@ -13,9 +13,10 @@
       <div v-for="row in visibleEntries" :key="row.index" class="online-entry">
         <JzButton :ref="button => setEntryButton(row.index, button)" :data-online-entry="row.entry.label" :data-online-entry-index="row.index"
           :data-online-entry-current="row.index === currentIndex ? true : undefined" :data-online-entry-last="row.index === lastIndex ? true : undefined"
-          :aria-current="row.index === currentIndex ? 'true' : undefined" :disabled="busy || !playable(row.entry)"
+          :aria-current="row.index === currentIndex ? 'true' : undefined" :disabled="busy || playbackDisabled || !playable(row.entry)"
           :variant="row.index === currentIndex ? 'primary' : 'secondary'" @click="play(row.entry)">
           <span class="online-episode-label">{{ row.entry.label }}</span>
+          <span v-if="cached(row.entry)" class="online-episode-marker" :data-online-entry-cache="cached(row.entry).state">{{ onlineCacheState(cached(row.entry).state) }}</span>
           <span v-if="row.index === currentIndex" class="online-episode-marker">正在播放</span>
           <span v-else-if="row.index === lastIndex" class="online-episode-marker">上次观看</span>
         </JzButton>
@@ -31,6 +32,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import JzButton from './JzButton.vue'
 import JzField from './JzField.vue'
 import { ONLINE_EPISODE_GROUP_SIZE, onlineEpisodeGroups, onlineEntryIndex, onlineEntryPlayable, onlineEntryReason } from '../onlineEpisodes.js'
+import { onlineCachedEntry, onlineCacheState } from '../onlineCache.js'
 import '../styles/onlineEpisodes.css'
 
 const props = defineProps({
@@ -38,7 +40,9 @@ const props = defineProps({
   lineId: { type: String, default: '' },
   kind: { type: String, default: 'tv' },
   entries: { type: Array, default: () => [] },
+  cacheEntries: { type: Array, default: () => [] },
   busy: Boolean,
+  playbackDisabled: Boolean,
   currentIdentity: { type: Object, default: null },
   lastIdentity: { type: Object, default: null },
   reasonLabel: { type: Function, default: onlineEntryReason },
@@ -54,6 +58,7 @@ const buttons = new Map()
 let interacted = false, locating = 0, disposed = false
 
 function playable(entry) { return onlineEntryPlayable(entry, props.itemKey, props.lineId) }
+function cached(entry) { return onlineCachedEntry(props.cacheEntries, entry.identity) }
 function preferredGroup() {
   const index = currentIndex.value >= 0 ? currentIndex.value : lastIndex.value
   return index >= 0 ? Math.floor(index / groupSize) : 0
@@ -99,7 +104,7 @@ async function locateLast() {
   button?.el?.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'instant' })
   return true
 }
-function play(entry) { if (!props.busy && playable(entry)) emit('play', entry) }
+function play(entry) { if (!props.busy && !props.playbackDisabled && playable(entry)) emit('play', entry) }
 onBeforeUnmount(() => { disposed = true; locating++; buttons.clear() })
 defineExpose({ locateLast })
 </script>

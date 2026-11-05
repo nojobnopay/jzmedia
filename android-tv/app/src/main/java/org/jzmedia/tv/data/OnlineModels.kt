@@ -51,9 +51,10 @@ private fun JSONObject.catalogId(name: String): String = if (!has(name)) "" else
 private fun JSONObject.catalogToken(name: String): String = optionalString(name).orEmpty().also {
     require(it.isEmpty() || ONLINE_SCOPE.matches(it))
 }
-private fun JSONObject.artwork(sourceId: String?): String? {
+private fun JSONObject.artwork(sourceId: String?, itemId: String? = null): String? {
     val path = optionalString("poster_path") ?: return null
     if (path.isEmpty()) return null
+    if (itemId != null && path == "/api/online/cache/artwork/$itemId") return path
     val match = ARTWORK_PATH.matchEntire(path) ?: throw IllegalArgumentException("Invalid online artwork")
     require(sourceId == null || match.groupValues[1] == sourceId)
     return path
@@ -216,7 +217,7 @@ data class OnlineDetail(val source: OnlineSource, val item: OnlineCatalogItem, v
         require(lines.flatMap { it.entries }.all { it.identity == null || it.identity.sourceId == source.id && it.identity.itemId == item.id })
         require(lines.all { line -> line.entries.all { it.identity == null || it.identity.lineId == line.id } })
         return OnlineDetail(source, item, value.string("description", 8192), value.string("year", 32), lines,
-            value.list("attribution", 32).map(OnlineAttribution::fromJson), value.artwork(source.id))
+            value.list("attribution", 32).map(OnlineAttribution::fromJson), value.artwork(source.id, item.id))
     } }
 }
 
@@ -317,6 +318,8 @@ data class OnlineHealth(val sourceId: String, val api: OnlineHealthObservation, 
 }
 
 fun onlineErrorMessage(error: Throwable): String = when ((error as? ApiException)?.code) {
+    "online_cache_not_found", "online_cache_not_ready" -> "本地缓存已删除或尚未完成，请返回刷新缓存列表。"
+    "online_cache_corrupt", "online_cache_file_missing" -> "本地缓存文件不可用，请在网页重新缓存。"
     "online_progress_writer_conflict" -> "另一播放页已更新此进度，本次播放不再覆盖它；重新播放可再次保存。"
     "online_state_scope_changed", "online_state_scope_required" -> "观看身份已变化，请重新打开在线页面。"
     "online_access_revoked", "viewing_locked", "viewing_session_required", "viewing_session_invalid" -> "观看权限已变化，请重新连接服务。"

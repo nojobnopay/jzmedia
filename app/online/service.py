@@ -89,7 +89,7 @@ def capture_access(request):
     return access
 
 
-def _identity_ready(identity):
+def _identity_ready(identity, *, local=False):
     try:
         with viewing.unrestricted(), closing(_base._conn()) as connection:
             connection.execute("BEGIN")
@@ -103,7 +103,7 @@ def _identity_ready(identity):
                                                        or episode["item_id"] != identity.item_id)):
                 raise PlaybackError("online_identity_not_found", 404)
             feature = connection.execute("SELECT value FROM app_settings WHERE key='online_enabled'").fetchone()
-            if not feature or feature["value"] != "true" or not source["enabled"]:
+            if not feature or feature["value"] != "true" or (not local and not source["enabled"]):
                 raise PlaybackError("online_source_disabled", 503)
     except sqlite3.Error:
         raise PlaybackError("online_access_unavailable", 503) from None
@@ -123,7 +123,7 @@ def _resolved_source_current(identity, resolved):
         raise PlaybackError(error.category, error.status) from None
 
 
-def create(identity, access):
+def create(identity, access, *, cache_only=False):
     try:
         identity = OnlinePlaybackIdentity.model_validate(identity)
     except (ValueError, TypeError):
@@ -131,6 +131,24 @@ def create(identity, access):
     if not isinstance(access, PlaybackAccess):
         raise PlaybackError("viewing_session_required", 401)
     _current_access(access)
+    _identity_ready(identity, local=True)
+    from . import cache
+    cached = cache.lookup(identity)
+    if cached is not None:
+        session = registry.create_local(identity, access.owner, cached["id"], cache.package_files(cached["id"]),
+                                        duration_seconds=cached.get("duration_seconds"), context=access)
+        try:
+            _identity_ready(identity, local=True)
+            current = cache.lookup(identity)
+            if current is None or current["id"] != session.cache_id:
+                raise PlaybackError("online_cache_unavailable", 409)
+            authorize(session.id, access)
+        except Exception:
+            registry.close(session.id, access.owner)
+            raise
+        return session
+    if cache_only:
+        raise PlaybackError("online_cache_not_ready", 409)
     _identity_ready(identity)
     try:
         from . import catalog
@@ -193,7 +211,7 @@ def authorize(session_id, access):
         state = _state((session.source_id,), (access.owner,))
         if session.context != access or not _access_valid(access, state, time.time()):
             raise PlaybackError("online_access_revoked", 401)
-        if not state["enabled"] or not state["sources"].get(session.source_id, False):
+        if not state["enabled"] or (session.cache_id is None and not state["sources"].get(session.source_id, False)):
             raise PlaybackError("online_source_disabled", 503)
     except Exception:
         try:
@@ -222,7 +240,7 @@ def sweep():
         raise
     now = time.time()
     for session in sessions:
-        if (not state["enabled"] or not state["sources"].get(session.source_id, False)
+        if (not state["enabled"] or (session.cache_id is None and not state["sources"].get(session.source_id, False))
                 or not _access_valid(session.context, state, now)):
             try:
                 registry.close(session.id, session.owner)

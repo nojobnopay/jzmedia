@@ -54,6 +54,8 @@ function sourceId(value) {
 
 export function onlineCatalogError(problem) {
   return ({
+    online_cache_not_ready: '本地缓存已删除或尚未完成，请返回本地缓存核对后重试。',
+    online_cache_corrupt: '本地缓存文件缺失或损坏，请删除后重新缓存。',
     online_source_disabled: '在线功能或此来源已停用，请返回选择其他来源。',
     online_children_unavailable: '儿童模式暂不支持在线内容。',
     online_access_revoked: '观看权限已变化，请重新连接服务。',

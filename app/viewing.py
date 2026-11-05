@@ -405,6 +405,9 @@ def management_path(path, method):
     """Explicit browsing/playback allowlist; new management APIs default protected."""
     if path.startswith("/api/viewing/"):
         return False
+    if path.startswith("/api/online/cache/"):
+        return not (method == "GET" and (path in {"/api/online/cache/items", "/api/online/cache/lookup"}
+                    or re.fullmatch(r"/api/online/cache/(?:items|artwork)/itm_[0-9a-f]{32}", path)))
     if path in {"/api/online/catalog/sources", "/api/online/catalog/search", "/api/online/catalog/detail",
                 "/api/online/catalog/health", "/api/online/catalog/browse", "/api/online/catalog/related"}:
         return method != "GET"

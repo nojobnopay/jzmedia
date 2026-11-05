@@ -80,6 +80,35 @@ class OnlineApi(val api: JzApi) {
             OnlineDetail.fromJson(it).also { result -> require(result.source.id == sourceId) }
         }
     }
+    suspend fun cacheLibrary(): OnlineCacheLibrary = read("GET", "/api/online/cache/items", parser = OnlineCacheLibrary::fromJson)
+
+    suspend fun cacheDetail(itemId: String): OnlineCacheDetail {
+        checkedOnlineItem(itemId)
+        return read("GET", "/api/online/cache/items/$itemId") {
+            OnlineCacheDetail.fromJson(it).also { result -> require(result.detail.item.id == itemId) }
+        }
+    }
+
+    suspend fun cacheLookup(sourceId: String, externalId: String): OnlineCacheDetail? {
+        checkedOnlineSource(sourceId); checkedOnlineCatalogExternal(externalId)
+        return try {
+            read("GET", queryPath("/api/online/cache/lookup", linkedMapOf("source_id" to sourceId, "external_id" to externalId))) {
+                OnlineCacheDetail.fromJson(it).also { result ->
+                    require(result.detail.source.id == sourceId && result.externalId == externalId)
+                }
+            }
+        } catch (error: ApiException) {
+            if (error.status == 404) null else throw error
+        }
+    }
+
+    /** Local lookup finishes before any provider detail request; authorization failures never fall through. */
+    suspend fun preferredDetail(sourceId: String, externalId: String): OnlineOpenedDetail {
+        val cached = cacheLookup(sourceId, externalId)
+        return if (cached != null) OnlineOpenedDetail(cached.playableDetail(), cached)
+        else OnlineOpenedDetail(detail(sourceId, externalId))
+    }
+
     suspend fun checkHosts(sourceId: String, externalId: String): OnlineHostReport {
         checkedOnlineSource(sourceId); checkedOnlineCatalogExternal(externalId)
         return read("POST", "/api/online/sources/$sourceId/host-check", JSONObject().put("external_id", externalId)) {
@@ -96,8 +125,8 @@ class OnlineApi(val api: JzApi) {
             checkedHostApprovalResponse(it, report, selected)
         }
     }
-    suspend fun createSession(identity: OnlineIdentity): OnlineDescriptor {
-        val value = api.requestOnline("POST", "/api/online/sessions", identity.toJson())
+    suspend fun createSession(identity: OnlineIdentity, cacheOnly: Boolean = false): OnlineDescriptor {
+        val value = api.requestOnline("POST", "/api/online/sessions", identity.toJson(), cacheOnly = cacheOnly)
         val returnedId = (value.opt("session_id") as? String)?.takeIf { ONLINE_OPAQUE.matches(it) }
         try {
             val result = OnlineDescriptor.fromJson(value, identity)

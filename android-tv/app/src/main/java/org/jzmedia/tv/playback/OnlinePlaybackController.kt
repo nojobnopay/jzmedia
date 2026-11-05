@@ -158,7 +158,9 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
                     if (disposed || generation != ticket) return@launch
                     writer = newWriter(saved?.scopeToken.orEmpty(), saved?.selectedProgress?.writerRevision ?: 0)
                 }
-                val result = lease.create({ withTimeout(45_000) { online.createSession(request.identity) } }) { it.sessionId }
+                val result = lease.create({ withTimeout(45_000) {
+                    online.createSession(request.identity, cacheOnly = request.localCache)
+                } }) { it.sessionId }
                 sessions.own(result.sessionId)
                 descriptor = result
                 // A decoded frame must never race final DELETE with an unfinished initial claim.
@@ -213,21 +215,15 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
         val ticket = ++nextGeneration
         nextJob = scope.launch {
             try {
-                val fresh = online.detail(request.identity.sourceId, request.externalId)
-                val entry = fresh.nextEpisode(request.identity)
+                val candidate = resolveOnlineNext(online, request)
                 if (disposed || nextGeneration != ticket) return@launch
-                if (entry == null) {
+                if (candidate == null) {
                     state = state.copy(nextLoading = false, notice = "当前线路没有可连续播放的下一集，请手动选集。")
                     return@launch
                 }
-                val identity = entry.identity ?: return@launch
-                val saved = online.playbackState(identity)
-                if (disposed || nextGeneration != ticket) return@launch
-                val progress = saved?.selectedProgress
-                state = state.copy(nextLoading = false, next = OnlinePlaybackRequest(identity,
-                    fresh.item.title + " · " + entry.label, request.externalId,
-                    if (progress?.completed == false) progress.position else 0.0,
-                    saved?.scopeToken.orEmpty(), progress?.writerRevision ?: 0, autoplay = true))
+                state = if (candidate.requiresNetwork) state.copy(nextLoading = false, networkNext = candidate.request,
+                    notice = "下一集尚未完成本地缓存。选择“联网播放下一集”后才会请求视频源。")
+                else state.copy(nextLoading = false, next = candidate.request)
             } catch (error: CancellationException) { throw error }
             catch (error: Exception) {
                 if (!disposed && nextGeneration == ticket) state = state.copy(nextLoading = false,
@@ -238,7 +234,13 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
 
     fun cancelNext() {
         nextGeneration++; nextJob?.cancel(); nextJob = null
-        if (!disposed) state = state.copy(nextLoading = false, next = null)
+        if (!disposed) state = state.copy(nextLoading = false, next = null, networkNext = null)
+    }
+    fun consumeNetworkNext(): OnlinePlaybackRequest? {
+        if (disposed) return null
+        val value = state.networkNext ?: return null
+        cancelNext()
+        return value
     }
     /** A queued Compose effect must revalidate cancellation and may hand off only once. */
     fun consumeNext(expected: OnlinePlaybackRequest): OnlinePlaybackRequest? {

@@ -120,11 +120,13 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
         initialOnlineVod = supportsOnlineVod)
     fun cancelRequests() { client.dispatcher.cancelAll(); playbackClient.dispatcher.cancelAll(); onlineClient.dispatcher.cancelAll() }
     internal suspend fun requestOnline(method: String, path: String, body: JSONObject? = null,
-                                       scopeToken: String? = null, retryConnectionFailure: Boolean = true): JSONObject {
+                                       scopeToken: String? = null, retryConnectionFailure: Boolean = true,
+                                       cacheOnly: Boolean = false): JSONObject {
         require(path.startsWith("/api/online/")) { "在线请求地址无效" }
         require(scopeToken == null || Regex("[0-9a-f]{64}").matches(scopeToken)) { "在线状态身份无效" }
+        require(!cacheOnly || method == "POST" && path == "/api/online/sessions")
         return json(method, path, body, onlineRequest = true, scopeToken = scopeToken,
-            retryConnectionFailure = retryConnectionFailure)
+            retryConnectionFailure = retryConnectionFailure, cacheOnly = cacheOnly)
     }
     suspend fun getText(path: String): String = execute("GET", path, null, 16 * 1024 * 1024, longRequest = true).toString(Charsets.UTF_8)
     suspend fun getBytes(path: String): ByteArray = execute("GET", path, null, 4 * 1024 * 1024)
@@ -133,16 +135,18 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
 
     private suspend fun json(method: String, path: String, body: JSONObject? = null, longRequest: Boolean = false,
                              receiverToken: String? = null, onlineRequest: Boolean = false,
-                             scopeToken: String? = null, retryConnectionFailure: Boolean = true): JSONObject {
+                             scopeToken: String? = null, retryConnectionFailure: Boolean = true,
+                             cacheOnly: Boolean = false): JSONObject {
         val text = execute(method, path, body, 8 * 1024 * 1024, longRequest, receiverToken,
-            onlineRequest, scopeToken, retryConnectionFailure).toString(Charsets.UTF_8)
+            onlineRequest, scopeToken, retryConnectionFailure, cacheOnly).toString(Charsets.UTF_8)
         return try { if (text.isBlank()) JSONObject() else JSONObject(text) }
         catch (_: Exception) { throw ApiException(0, "服务器返回了无法识别的数据") }
     }
 
     private suspend fun execute(method: String, path: String, body: JSONObject?, maxBytes: Int, longRequest: Boolean = false,
                                 receiverToken: String? = null, onlineRequest: Boolean = false,
-                                scopeToken: String? = null, retryConnectionFailure: Boolean = true): ByteArray =
+                                scopeToken: String? = null, retryConnectionFailure: Boolean = true,
+                                cacheOnly: Boolean = false): ByteArray =
         suspendCancellableCoroutine { continuation ->
             val url = absoluteUrl(path)
             val request = Request.Builder().url(url).header("Accept", "application/json, text/plain, */*")
@@ -150,6 +154,7 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
             authHeadersFor(url).forEach { (key, value) -> request.header(key, value) }
             if (receiverToken != null) request.header("X-Receiver-Token", receiverToken)
             if (scopeToken != null) request.header("X-Online-State-Scope", scopeToken)
+            if (cacheOnly) request.header("X-Online-Cache-Only", "true")
             val encoded = body?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType())
             val payload = if (!retryConnectionFailure && encoded != null) object : RequestBody() {
                 override fun contentType() = encoded.contentType()

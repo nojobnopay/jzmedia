@@ -90,7 +90,9 @@ def _item(connection, item_id):
 
 def _availability(connection, item):
     feature = connection.execute("SELECT value FROM app_settings WHERE key='online_enabled'").fetchone()
-    available = bool(feature and feature["value"] == "true" and item["source_enabled"])
+    cached = connection.execute("SELECT 1 FROM online_cache_tasks WHERE item_id=? AND source_id=? AND state='ready' LIMIT 1",
+                                (item["id"], item["source_id"])).fetchone()
+    available = bool(feature and feature["value"] == "true" and (item["source_enabled"] or cached))
     return {"available": available, "reason": "" if available else "online_source_disabled"}
 
 

@@ -6,6 +6,7 @@ import { renderHarness, flush, deferred, nodeText } from './helpers/renderHarnes
 import * as catalog from '../src/onlineCatalog.js'
 import * as relatedCatalog from '../src/onlineRelated.js'
 import * as state from '../src/onlineState.js'
+import * as cache from '../src/onlineCache.js'
 import { clearOnlineBrowse, onlineBrowseMemory, onlineBrowseScope } from '../src/onlineBrowse.js'
 
 const SOURCE_A = 'src_' + '1'.repeat(32), SOURCE_B = 'src_' + '2'.repeat(32)
@@ -14,7 +15,7 @@ const rows = { items: [{ external_id: 'movie-1', title: '合成电影', kind: 'm
 const showVisibility = (element, binding) => { element.props['data-test-visible'] = !!binding.value }
 const vue = { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {}, vShow: { beforeMount: showVisibility, updated: showVisibility } }
 const SCOPE = 'a'.repeat(64)
-async function setup(t, request, { stateRequest, relatedRequest, hostRequest, refreshRequest = request, autoplay = false, routeQuery = {}, session = {} } = {}) {
+async function setup(t, request, { stateRequest, relatedRequest, hostRequest, cacheRequest = async () => { throw { status: 404 } }, refreshRequest = request, autoplay = false, routeQuery = {}, session = {} } = {}) {
   const cleanups = new Set()
   const viewingSession = Vue.reactive({ mode: 'normal', generation: 1, revision: 0, locallyLocked: false, suspended: false, ...session })
   const players = [], writers = [], preferences = [], navigations = []
@@ -30,6 +31,7 @@ async function setup(t, request, { stateRequest, relatedRequest, hostRequest, re
     vue,
     'vue-router': { useRoute: () => routeState, useRouter: () => ({ replace: navigate, push: navigate }) },
     '../api.js': { api: hostRequest || (async () => { throw { code: 'provider_timeout' } }) },
+    '../onlineCache.js': { ...cache, createOnlineCacheClient: options => cache.createOnlineCacheClient({ ...options, request: cacheRequest }) },
     '../onlineCatalog.js': { ...catalog, createOnlineCatalogClient: () => catalog.createOnlineCatalogClient({ request }),
       createOnlineRefreshClient: () => catalog.createOnlineRefreshClient({ request: refreshRequest }),
       createOnlineHealthClient: () => ({ read: async () => null, cancel() {}, close() {} }) },
@@ -46,7 +48,7 @@ async function setup(t, request, { stateRequest, relatedRequest, hostRequest, re
     '../components/JzDialog.vue': dialogStub,
     './JzDialog.vue': dialogStub,
     './ActionMenu.vue': { default: { setup: (_props, { slots }) => () => Vue.h('div', slots.default?.()) } },
-    '../components/OnlinePlayerModal.vue': { default: { props: ['onlineIdentity', 'initialPosition', 'prepareSession'], setup: props => {
+    '../components/OnlinePlayerModal.vue': { default: { props: ['onlineIdentity', 'initialPosition', 'prepareSession', 'cacheOnly'], setup: props => {
       const listeners = Vue.getCurrentInstance().vnode.props
       const player = { props, ended: identity => listeners.onEnded(identity || props.onlineIdentity),
         progress: value => listeners.onProgress(value), close: () => listeners.onClose(), session: value => props.prepareSession(value) }
@@ -2060,4 +2062,163 @@ test('submitting a keyword from a browse root upgrades the search range to all d
   search(ui, '原片名'); await flush()
   const body = JSON.parse(calls.findLast(call => call.path.endsWith('/search-sessions')).options.body)
   assert.equal(body.category_id, '58'); assert.equal(body.category_scope, 'descendants')
+})
+
+const cachedEpisode = (ep, state = 'ready') => ({ id: 'cache_' + ep, task_id: 'cache_' + ep, identity: identity(ep), label: ep === EP1 ? '第1集' : '第2集', line_label: '同一线路', state,
+  downloaded_bytes: 1024, total_bytes: 1024, completed_resources: 1, total_resources: 1, speed_bytes_per_second: 0, error_code: '' })
+function cacheSnapshot(entries = [cachedEpisode(EP1)]) { return { external_id: 'movie-1', detail: show(), entries } }
+function cacheListing(entries = [cachedEpisode(EP1)]) { return { enabled: true, storage: { used_bytes: 1024, available_bytes: 1024 ** 3, min_free_bytes: 1024 ** 2, ok: true },
+  items: [{ item_id: ITEM, source_id: SOURCE_A, external_id: 'movie-1', title: '合成剧集', source_name: '来源 A', ready_count: entries.filter(entry => entry.state === 'ready').length, total_count: entries.length, entries }] } }
+
+test('a bookmarked cache detail opens and plays without reading sources or any upstream catalogue', async t => {
+  const upstream = [], cached = []
+  const { ui, players } = await setup(t, async path => { upstream.push(path); throw { code: 'provider_timeout' } }, {
+    routeQuery: { view: 'cache', cache_item: ITEM }, cacheRequest: async path => { cached.push(path); return path.endsWith('/items') ? cacheListing() : cacheSnapshot() },
+  })
+  assert.ok(ui.find(node => node.props['data-online-cache-detail-note'] !== undefined))
+  assert.deepEqual(upstream, [])
+  selectedEntry(ui).props.onClick(); await flush()
+  assert.equal(players.length, 1)
+  assert.deepEqual(players[0].props.onlineIdentity, identity(EP1))
+  assert.equal(players[0].props.cacheOnly, true)
+  players[0].close(); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回本地缓存').props.onClick(); await flush()
+  assert.ok(ui.find(node => node.props['data-online-cache-view'] !== undefined))
+  assert.deepEqual(upstream, [])
+  assert.ok(cached.some(path => path.endsWith('/items')))
+})
+
+test('search opens a saved snapshot first and local autoplay asks before connecting for an uncached next episode', async t => {
+  const upstream = []
+  const { ui, players } = await setup(t, async path => { upstream.push(path); return path.endsWith('/sources') ? sources : path.includes('/search?') ? rows : show() }, {
+    autoplay: true, cacheRequest: async () => cacheSnapshot(),
+  })
+  await openShow(ui)
+  assert.equal(upstream.some(path => path.includes('/detail?')), false)
+  selectedEntry(ui).props.onClick(); await flush()
+  await players[0].ended(); await flush()
+  assert.equal(players.length, 1)
+  assert.ok(ui.find(node => node.props['data-online-cache-network-confirm'] !== undefined))
+  assert.equal(upstream.some(path => path.includes('/detail?')), false)
+  await ui.find(node => node.props['data-online-cache-network-confirm'] !== undefined).props.onClick(); await flush()
+  assert.equal(upstream.filter(path => path.includes('/detail?')).length, 1)
+  assert.equal(players.length, 2)
+  assert.deepEqual(players[1].props.onlineIdentity, identity(EP2))
+  assert.equal(players[1].props.cacheOnly, false)
+})
+
+test('local autoplay reads only the current snapshot and advances once to an exact ready episode', async t => {
+  const upstream = [], cached = []
+  const { ui, players } = await setup(t, async path => { upstream.push(path); throw { code: 'provider_timeout' } }, {
+    autoplay: true, routeQuery: { view: 'cache', cache_item: ITEM }, cacheRequest: async path => { cached.push(path); return cacheSnapshot([cachedEpisode(EP1), cachedEpisode(EP2)]) },
+  })
+  selectedEntry(ui).props.onClick(); await flush()
+  await players[0].ended(); await flush()
+  assert.equal(players.length, 2)
+  assert.deepEqual(players[1].props.onlineIdentity, identity(EP2))
+  assert.equal(cached.filter(path => path.endsWith('/items/' + ITEM)).length, 2)
+  assert.deepEqual(upstream, [])
+})
+
+test('leaving an unfinished local detail invalidates its late snapshot and restores the cache list', async t => {
+  const pending = deferred()
+  const { ui, route, players } = await setup(t, async () => { throw { code: 'provider_timeout' } }, {
+    routeQuery: { view: 'cache', cache_item: ITEM }, cacheRequest: async path => path.endsWith('/items') ? cacheListing() : pending.promise,
+  })
+  route.query = { view: 'cache' }; await flush()
+  pending.resolve(cacheSnapshot()); await flush()
+  assert.equal(ui.find(node => node.props['data-online-detail'] !== undefined), undefined)
+  assert.ok(ui.find(node => node.props['data-online-cache-view'] !== undefined))
+  assert.equal(players.length, 0)
+})
+
+test('a disabled online service permits opening a cached snapshot but cannot start local or network playback', async t => {
+  const { ui, players } = await setup(t, async () => { throw new Error('no upstream catalogue expected') }, {
+    routeQuery: { view: 'cache', cache_item: ITEM }, cacheRequest: async () => ({ ...cacheSnapshot(), enabled: false }),
+  })
+  assert.match(ui.text(), /在线点播已关闭，可删除缓存/)
+  assert.equal(primaryPlay(ui).props.disabled, true)
+  assert.equal(selectedEntry(ui).props.disabled, true)
+  assert.equal(ui.find(node => node.props['data-online-cache-create'] !== undefined).props.disabled, true)
+  selectedEntry(ui).props.onClick(); await flush()
+  assert.equal(players.length, 0)
+  assert.equal(ui.find(node => node.props['data-online-cache-network-confirm'] !== undefined), undefined)
+})
+
+test('verification of a cached search detail never fetches related content from its provider', async t => {
+  const related = [], upstream = []
+  const { ui, viewing } = await setup(t, async path => {
+    upstream.push(path)
+    if (path.endsWith('/sources')) return { ...sources, items: sources.items.map(source => ({ ...source, capabilities: { related: true } })) }
+    if (path.includes('/search?')) return rows
+    throw new Error('No provider detail expected')
+  }, { cacheRequest: async () => cacheSnapshot(), session: { mode: 'private' },
+    relatedRequest: async path => { related.push(path); throw new Error('No provider recommendations expected') } })
+  await openShow(ui)
+  assert.deepEqual(related, [])
+  const before = [...upstream]
+  viewing.suspended = true; await flush()
+  viewing.suspended = false; await flush()
+  assert.ok(ui.find(node => node.props['data-online-cache-detail-note'] !== undefined))
+  assert.deepEqual(related, [])
+  assert.deepEqual(upstream, before)
+})
+
+test('verification retries an unfinished bookmarked cache detail by its item identity', async t => {
+  const pending = deferred(), calls = [], upstream = []
+  let reads = 0
+  const { ui, viewing, players } = await setup(t, async path => { upstream.push(path); throw new Error('No provider request expected') }, {
+    routeQuery: { view: 'cache', cache_item: ITEM }, session: { mode: 'private' },
+    cacheRequest: async (path, options) => {
+      calls.push({ path, signal: options.signal })
+      if (path.endsWith('/items')) return cacheListing()
+      assert.equal(path, '/api/online/cache/items/' + ITEM)
+      return ++reads === 1 ? pending.promise : cacheSnapshot()
+    },
+  })
+  viewing.suspended = true; await flush()
+  assert.equal(calls.find(call => call.path.endsWith('/items/' + ITEM)).signal.aborted, true)
+  const stale = cacheSnapshot()
+  stale.detail.item.title = '失效请求的迟到缓存'
+  pending.resolve(stale); await flush()
+  viewing.suspended = false; await flush()
+  assert.equal(reads, 2)
+  assert.ok(ui.find(node => node.props['data-online-cache-detail-note'] !== undefined))
+  assert.equal(ui.text().includes('失效请求的迟到缓存'), false)
+  assert.deepEqual(upstream, [])
+  selectedEntry(ui).props.onClick(); await flush()
+  assert.equal(players[0].props.cacheOnly, true)
+})
+
+test('a newer cache bookmark during source verification resumes through the local entry point', async t => {
+  const pending = deferred(), upstream = [], cached = []
+  const { ui, viewing, route } = await setup(t, async path => { upstream.push(path); return pending.promise }, {
+    session: { mode: 'private' }, cacheRequest: async path => { cached.push(path); return path.endsWith('/items') ? cacheListing() : cacheSnapshot() },
+  })
+  viewing.suspended = true; await flush()
+  route.query = { view: 'cache', cache_item: ITEM }; await flush()
+  pending.resolve(sources); await flush()
+  viewing.suspended = false; await flush()
+  assert.ok(ui.find(node => node.props['data-online-cache-detail-note'] !== undefined))
+  assert.ok(cached.includes('/api/online/cache/items/' + ITEM))
+  assert.deepEqual(upstream, ['/api/online/catalog/sources'])
+})
+
+test('opening local cache while sources are pending does not leave online browsing stuck on return', async t => {
+  const pending = deferred(), upstream = []
+  let reads = 0
+  const { ui } = await setup(t, async path => {
+    upstream.push(path)
+    if (path.endsWith('/sources')) return ++reads === 1 ? pending.promise : sources
+    return rows
+  }, { cacheRequest: async path => path.endsWith('/items') ? cacheListing() : cacheSnapshot() })
+  ui.find(node => node.props['data-online-cache-open'] !== undefined).props.onClick(); await flush()
+  ui.find(node => node.props['data-online-cache-detail'] === ITEM).props.onClick(); await flush()
+  pending.resolve(sources); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回本地缓存').props.onClick(); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回在线浏览').props.onClick(); await flush()
+  assert.equal(reads, 2)
+  assert.equal(ui.text().includes('正在加载视频源'), false)
+  assert.ok(ui.find(node => node.props.id === 'online-source'))
+  assert.equal(upstream.filter(path => path.endsWith('/sources')).length, 2)
 })

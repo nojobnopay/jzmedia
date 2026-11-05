@@ -451,3 +451,74 @@ def rewrite_manifest(body: bytes, base_url: str, register, *, on_media=None, on_
     if on_master is not None and master_paths:
         on_master(tuple(master_paths))
     return rewritten
+
+
+def offline_manifest(body: bytes, base_url: str, register):
+    """Export a VOD with relative files and one highest-bandwidth variant.
+
+    ``register`` receives the original URL/kind/inclusive range and returns a
+    basename. Each byte range becomes its own file, so local offsets start at
+    zero. Associated audio/subtitle renditions remain in the selected master.
+    No network I/O or registration happens before structural validation.
+    """
+    plan = _plan(body, base_url)
+    variants = []
+    for index, node in enumerate(plan):
+        if isinstance(node, _AttributeLine) and node.tag == "#EXT-X-STREAM-INF":
+            bandwidth = next(int(item.value) for item in node.attributes if item.name == "BANDWIDTH")
+            variants.append((bandwidth, index))
+    selected_index = max(variants, default=(0, -1))[1]
+    groups = {}
+    if variants:
+        selected = plan[selected_index]
+        groups = {item.name: item.value for item in selected.attributes
+                  if item.name in {"AUDIO", "VIDEO", "SUBTITLES", "CLOSED-CAPTIONS"}}
+    lines, duration = [], 0.0
+
+    def local(reference, purpose=None):
+        kwargs = {"kind": reference.kind, "byte_range": reference.byte_range}
+        if purpose is not None:
+            kwargs["purpose"] = purpose
+        name = register(reference.url, **kwargs)
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}\.[a-z0-9]{1,8}", name):
+            raise ManifestError("invalid_hls_resource_path")
+        return name
+
+    for index, node in enumerate(plan):
+        if isinstance(node, str):
+            if node == "#EXT-X-GAP":
+                raise ManifestError("incomplete_hls_playlist")
+            if node.startswith("#EXTINF:"):
+                duration += float(node.removeprefix("#EXTINF:").partition(",")[0])
+            if node.startswith("#EXT-X-BYTERANGE:"):
+                length, _offset = _range(node.partition(":")[2])
+                node = f"#EXT-X-BYTERANGE:{length}@0"
+            lines.append(node)
+        elif isinstance(node, _Reference):
+            if variants and node.kind == "manifest" and index != selected_index + 1:
+                continue
+            lines.append(local(node))
+        else:
+            if node.tag == "#EXT-X-I-FRAME-STREAM-INF":
+                continue
+            if node.tag == "#EXT-X-STREAM-INF" and index != selected_index:
+                continue
+            attributes = node.attributes
+            if node.tag == "#EXT-X-MEDIA":
+                values = {item.name: item.value for item in attributes}
+                if groups.get(values["TYPE"]) != values["GROUP-ID"]:
+                    continue
+            if node.reference is not None:
+                purpose = ("subtitle" if node.tag == "#EXT-X-MEDIA" and
+                           any(item.name == "TYPE" and item.value == "SUBTITLES" for item in attributes) else None)
+                attributes = _replace(attributes, "URI", local(node.reference, purpose))
+                if node.reference.byte_range is not None:
+                    start, end = node.reference.byte_range
+                    attributes = _replace(attributes, "BYTERANGE", f"{end - start + 1}@0")
+            lines.append(node.tag + ":" + ",".join(
+                f'{item.name}="{item.value}"' if item.quoted else f"{item.name}={item.value}"
+                for item in attributes))
+    result = ("\n".join(lines) + "\n").encode()
+    if len(result) > OUTPUT_BYTES:
+        raise ManifestError("hls_output_size_limit")
+    return {"body": result, "duration_seconds": duration or None, "is_master": bool(variants)}

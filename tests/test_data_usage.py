@@ -53,3 +53,18 @@ def test_registered_local_media_inside_data_is_not_counted(monkeypatch, tmp_path
     result = data_usage.usage(refresh=True)
     assert result['ok']
     assert result['total_bytes'] == (root / 'jzmedia.db').stat().st_size + 5
+
+
+def test_persistent_online_episodes_are_separate_from_application_cache_budget(monkeypatch, tmp_path):
+    root = tmp_path / 'data'
+    (root / 'online-cache').mkdir(parents=True)
+    (root / 'online-cache' / 'saved.ts').write_bytes(b'x' * 100)
+    (root / 'other-cache').mkdir()
+    (root / 'other-cache' / 'saved.mp4').write_bytes(b'x' * 200)
+    (root / 'settings.json').write_bytes(b'{}')
+    monkeypatch.setattr(data_usage.settings, 'data_dir', str(root))
+    monkeypatch.setattr(data_usage.settings, 'media_root', str(tmp_path / 'media'))
+    monkeypatch.delenv('ONLINE_CACHE_DIR', raising=False)
+    assert data_usage.usage(refresh=True)['total_bytes'] == 202
+    monkeypatch.setenv('ONLINE_CACHE_DIR', str(root / 'other-cache'))
+    assert data_usage.usage(refresh=True)['total_bytes'] == 102

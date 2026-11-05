@@ -105,7 +105,7 @@ internal fun OnlineBrowseToolbar(section: String, query: String, source: OnlineS
     val fontScale = LocalDensity.current.fontScale
     val tabs: @Composable () -> Unit = {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("search" to "浏览", "continue" to "继续", "favorites" to "收藏", "history" to "历史").forEach { (id, label) ->
+            listOf("search" to "浏览", "cache" to "本地缓存", "continue" to "继续", "favorites" to "收藏", "history" to "历史").forEach { (id, label) ->
                 TvAction(label, { onSection(id) }, focus("online:tab:$id"), selected = section == id)
             }
         }

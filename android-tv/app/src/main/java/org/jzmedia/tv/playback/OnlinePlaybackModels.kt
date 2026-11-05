@@ -5,7 +5,8 @@ import org.jzmedia.tv.data.OnlineIdentity
 /** Everything needed to open one exact online version; never a local media ID or upstream URL. */
 data class OnlinePlaybackRequest(val identity: OnlineIdentity, val title: String, val externalId: String,
                                  val position: Double = 0.0, val scopeToken: String,
-                                 val writerRevision: Long = 0, val autoplay: Boolean = false) {
+                                 val writerRevision: Long = 0, val autoplay: Boolean = false,
+                                 val localCache: Boolean = false) {
     init {
         require(position.isFinite() && position >= 0)
         require(writerRevision >= 0)
@@ -24,7 +25,8 @@ data class OnlinePlaybackState(val loading: Boolean = true, val playing: Boolean
                                val rate: Float = 1f, val transport: String = "",
                                val audios: List<OnlineTrackOption> = emptyList(),
                                val subtitles: List<OnlineTrackOption> = emptyList(),
-                               val nextLoading: Boolean = false, val next: OnlinePlaybackRequest? = null)
+                               val nextLoading: Boolean = false, val next: OnlinePlaybackRequest? = null,
+                               val networkNext: OnlinePlaybackRequest? = null)
 
 /** A native ended event plus a decoded frame is needed; high percentages never complete online progress. */
 internal fun onlineCompletion(firstFrame: Boolean, ended: Boolean, position: Double, duration: Double): Boolean =

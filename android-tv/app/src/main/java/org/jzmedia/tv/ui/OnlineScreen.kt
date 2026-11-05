@@ -183,9 +183,15 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
         libraryRead.start(scope) { ticket ->
             state.libraryLoading = true; state.libraryError = ""; state.libraryOffset = offset
             try {
-                val value = online.library(section, offset)
-                coroutineContext.ensureActive()
-                if (alive() && libraryRead.current(ticket) && section == state.section) state.library = value
+                if (section == "cache") {
+                    val value = online.cacheLibrary()
+                    coroutineContext.ensureActive()
+                    if (alive() && libraryRead.current(ticket) && section == state.section) state.cacheLibrary = value
+                } else {
+                    val value = online.library(section, offset)
+                    coroutineContext.ensureActive()
+                    if (alive() && libraryRead.current(ticket) && section == state.section) state.library = value
+                }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (alive() && libraryRead.current(ticket)) state.libraryError = onlineErrorMessage(e) }
             finally { if (alive() && libraryRead.current(ticket)) state.libraryLoading = false }
@@ -200,7 +206,7 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                 val value = online.sources()
                 coroutineContext.ensureActive()
                 if (alive() && sourceRead.current(ticket)) {
-                    if (state.acceptSources(value)) { catalogue.cancel(); itemRead.cancel(); playRead.cancel() }
+                    if (state.acceptSources(value)) { catalogue.cancel(); itemRead.cancel(); playRead.cancel(); state.starting = false }
                     loadHealth()
                 }
             } catch (e: CancellationException) { throw e }
@@ -213,6 +219,8 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
         hostDialog = null
         state.interruptCatalogue()
         state.detail = null; state.detailSourceId = ""; state.detailExternalId = ""; state.detailError = ""; state.item = null
+        state.cacheDetail = null; state.cacheItemId = ""
+        state.detailOnlineRequested = false
         state.detailLoading = false; state.starting = false
         detailRetryFocusFrom = null
         state.detailUi.reset()
@@ -331,8 +339,9 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
     fun play(entry: OnlineEntry) {
         val detail = state.detail ?: return
         val identity = entry.identity ?: return
-        if (!entry.supported || state.starting || state.sourcesLoading || state.sources?.enabled != true ||
-            state.sources?.items?.none { it.id == identity.sourceId && it.enabled } != false) return
+        val cached = state.cacheDetail?.isReady(identity) == true
+        if (!entry.supported || state.starting || state.sources?.enabled != true ||
+            !cached && (state.sourcesLoading || state.sources?.items?.none { it.id == identity.sourceId && it.enabled } != false)) return
         savePosition()
         playRead.start(scope) { ticket ->
             state.starting = true; state.notice = ""
@@ -352,34 +361,46 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                 if (selection == null) { state.notice = onlineAvailabilityReason(current?.reason.orEmpty()); return@start }
                 if (current != null) state.item = current
                 onPlay(OnlinePlaybackRequest(identity, detail.item.title + if (identity.kind == "episode") " · ${entry.label}" else "",
-                    state.detailExternalId, selection.position, selection.scopeToken, selection.writerRevision, state.autoplay))
+                    state.detailExternalId, selection.position, selection.scopeToken, selection.writerRevision, state.autoplay,
+                    localCache = cached))
             } finally { if (alive() && playRead.current(ticket)) state.starting = false }
         }
     }
-    fun openDetail(source: String, externalId: String, resume: OnlineIdentity? = null) {
+    fun openDetail(source: String, externalId: String, resume: OnlineIdentity? = null, cacheItemId: String = "",
+                   onlineOnly: Boolean = false) {
         savePosition()
         state.interruptCatalogue()
         val focusBeforeRequest = OnlineFocusTicket(focusVersion[0], memory.key, memory.revision)
         detailRetryFocusFrom = null
-        if (state.sourceId != source) changeSource(source)
+        if (cacheItemId.isBlank() && state.sourceId != source) changeSource(source)
         if (state.detailSourceId != source || state.detailExternalId != externalId) state.detailUi.reset()
         itemRead.cancel(); playRead.cancel()
         state.detailSourceId = source; state.detailExternalId = externalId; state.detail = null; state.item = null; state.detailError = ""; state.notice = ""
+        state.cacheDetail = null; state.cacheItemId = cacheItemId
+        state.detailOnlineRequested = onlineOnly
         state.pendingFocus = null
         catalogue.start(scope) { ticket ->
             state.detailLoading = true
             try {
-                val value = online.detail(source, externalId)
+                val opened = if (cacheItemId.isNotBlank()) online.cacheDetail(cacheItemId).let {
+                    org.jzmedia.tv.data.OnlineOpenedDetail(it.playableDetail(), it)
+                } else if (onlineOnly) org.jzmedia.tv.data.OnlineOpenedDetail(online.detail(source, externalId))
+                else online.preferredDetail(source, externalId)
+                val value = opened.detail
                 coroutineContext.ensureActive()
                 if (!alive() || !catalogue.current(ticket) || state.detailSourceId != source || state.detailExternalId != externalId) return@start
                 detailInitialFocusAllowed = focusBeforeRequest.isCurrent(focusVersion[0], memory.key, memory.revision)
                 state.detail = value
+                state.cacheDetail = opened.cache
+                opened.cache?.let { state.detailExternalId = it.externalId; state.cacheItemId = it.detail.item.id }
                 state.lineId = resume?.lineId?.takeIf { id -> value.lines.any { it.id == id } }
                     ?: value.lines.firstOrNull { it.entries.any { entry -> entry.supported } }?.id
                     ?: value.lines.firstOrNull()?.id.orEmpty()
                 loadItem()
                 val entry = resume?.let { onlinePrepareRecordResume(state.detailUi, value, it) }
-                if (resume != null && entry == null) state.notice = "上次线路或分集已变化，请重新选择。"
+                if (resume != null && entry == null) state.notice = if (opened.cache != null)
+                    "上次分集尚未完成本地缓存，请选择已缓存分集，或联网查看分集。"
+                    else "上次线路或分集已变化，请重新选择。"
                 if (entry != null) play(entry)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (alive() && catalogue.current(ticket)) {
@@ -538,7 +559,8 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
         state.autoplay = preferences.getBoolean(preferenceKey, false)
         loadSources(); loadLibrary()
         if (state.showingDetail && state.detail == null && state.detailError.isBlank())
-            openDetail(state.detailSourceId, state.detailExternalId)
+            openDetail(state.detailSourceId, state.detailExternalId, cacheItemId = state.cacheItemId,
+                onlineOnly = state.detailOnlineRequested)
         else loadItem()
     }
     LaunchedEffect(state.sourceId, state.sourcesLoading, state.cataloguePending, state.section, state.showingDetail) {
@@ -625,8 +647,8 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
     val selectedSource = state.sources?.items?.firstOrNull { it.id == state.sourceId }
     val enabled = state.sources?.enabled == true
     val detail = state.detail
-    val playableSource = enabled && !state.sourcesLoading && state.sourcesError.isBlank() &&
-        state.sources?.items?.any { it.id == detail?.source?.id && it.enabled } == true
+    val playableSource = enabled && (state.cacheDetail != null || !state.sourcesLoading && state.sourcesError.isBlank() &&
+        state.sources?.items?.any { it.id == detail?.source?.id && it.enabled } == true)
     if (state.showingDetail) {
         when {
             state.detailLoading -> Status("正在读取线路与分集…", icon = "loading")
@@ -641,7 +663,8 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Status(state.detailError, icon = "error")
-                    TvAction("重试详情", { openDetail(state.detailSourceId, state.detailExternalId) },
+                    TvAction("重试详情", { openDetail(state.detailSourceId, state.detailExternalId, cacheItemId = state.cacheItemId,
+                        onlineOnly = state.detailOnlineRequested) },
                         Modifier.onlineFocus("online:retry-detail"), icon = "refresh")
                 }
             }
@@ -651,7 +674,9 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                 onPlay = ::play,
                 onFavorite = { item -> favorite(detail.item.id, !item.favorite, item.scopeToken) },
                 onAutoplayChange = { value -> state.autoplay = value; preferences.edit().putBoolean(preferenceKey, value).apply() },
-                onCheckHosts = ::openHostDialog, hostDialogOpen = hostDialog != null)
+                onCheckHosts = ::openHostDialog, hostDialogOpen = hostDialog != null, localCache = state.cacheDetail != null,
+                canOpenOnline = enabled && !state.sourcesLoading && state.sources?.items?.any { it.id == detail.source.id && it.enabled } == true,
+                onOpenOnline = { openDetail(detail.source.id, state.detailExternalId, onlineOnly = true) })
             else -> Status("正在读取线路与分集…", icon = "loading")
         }
         hostDialog?.takeUnless { it.authorizing }?.let { value ->
@@ -802,6 +827,35 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                             TvAction("下一页", { search(result.page + 1, state.loadedSelection) }, Modifier.onlineFocus("online:next-search"), enabled = result.page < result.pageCount && result.page < 1000, icon = "forward")
                         }
                     } }
+                }
+            }
+        } else if (state.section == "cache") {
+            item(key = "cache-controls") {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TvAction("刷新缓存", { savePosition(); loadLibrary(); target("online:refresh-cache") },
+                        Modifier.onlineFocus("online:refresh-cache"), enabled = !state.libraryLoading, icon = "refresh")
+                    Text("服务器磁盘中的剧集 · 下载和删除请在网页管理", color = Muted)
+                }
+            }
+            when {
+                state.libraryLoading -> item { Status("正在读取本地缓存…", icon = "loading") }
+                state.libraryError.isNotBlank() -> item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Status(state.libraryError, icon = "error")
+                        TvAction("重试缓存", { loadLibrary() }, Modifier.onlineFocus("online:retry-library"), icon = "refresh")
+                    }
+                }
+                state.sources?.enabled == false || state.cacheLibrary?.enabled != true -> item { Status("在线点播已关闭，请先在网页启用。") }
+                state.cacheLibrary?.items.isNullOrEmpty() -> item { Status("还没有本地缓存，请在网页剧集详情选择要缓存的分集。") }
+                else -> items(state.cacheLibrary!!.items, key = { "cache:${it.itemId}" }) { row ->
+                    Column(Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(10.dp)).padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(row.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text("${row.sourceName} · 已缓存 ${row.readyCount} / ${row.totalCount} 集", color = Muted)
+                        TvAction("查看缓存分集", { openDetail(row.sourceId, "", cacheItemId = row.itemId) },
+                            Modifier.onlineFocus("online:cache:${row.itemId}"),
+                            enabled = !state.sourcesLoading && state.sources?.enabled == true, icon = "forward")
+                    }
                 }
             }
         } else {

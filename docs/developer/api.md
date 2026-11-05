@@ -218,21 +218,41 @@ claim 不接收任意播放身份，而是核对 `session_id` 的设备归属。
 
 进度请求严格为 `{writer_id,writer_revision,seq,position,duration,paused,completed}`：`seq` 从正整数开始递增，位置为有限非负秒数，时长为正秒数或 `null`。相同序号与相同内容幂等，旧序号、旧 writer 或不同内容重用同一序号返回 `409 online_progress_writer_conflict`；发生冲突不自动重新读取和抢占 writer。writer 的 2 小时空闲期限只由完整校验通过的新序号保存延长，重复幂等包不续期，过期或被替代后不能靠迟到包恢复。用户向后 seek 可以减少位置。`completed:true` 仅描述真实 ended，要求有效时长及接近实际终点的位置，不接受归零的完播包；新一轮重播需新会话与新资格。
 
-来源或总开关关闭后，已有记录可读、可取消收藏、可清历史，未过期且权限仍有效的已有 writer 可提交最终快照；新收藏与新 claim 要求来源启用。每设备与模式最多 500 个收藏、1000 条完整身份进度，达到相应上限返回 `429 online_favorite_limit` 或 `online_progress_limit`。普通／隐私模式和不同设备彼此隔离，不承诺跨设备账户同步。
+来源或总开关关闭后，已有记录可读、可取消收藏、可清历史，未过期且权限仍有效的已有 writer 可提交最终快照；新收藏与新 claim 要求总开关开启，且来源启用或该条目有完整本地缓存。每设备与模式最多 500 个收藏、1000 条完整身份进度，达到相应上限返回 `429 online_favorite_limit` 或 `online_progress_limit`。普通／隐私模式和不同设备彼此隔离，不承诺跨设备账户同步。
 
 删除历史在同一事务中递增本设备、本模式的状态命名空间，返回新的 `scope_token`；旧 writer 与在途 claim 不能将删除的记录写回。客户端采纳新 token 只用于之后新的显式操作，其它旧页面须重新开始播放。数据键与写入期限见[在线收藏与观看进度](data.md#在线收藏与观看进度)。
 
+## 在线剧集本地缓存
+
+`/api/online/cache` 管理服务端共享的持久剧集。读取需要有效设备观看会话；写操作还遵循管理验证及写令牌规则，儿童模式拒绝。在线总开关关闭后仍可读取快照、暂停和删除缓存；新增、继续、重试和播放要求总开关开启。单个来源停用不会阻止读取或播放已完成缓存。接口不接受媒体 URL 或磁盘路径，所有响应使用 `Cache-Control:no-store`。
+
+| 请求 | 请求与返回 |
+|---|---|
+| `GET /api/online/cache/items` | `{enabled,items,storage}`；按剧分组的任务及独立磁盘占用 |
+| `GET /api/online/cache/items/{item_id}` | `{enabled,external_id,detail,entries}`；保存的 `CatalogDetail` 及分集任务，不访问上游 |
+| `GET /api/online/cache/lookup?source_id=src_...&external_id=123` | 按来源和外部 ID 查快照；没有缓存返回 404 |
+| `GET /api/online/cache/artwork/{item_id}` | 持久本地封面；没有保存的封面返回 404 |
+| `POST /api/online/cache/tasks` | `{source_id,item_id,line_id,episode_ids}`；返回 `{tasks}`，按完整身份去重，202 接受 |
+| `POST /api/online/cache/tasks/{task_id}/actions` | `{action:"pause"}`；也支持 `resume`、`retry` |
+| `POST /api/online/cache/entries/delete` | `{ids:[缓存ID]}`；返回 `{results:[{id,deleted,error_code}]}` |
+
+任务条目包括 `id/task_id`、`identity`、`label/line_label`、`state`、`downloaded_bytes/total_bytes`、`completed_resources/total_resources`、`speed_bytes_per_second`、`error_code` 和 `duration_seconds`。状态为 `queued/downloading/paused/failed/ready/deleting`，总字节数尚未知时为 null。缓存成品及资源路径只在服务端保存；失败返回固定错误代码，不返回来源响应正文或签名地址。
+
+已完成缓存复用下述播放会话接口，播放描述形状保持不变；缓存命中在来源解析之前执行。缓存损坏返回明确错误，不自动改走来源。删除会先撤销相关下载和本地播放，再删除受控目录；失败结果可重试。恢复、完整性与存储约束见[持久本地缓存](playback.md#在线剧集持久本地缓存)。
+
+缓存入口创建或重建播放会话时发送 `X-Online-Cache-Only:true`，无完整缓存返回 `409 online_cache_not_ready`，避免删除与续期竞态触发联网。省略此头保留普通在线入口的本地优先行为；该头只接受字面值 `true`，不修改身份或播放描述协议。
+
 ## 在线播放会话
 
-会话网关与独立网页播放器连接 MacCMS JSON 或显式启用的开放样例提供方。创建前重新读取所选内容、线路与分集的当前地址；不能在请求中提交播放 URL 或上游请求头。提供方支持不等于该站点已经通过连通性或长期播放验收。前端接口及开发机隔离入口见[在线网页播放器](playback.md#在线网页播放器)。
+会话网关与独立网页播放器连接 MacCMS JSON 或显式启用的开放样例提供方。未命中完整本地缓存时，创建前重新读取所选内容、线路与分集的当前地址；不能在请求中提交播放 URL 或上游请求头。提供方支持不等于该站点已经通过连通性或长期播放验收。前端接口及开发机隔离入口见[在线网页播放器](playback.md#在线网页播放器)。
 
 客户端先调用 `GET /api/viewing/session` 并保留设备 Cookie；电视端使用已有 `x-viewing-session` 机制。即使保护功能关闭，创建、读取和关闭也须携带有效设备会话。启用保护后的儿童模式暂时返回 `403`，不会获得未分类的在线资源。POST 和 DELETE 沿用配置过的全局写令牌，GET/HEAD 不要求该写令牌，但必须与创建者为同一设备及有效观看 generation。
 
 | 请求 | 行为 |
 |---|---|
-| `POST /api/online/sessions` | 请求体直接使用 `OnlinePlaybackIdentity`；提供方可用时返回 `201` 和同源播放描述 |
+| `POST /api/online/sessions` | 请求体直接使用 `OnlinePlaybackIdentity`；完整缓存命中或提供方可用时返回 `201` 和同源播放描述 |
 | `GET /api/online/sessions/{session_id}/media` | 读取已绑定入口；MP4 支持单 Range，HLS 返回完整重写清单，即使收到合法单 Range 探测也返回 `200` |
-| `HEAD /api/online/sessions/{session_id}/media` | 读取入口元信息，不读取媒体响应体 |
+| `HEAD /api/online/sessions/{session_id}/media` | 读取入口元信息；远程清单不读取响应体，本地清单读取并重写以返回准确长度，均不发送正文 |
 | `GET/HEAD /api/online/sessions/{session_id}/resources/{resource_id}` | 读取当前会话登记的不透明资源 |
 | `DELETE /api/online/sessions/{session_id}` | 关闭本设备当前会话并返回 `204`，中断其上游读取 |
 
@@ -242,7 +262,7 @@ claim 不接收任意播放身份，而是核对 `session_id` 的设备归属。
 
 创建请求断连或取消时中断提供方的上游操作，同步工作仍持有其结果；工作结束后会回收尚未交付的会话，不能仅取消等待而遗失创建结果。描述经过序列化、连接状态和来源指纹复核后才提交；仍能返回错误响应时，创建取消使用固定 `410`、`code:"online_create_cancelled"`。这不保证网络传输一定送达客户端：响应提交后的丢包仍依赖客户端释放和服务端期限兜底。前端对收到的晚到会话执行释放，也不会把它挂到已关闭或换身份的媒体元素。
 
-所有响应使用 `Cache-Control:no-store` 和 `X-Content-Type-Options:nosniff`。未知或其它设备的会话/资源返回 `404`；设备会话缺失、失效或观看权限撤销返回 `401`。媒体读取遇到临时并发或进程在途预算不足时返回 `503 request_limit`；会话或字节窗口额度耗尽返回 `429`。无效/超限 Range 返回 `416`，超大上游响应可返回 `413`，协议错误返回固定类别而不转发上游正文。发送响应头前耗尽单次取流总期限返回 `504`，发送后出现超时或错误则中断响应体。来源停用和关闭总开关会撤销活动会话，权限变化由新请求和每秒维护任务复核。期限、缓冲、HLS 支持范围及精确字节限额集中见[在线会话与透传限额](playback.md#在线会话与透传限额)。
+所有响应使用 `Cache-Control:no-store` 和 `X-Content-Type-Options:nosniff`。未知或其它设备的会话/资源返回 `404`；设备会话缺失、失效或观看权限撤销返回 `401`。媒体读取遇到临时并发或进程在途预算不足时返回 `503 request_limit`；会话或字节窗口额度耗尽返回 `429`。无效/超限 Range 返回 `416`，超大上游响应可返回 `413`，协议错误返回固定类别而不转发上游正文。发送响应头前耗尽单次取流总期限返回 `504`，发送后出现超时或错误则中断响应体。来源停用会撤销远程会话，关闭总开关会撤销全部在线会话，权限变化由新请求和每秒维护任务复核。期限、缓冲、HLS 支持范围及精确字节限额集中见[在线会话与透传限额](playback.md#在线会话与透传限额)。
 
 ## 任务模式
 
