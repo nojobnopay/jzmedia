@@ -105,6 +105,7 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
     val playFocus = remember(controller) { FocusRequester() }
     val menuFocus = remember(controller) { FocusRequester() }
     val errorFocus = remember(controller) { FocusRequester() }
+    val confirmPress = remember(controller) { PlaybackConfirmPress() }
     val previewPath = "/api/stream/${request.id}/previews?kind=${request.kind}"
 
     fun stopSeekHold() { seekHold?.cancel(); seekHold = null }
@@ -196,6 +197,7 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
     }
     Box(Modifier.fillMaxSize().background(Color.Black).onPreviewKeyEvent { event ->
         val native = event.nativeKeyEvent
+        if (confirmPress.consume(native.keyCode, native.action == KeyEvent.ACTION_UP)) return@onPreviewKeyEvent true
         if (native.action == KeyEvent.ACTION_UP && native.keyCode in listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT) && seekHold != null) {
             stopSeekHold(); return@onPreviewKeyEvent true
         }
@@ -215,6 +217,7 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
                     }
                     KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> { stopSeekHold(); preview = null; controls = true; true }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                        confirmPress.handle(native.keyCode)
                         stopSeekHold()
                         if (preview != null) { controller.seek(preview!!); preview = null }
                         else { controller.toggle(); controls = true }
