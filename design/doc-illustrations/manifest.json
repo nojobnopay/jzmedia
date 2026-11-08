@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "assets": {
+    "casting-devices": {
+      "master": "design/doc-illustrations/casting-devices.webp",
+      "title": "手机、家用NAS与电视的投屏设备场景",
+      "source": "内置 image_gen 工具原创生成；无真实设备、界面或媒体资料",
+      "generated_at": "2026-11-08",
+      "model": "工具未返回可核实的模型标识",
+      "prompt": "Use case: scientific-educational\nAsset type: three-device scene illustration for jzmedia's Chinese help documentation about casting local media to a television.\nPrimary request: a refined editorial isometric cutaway miniature of a home media setup, wide landscape 3:2 composition. Three distinct physical devices sit separated horizontally on a clean very pale warm white background: on the left a modern smartphone standing upright, in the centre a two-bay home NAS with subtle status LEDs and network socket, on the right a large flat-screen television with a small remote beside it. Include subtle tactile materials, white and graphite hardware, muted red accents, soft diffuse shadows. The smartphone and television both display the SAME simple cinematic image of a blue sea and pale island at sunset, no UI controls, no text. The NAS stores media; it is not a decoder and has no screen. Device positions must remain visually separate with plenty of empty space between for accurate programmatic arrows. No people, no room clutter.\nStyle/medium: high quality three-dimensional clay and product illustration, clear silhouettes, calm technical editorial visual, not a flat icon set.\nComposition: devices fill the middle band from about y=25% to y=78%; smartphone in left quarter, NAS at centre, television right third. Maintain 10% outer margins. Plain pale background. No arrows or connections: these will be drawn precisely in an editable layer.\nConstraints: no text, no labels, no letters, no watermark, no logos, no invented controls, only the three devices and remote described. Export one static image.",
+      "original_dimensions": [
+        1536,
+        1024
+      ],
+      "dimensions": [
+        1024,
+        440
+      ],
+      "conversion": "FFmpeg crop=1536:660:0:200,scale=1024:-1; libwebp quality=86",
+      "sha256": "2595a2c4e92e46ca65c8536aae7bf7b6c175eb5a9f042a5e4de4e867da90f8ca",
+      "use": "帮助站投屏说明的桌面横向插图；设备角色与状态由响应式网页文字表达，不作为真实界面或真机验收证据"
+    },
+    "casting-devices-mobile": {
+      "master": "design/doc-illustrations/casting-devices-mobile.webp",
+      "title": "手机投屏说明的纵向设备场景",
+      "source": "内置 image_gen 工具参考桌面原创插图重新构图；无真实设备、界面或媒体资料",
+      "generated_at": "2026-11-08",
+      "model": "工具未返回可核实的模型标识",
+      "reference": "design/doc-illustrations/casting-devices.webp",
+      "prompt": "Use case: scientific-educational\nAsset type: portrait art-directed mobile illustration for a home media casting tutorial.\nEdit target: the supplied clean wide device illustration. Preserve the identity and high quality of the existing three devices: upright silver/graphite smartphone, white two-bay NAS with black drive trays and a red accent around the front, thin dark TV and its small remote. Preserve the same peach sunset, island and blue sea on both screens, materials, light, and restrained realistic product-render look.\nChange the composition for a narrow mobile screen: portrait 3:4 canvas. Put the large television in the upper half, a little towards the right. Place the smartphone upright in the lower-left foreground and the NAS in the lower-right foreground, with the small remote near the TV. Arrange them as a spacious triangular editorial composition, every device clearly visible, without overlapping screens or hiding drive bays. The phone and NAS should feel comfortably large when this portrait is displayed only 340 CSS pixels wide.\nUse a nearly white subtly warm seamless background and very soft contact shadows. Quiet premium product photography. Leave modest breathing room, do not leave a huge empty band. The scene should feel coherent and grounded, without platforms or framing cards.\nNo arrows, no connectors, no labels, no words, no numbers, no logos, no UI controls, no diagram boxes, no border. All explanatory typography will be normal web text outside the image. Return one static portrait image.",
+      "original_dimensions": [
+        1086,
+        1448
+      ],
+      "dimensions": [
+        768,
+        1024
+      ],
+      "conversion": "FFmpeg scale=768:1024; libwebp quality=86",
+      "sha256": "9fdcbfb8eee422449b4bfed8a9486376873499cf2eef47634b7f75dd61561b33",
+      "use": "CSS 视口宽度不超过 640px 时的独立纵向构图；与桌面共用网页文字，不作为真实界面或真机验收证据"
+    }
+  }
+}

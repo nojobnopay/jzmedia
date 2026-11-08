@@ -32,7 +32,7 @@
 
 <DocFigure src="../assets/screenshots/movie-library.webp" alt="电影墙：继续观看、排序与海报" caption="继续观看只在有有效断点时出现；墙默认按入库时间倒序，可切年份、评分等排序。图中影片和 AI 生成海报均为虚构演示素材。" />
 
-<DocFigure src="../assets/screenshots/mobile-library.webp" alt="手机宽度下的电影墙" caption="Chromium 移动模拟（390×844 CSS，1x）：虚构影片与 AI 生成海报，展示常用筛选入口、紧凑继续观看和三列海报墙；列数随视口宽度和海报大小偏好调整。" />
+<DocFigure phone src="../assets/screenshots/mobile-library.webp" alt="手机宽度下的电影墙" caption="Chromium 移动模拟（390×844 CSS，1x）：虚构影片与 AI 生成海报，展示常用筛选入口、紧凑继续观看和三列海报墙；列数随视口宽度和海报大小偏好调整。" />
 
 ### 智能搜索
 

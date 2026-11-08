@@ -56,7 +56,7 @@
 
 目录不能复制到自身或子目录，通过符号链接间接指向也不可以。复制期间连接中断时任务会报告失败；可能已有部分文件落盘，恢复连接后先核对目标和任务结果，再决定重试，后台写入结束后再扫描。
 
-<DocFigure src="../assets/screenshots/file-browser-mobile.webp" alt="手机文件管理的更多操作菜单" caption="手机通过“更多”菜单执行所选文件的操作，无需右键。画面为模拟 API 演示。" />
+<DocFigure phone src="../assets/screenshots/file-browser-mobile.webp" alt="手机文件管理的更多操作菜单" caption="手机通过“更多”菜单执行所选文件的操作，无需右键。画面为模拟 API 演示。" />
 
 ## 原地预览文件
 

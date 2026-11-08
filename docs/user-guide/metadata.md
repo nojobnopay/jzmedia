@@ -1,10 +1,16 @@
 # 扫描与元数据
 
+<script setup>
+import DocIngestionFlow from '../.vitepress/theme/components/DocIngestionFlow.vue'
+</script>
+
 [用户手册](README.md)
 
-扫描发现文件并更新库记录，匹配把文件关联到电影或剧集资料，落盘按视频库策略写 NFO 与图片，归档整理才移动或重命名。剧集会把发现、补资料和整理检查接在同一流程中；目录移动和文件改名仍需预览确认。
+先确认目标视频库，再按文件位置选择入口：服务器或 NAS 上已有的文件用扫描，当前电脑或手机上的文件用上传。登记后核对标题、年份或集号，并打开详情试播。
 
-<DocDiagram src="../assets/diagrams/ingestion.svg" alt="扫描或上传发现内容，剧集自动补资料并检查整理项，确认预览后移动改名" caption="先自动识别和补资料，有可整理项时再核对预览并确认。" />
+<DocIngestionFlow />
+
+扫描发现文件并更新库记录，匹配把文件关联到电影或剧集资料，落盘按视频库策略写 NFO 与图片，归档整理才移动或重命名。剧集会把发现、补资料和整理检查接在同一流程中；目录移动和文件改名仍需预览确认。
 
 <span id="案例一一次顺利的入库"></span>
 

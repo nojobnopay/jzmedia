@@ -219,6 +219,7 @@ def test_check_rejects_unrendered_masters_without_writing_any_file(tmp_path, mon
     for directory in ('design', 'frontend/src', 'frontend/public', 'android-tv/app/src/main/java',
                       'android-tv/app/src/main/res', 'docs/assets/design'):
         shutil.copytree(ROOT / directory, tmp_path / directory)
+    shutil.copyfile(ROOT / 'docs/assets/manifest.json', tmp_path / 'docs/assets/manifest.json')
     monkeypatch.setattr(design, 'ROOT', tmp_path)
     monkeypatch.setattr(design, 'DESIGN', tmp_path / 'design')
     monkeypatch.setattr(design.sys, 'argv', ['build_design.py', '--check'])

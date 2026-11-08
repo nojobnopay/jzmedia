@@ -23,7 +23,7 @@ export default defineConfig({
   vue: { template: { transformAssetUrls: {
     includeAbsolute: true,
     tags: { img: ['src'], image: ['xlink:href', 'href'], video: ['src', 'poster'], source: ['src'],
-      track: ['src'], DocFigure: ['src'], DocDiagram: ['src'], DocVideo: ['src', 'poster', 'captions'] },
+      track: ['src'], DocFigure: ['src', 'mobile-src'], DocDiagram: ['src'], DocVideo: ['src', 'poster', 'captions'] },
   } } },
   markdown: { config: md => mermaidFence(md) },
   themeConfig: {

@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import time
@@ -24,6 +25,7 @@ from playwright.sync_api import sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "docs/assets"
 CAPTURED = set()
+CAPTURE_DETAILS = {}
 
 
 def timestamp(seconds):
@@ -41,14 +43,77 @@ def binary(name):
     raise SystemExit(f"请先安装 {name}，或在应用 .venv 中安装并准备 static-ffmpeg。")
 
 
-def screenshot(page, rel, work):
+def screenshot(page, rel, work, selector=None):
     destination = ASSETS / rel
     destination.parent.mkdir(parents=True, exist_ok=True)
     png = work / (destination.stem + ".png")
-    page.screenshot(path=str(png))
+    target = page.locator(selector) if selector else page
+    target.screenshot(path=str(png), animations="disabled")
     subprocess.run([binary("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y",
                     "-i", str(png), "-quality", "86", str(destination)], check=True)
     CAPTURED.add(rel)
+    width, height = struct.unpack(">II", png.read_bytes()[16:24])
+    CAPTURE_DETAILS[rel] = {
+        "viewport": {**page.viewport_size, "device_scale_factor": page.evaluate("devicePixelRatio")},
+        "width": width, "height": height,
+        "capture_mode": "element" if selector else "viewport",
+    }
+    if selector:
+        CAPTURE_DETAILS[rel]["capture_selector"] = selector
+
+
+def onboarding_mobile(browser, base, work):
+    """Photograph the real mobile wizard without rerecording desktop videos."""
+    context = browser.new_context(viewport={"width": 390, "height": 844},
+        device_scale_factor=2, is_mobile=True, has_touch=True, locale="zh-CN",
+        color_scheme="dark", reduced_motion="reduce")
+    external = []
+    origin = urlparse(base)
+
+    def local_only(route):
+        target = urlparse(route.request.url)
+        if target.scheme in {"http", "https"} and (target.hostname, target.port) != (origin.hostname, origin.port):
+            external.append(route.request.url)
+            route.abort()
+        else:
+            route.continue_()
+
+    context.route("**/*", local_only)
+    page = context.new_page()
+    page.set_default_timeout(20000)
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    try:
+        page.goto(base)
+        page.get_by_text("欢迎使用 jzmedia", exact=True).wait_for()
+        screenshot(page, "previews/onboarding/00-welcome-mobile.webp", work, ".setup-welcome")
+        page.get_by_role("link", name="开始配置", exact=True).click()
+        page.get_by_role("button", name="稍后配置 TMDB", exact=True).wait_for()
+        screenshot(page, "previews/onboarding/01-source-mobile.webp", work, ".setup-card")
+        page.get_by_role("button", name="稍后配置 TMDB", exact=True).click()
+        page.get_by_role("button", name="检查并使用此视频库", exact=True).wait_for()
+        page.locator(".choice-picker select").wait_for(state="visible")
+        screenshot(page, "previews/onboarding/02-library-mobile.webp", work, ".setup-card")
+        page.get_by_role("button", name="检查并使用此视频库", exact=True).click()
+        page.get_by_role("button", name="扫描此视频库", exact=True).wait_for()
+        screenshot(page, "previews/onboarding/03-import-mobile.webp", work, ".setup-card")
+        page.get_by_role("button", name="扫描此视频库", exact=True).click()
+        result = page.get_by_role("button", name="查看入库结果", exact=True)
+        result.wait_for(state="visible")
+        page.wait_for_function("() => [...document.querySelectorAll('button')].some(b => b.textContent === '查看入库结果' && !b.disabled)")
+        result.click()
+        page.get_by_role("heading", name="内容已入库，请核对结果", exact=True).wait_for()
+        page.get_by_role("link", name=re.compile("星海漫游.*查看详情与播放")).wait_for()
+        screenshot(page, "previews/onboarding/04-result-mobile.webp", work, ".setup-card")
+        assert not errors, errors
+        assert not external, f"隔离演示出现外部请求：{external}"
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), "手机向导横向溢出"
+        print("手机四步向导拍摄完成：390×844 CSS 视口，真实 UI 与隔离 NFO 入库。", flush=True)
+        return {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 2,
+                "capture_mode": "element", "external_requests": external, "page_errors": errors,
+                "result": "已登记合成电影，结果页可进入详情播放"}
+    finally:
+        context.close()
 
 
 class Recording:
@@ -270,7 +335,8 @@ def player_details(browser, base, work):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("preview", type=Path)
-    parser.add_argument("--only", choices=["onboarding", "subtitles", "organizing", "player"])
+    parser.add_argument("--only", choices=["onboarding", "onboarding-mobile", "subtitles", "organizing", "player"],
+                        help="仅拍摄所选流程；onboarding-mobile 只拍手机截图，需要全新隔离实例")
     args = parser.parse_args()
     preview = args.preview.resolve()
     if preview.parent != Path("/tmp") or not preview.name.startswith("jzmedia-preview-"):
@@ -290,6 +356,8 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch()
         try:
+            if args.only == "onboarding-mobile":
+                results["onboarding-mobile"] = onboarding_mobile(browser, base, work)
             if args.only in (None, "onboarding"):
                 results["onboarding"] = onboarding(browser, base, work)
                 mobile = browser.new_context(viewport={"width": 407, "height": 904},
@@ -312,7 +380,7 @@ def main():
             browser.close()
     (work / "verification.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     from capture_docs_manifest import main as update_manifest
-    update_manifest(captured=CAPTURED)
+    update_manifest(captured=CAPTURED, capture_details=CAPTURE_DETAILS)
     print(f"录屏原件及验证记录：{work}")
 
 

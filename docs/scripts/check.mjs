@@ -23,9 +23,11 @@ export function checkOutput(root = defaultDist, base = site.base) {
         if (attr(node, 'autoplay') !== undefined) errors.push(`${file}: 视频不应自动播放`)
         if (!node.childNodes?.some(child => child.tagName === 'track' && attr(child, 'kind') === 'captions')) errors.push(`${file}: 视频缺少字幕轨`)
       }
-      const attributes = ['src', 'poster', 'href', 'xlink:href']
-      for (const name of attributes) {
-        const raw = attr(node, name)
+      const resources = ['src', 'poster', 'href', 'xlink:href'].map(name => attr(node, name))
+      // A picture's mobile source may never load during a desktop-only review.
+      // Inspect every local srcset candidate as well as the fallback img src.
+      if (attr(node, 'srcset')) resources.push(...attr(node, 'srcset').split(',').map(candidate => candidate.trim().split(/\s+/)[0]))
+      for (const raw of resources) {
         if (!raw || /^(?:data:|blob:|mailto:|tel:)/i.test(raw)) continue
         let target
         try { target = new URL(raw, `http://docs.invalid${base}${file}`) }
@@ -68,13 +70,98 @@ export function checkAppHelpLinks(root = docsRoot, dist = defaultDist) {
   return errors
 }
 
-export function checkSources(root = docsRoot) {
+// Storyboard images live in the generated theme module rather than Markdown
+// attributes. Read its editable source so the Node checker does not import
+// Vite's ?url modules, and validate every step, even the initially hidden ones.
+function storyboardAssets(root) {
+  const assets = new Map()
   const errors = []
+  const assetRoot = path.resolve(root, 'assets')
+  let stories
+  let loaded = false
+  for (const file of publicPages(root)) {
+    const source = readFileSync(path.join(root, file), 'utf8').replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, '')
+    for (const match of source.matchAll(/<DocStoryboard\b[^>]*>/g)) {
+      if (!loaded) {
+        loaded = true
+        try { stories = JSON.parse(readFileSync(path.resolve(root, '../design/doc-storyboards.json'), 'utf8')).stories }
+        catch { errors.push('design/doc-storyboards.json: 分镜源不存在或不是有效 JSON') }
+      }
+      const id = match[0].match(/\bstory=["']([^"']+)["']/)?.[1]
+      if (!id) { errors.push(`${file}: 分镜组件需要固定 story 标识`); continue }
+      if (!stories || typeof stories !== 'object' || !Object.hasOwn(stories, id)) {
+        errors.push(`${file}: 未知分镜 ${id}`)
+        continue
+      }
+      const story = stories[id]
+      const frames = story?.frames
+      if (!Array.isArray(frames) || !frames.length) { errors.push(`${file}: 分镜 ${id} 缺少画面`); continue }
+      function addAsset(name, label) {
+        if (typeof name !== 'string' || !name || path.isAbsolute(name) ||
+            /^(?:[a-z]+:)?\/\//i.test(name) || name.split(/[\\/]/).includes('..')) {
+          errors.push(`${file}: 分镜 ${id} ${label}必须使用 assets 内的本地素材`)
+          return
+        }
+        const target = path.resolve(assetRoot, name)
+        if (!target.startsWith(assetRoot + path.sep)) {
+          errors.push(`${file}: 分镜 ${id} 素材离开 assets 目录 ${name}`)
+          return
+        }
+        const rel = path.relative(assetRoot, target).split(path.sep).join('/')
+        assets.set(rel, file)
+        if (!existsSync(target)) errors.push(`${file}: 分镜素材不存在 assets/${rel}`)
+      }
+      if (story.illustration) {
+        const illustration = story.illustration
+        addAsset(illustration.file, '桌面插图')
+        addAsset(illustration.mobileFile, '手机插图')
+        if (typeof illustration.alt !== 'string' || !illustration.alt.trim()) errors.push(`${file}: 分镜 ${id} 插图需要 alt`)
+        for (const name of ['width', 'height', 'mobileWidth', 'mobileHeight']) {
+          if (!Number.isInteger(illustration[name]) || illustration[name] <= 0) errors.push(`${file}: 分镜 ${id} 插图 ${name} 必须是正整数`)
+        }
+      }
+      const hasText = value => typeof value === 'string' && !!value.trim()
+      const treeComplete = tree => tree && hasText(tree.root) && hasText(tree.season) &&
+        Array.isArray(tree.files) && tree.files.length > 0 && tree.files.every(hasText)
+      if (!hasText(story.title)) errors.push(`${file}: 分镜 ${id} 需要标题`)
+      if (!['binding', 'tree', 'casting'].includes(story.kind)) errors.push(`${file}: 分镜 ${id} 类型无效`)
+      if (story.kind === 'casting' && !story.illustration) errors.push(`${file}: 分镜 ${id} 缺少设备插图`)
+      for (const [index, frame] of frames.entries()) {
+        const step = `${file}: 分镜 ${id} 第 ${index + 1} 步`
+        for (const name of ['label', 'heading', 'summary', 'detail']) {
+          if (!hasText(frame?.[name])) errors.push(`${step}缺少 ${name} 说明`)
+        }
+        if (story.kind === 'casting' && (!Array.isArray(frame?.participants) || !frame.participants.length || frame.participants.some(participant =>
+          !participant || !hasText(participant.name) || !hasText(participant.action)))) {
+          errors.push(`${step}需要参与端与动作说明`)
+        }
+        if (story.kind === 'binding') {
+          if (!['review', 'assign', 'saved'].includes(frame?.state)) errors.push(`${step}归属状态无效`)
+          if (!Array.isArray(frame?.folders) || !frame.folders.length || !Array.isArray(frame?.targets) ||
+              frame.targets.length !== frame.folders.length || frame.folders.some(folder => !hasText(folder?.name) || !hasText(folder?.file)) ||
+              frame.targets.some(target => !hasText(target?.name) || !hasText(target?.detail))) {
+            errors.push(`${step}需要成对的目录与归属说明`)
+          }
+        }
+        if (story.kind === 'tree') {
+          if (!['before', 'preview', 'after'].includes(frame?.state)) errors.push(`${step}整理状态无效`)
+          if (!treeComplete(frame) || (frame.state === 'preview' && !treeComplete(frame.original))) {
+            errors.push(`${step}需要完整的目录与文件；预览还需原目录`)
+          }
+        }
+      }
+    }
+  }
+  return { assets, errors }
+}
+
+export function checkSources(root = docsRoot) {
+  const errors = storyboardAssets(root).errors
   for (const file of publicPages(root)) {
     const source = readFileSync(path.join(root, file), 'utf8').replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, '')
     for (const match of source.matchAll(/<Doc(?:Figure|Video|Diagram)\b[^>]*>/g)) {
       const tag = match[0]
-      for (const asset of tag.matchAll(/\b(?:src|poster|captions)="([^"]+)"/g)) {
+      for (const asset of tag.matchAll(/\b(?:src|mobile-src|poster|captions)="([^"]+)"/g)) {
         if (/^(https?:)?\/\//.test(asset[1])) errors.push(`${file}: 组件素材必须本地保存 ${asset[1]}`)
         else if (!existsSync(path.resolve(path.dirname(path.join(root, file)), asset[1]))) errors.push(`${file}: 组件素材不存在 ${asset[1]}`)
       }
@@ -85,12 +172,12 @@ export function checkSources(root = docsRoot) {
 }
 
 export function checkAssetManifest(root = docsRoot) {
-  const referenced = new Map()
+  const { assets: referenced, errors } = storyboardAssets(root)
   const assetRoot = path.resolve(root, 'assets')
   for (const file of publicPages(root)) {
     const source = readFileSync(path.join(root, file), 'utf8').replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, '')
     for (const match of source.matchAll(/<Doc(?:Figure|Video|Diagram)\b[^>]*>/g)) {
-      for (const asset of match[0].matchAll(/\b(?:src|poster|captions)=["']([^"']+)["']/g)) {
+      for (const asset of match[0].matchAll(/\b(?:src|mobile-src|poster|captions)=["']([^"']+)["']/g)) {
         const raw = asset[1].split(/[?#]/)[0]
         if (/^(?:https?:)?\/\//.test(raw)) continue
         const target = raw.startsWith('/') ? path.join(root, raw) : path.resolve(root, path.dirname(file), raw)
@@ -98,12 +185,11 @@ export function checkAssetManifest(root = docsRoot) {
       }
     }
   }
-  if (!referenced.size) return []
+  if (!referenced.size) return errors
   let manifest
   try { manifest = JSON.parse(readFileSync(path.join(assetRoot, 'manifest.json'), 'utf8')) }
-  catch { return ['assets/manifest.json: 素材清单不存在或不是有效 JSON'] }
-  if (!Array.isArray(manifest.assets)) return ['assets/manifest.json: 缺少 assets 列表']
-  const errors = []
+  catch { return [...errors, 'assets/manifest.json: 素材清单不存在或不是有效 JSON'] }
+  if (!Array.isArray(manifest.assets)) return [...errors, 'assets/manifest.json: 缺少 assets 列表']
   const entries = new Map()
   for (const entry of manifest.assets) {
     if (!entry || typeof entry.file !== 'string') { errors.push('assets/manifest.json: 素材记录缺少 file'); continue }

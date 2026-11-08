@@ -4,6 +4,42 @@
   "legacy_sources": "docs/assets/README.md",
   "assets": [
     {
+      "file": "previews/onboarding/00-welcome-mobile.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "bytes": 16462,
+      "sha256": "dc853931c00a62a24a7e62003ef5d579ad568de63c989efa403b603895af0197",
+      "verified_at": "2026-11-08",
+      "captured_at": "2026-11-08",
+      "app_version": "0.40.3",
+      "source_commit": "1acc513",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "f1903579939b216c51fff65ae6b589f9a6d0d22813242cdf0293003222dc68d9",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "device_scale_factor": 2
+      },
+      "width": 732,
+      "height": 316,
+      "capture_mode": "element",
+      "capture_selector": ".setup-welcome"
+    },
+    {
       "file": "previews/onboarding/00-welcome.webp",
       "page": "user-guide/onboarding.md",
       "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
@@ -34,6 +70,42 @@
         "height": 1000,
         "device_scale_factor": 1
       }
+    },
+    {
+      "file": "previews/onboarding/01-source-mobile.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "bytes": 39432,
+      "sha256": "bfafeacdafc9ca2e0621c56693efcb529005332fad05a3242dd244f1a3ee41ce",
+      "verified_at": "2026-11-08",
+      "captured_at": "2026-11-08",
+      "app_version": "0.40.3",
+      "source_commit": "1acc513",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "f1903579939b216c51fff65ae6b589f9a6d0d22813242cdf0293003222dc68d9",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "device_scale_factor": 2
+      },
+      "width": 732,
+      "height": 944,
+      "capture_mode": "element",
+      "capture_selector": ".setup-card"
     },
     {
       "file": "previews/onboarding/01-source.webp",
@@ -68,6 +140,42 @@
       }
     },
     {
+      "file": "previews/onboarding/02-library-mobile.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "bytes": 65512,
+      "sha256": "26f29d4458e312c6fc8f48641bf6f8932c4757f7f64837a3d129afdee85ee407",
+      "verified_at": "2026-11-08",
+      "captured_at": "2026-11-08",
+      "app_version": "0.40.3",
+      "source_commit": "1acc513",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "f1903579939b216c51fff65ae6b589f9a6d0d22813242cdf0293003222dc68d9",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "device_scale_factor": 2
+      },
+      "width": 732,
+      "height": 1472,
+      "capture_mode": "element",
+      "capture_selector": ".setup-card"
+    },
+    {
       "file": "previews/onboarding/02-library.webp",
       "page": "user-guide/onboarding.md",
       "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
@@ -100,6 +208,42 @@
       }
     },
     {
+      "file": "previews/onboarding/03-import-mobile.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "bytes": 80174,
+      "sha256": "850c8aabf5a9039e3170d20dad3037c01332b4445cf9e8024fb40a722310219e",
+      "verified_at": "2026-11-08",
+      "captured_at": "2026-11-08",
+      "app_version": "0.40.3",
+      "source_commit": "1acc513",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "f1903579939b216c51fff65ae6b589f9a6d0d22813242cdf0293003222dc68d9",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "device_scale_factor": 2
+      },
+      "width": 732,
+      "height": 1384,
+      "capture_mode": "element",
+      "capture_selector": ".setup-card"
+    },
+    {
       "file": "previews/onboarding/03-import.webp",
       "page": "user-guide/onboarding.md",
       "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
@@ -130,6 +274,42 @@
         "height": 1000,
         "device_scale_factor": 1
       }
+    },
+    {
+      "file": "previews/onboarding/04-result-mobile.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "bytes": 51566,
+      "sha256": "cf41f363fc232022f00a898e4f92dd63014b17819f56f8ed5f7d7b7875187d56",
+      "verified_at": "2026-11-08",
+      "captured_at": "2026-11-08",
+      "app_version": "0.40.3",
+      "source_commit": "1acc513",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "f1903579939b216c51fff65ae6b589f9a6d0d22813242cdf0293003222dc68d9",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "device_scale_factor": 2
+      },
+      "width": 732,
+      "height": 916,
+      "capture_mode": "element",
+      "capture_selector": ".setup-card"
     },
     {
       "file": "previews/onboarding/04-result.webp",
@@ -2485,6 +2665,40 @@
       "fixture_sha256": "071175ddb668282bb645d6a61ae9cbf2cf5e844381e355188d661f69065ec571",
       "bytes": 45968,
       "sha256": "faebd6f29c1ac1569e89f13065cb75316d6329e896d8560fa8f624ef4151124a"
+    },
+    {
+      "file": "illustrations/casting-devices.webp",
+      "page": "user-guide/playback-controls.md",
+      "scene": "播放相同海岛日落画面的手机与电视，以及提供媒体的家用服务器。",
+      "bytes": 31324,
+      "sha256": "2595a2c4e92e46ca65c8536aae7bf7b6c175eb5a9f042a5e4de4e867da90f8ca",
+      "source": "AI 原创设备插图；无真实界面或设备，文字由网页排版",
+      "recording_script": "scripts/build_design.py",
+      "source_files": [
+        "design/doc-storyboards.json",
+        "scripts/design_doc_storyboards.py",
+        "design/doc-illustrations/manifest.json",
+        "design/doc-illustrations/casting-devices.webp"
+      ],
+      "source_sha256": "df97f83cbe4cf66fa3ea9340cb05540db60ee754c13977216ae01c75801cb5e7",
+      "generated_at": "2026-11-08"
+    },
+    {
+      "file": "illustrations/casting-devices-mobile.webp",
+      "page": "user-guide/playback-controls.md",
+      "scene": "播放相同海岛日落画面的手机与电视，以及提供媒体的家用服务器。",
+      "bytes": 54926,
+      "sha256": "9fdcbfb8eee422449b4bfed8a9486376873499cf2eef47634b7f75dd61561b33",
+      "source": "AI 原创设备插图；无真实界面或设备，文字由网页排版",
+      "recording_script": "scripts/build_design.py",
+      "source_files": [
+        "design/doc-storyboards.json",
+        "scripts/design_doc_storyboards.py",
+        "design/doc-illustrations/manifest.json",
+        "design/doc-illustrations/casting-devices-mobile.webp"
+      ],
+      "source_sha256": "df97f83cbe4cf66fa3ea9340cb05540db60ee754c13977216ae01c75801cb5e7",
+      "generated_at": "2026-11-08"
     }
   ],
   "provenance_scope": "per_asset",

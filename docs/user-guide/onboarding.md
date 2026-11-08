@@ -1,5 +1,9 @@
 # 添加第一部影片
 
+<script setup>
+import DocLibraryMap from '../.vitepress/theme/components/DocLibraryMap.vue'
+</script>
+
 <span id="新手配置向导"></span>
 
 跟随四步向导连接自己的片库，登记一部电影或一集电视剧，并打开播放。完整流程以已经安装好的 jzmedia 为起点；还未安装请先看[安装教程](../getting-started/deployment.md)。
@@ -11,81 +15,71 @@
 <details>
 <summary>媒体库与视频库有什么不同</summary>
 
-<DocDiagram src="../assets/diagrams/libraries.svg" alt="一个媒体库存储连接下分别建立电影和剧集视频库" caption="扫描与上传先确认视频库；电影和剧集分开登记。" />
+例如媒体库根目录为 `/app/media`，其下的 `Movies` 和 `TV Shows` 分别登记为电影与剧集视频库。扫描和上传先确认目标视频库。
+
+<DocLibraryMap />
 
 </details>
 
 首次打开空库，点击“开始配置”；已有内容时从“设置 → 新手配置”进入。顶部显示当前步数，已完成步骤显示勾号；手机也使用相同四步，可通过“稍后继续”保留配置。
 
-<DocFigure src="../assets/previews/onboarding/00-welcome.webp" alt="空库欢迎卡片中的开始配置按钮" caption="以下截图和录屏来自隔离演示环境，使用合成短片与本地 NFO。" />
+<DocFigure src="../assets/previews/onboarding/00-welcome.webp" mobile-src="../assets/previews/onboarding/00-welcome-mobile.webp" alt="空库欢迎卡片中的开始配置按钮" caption="桌面与手机截图按屏幕宽度显示；截图和录屏均来自隔离演示，使用合成短片与本地 NFO。" />
 
 ## 跟随四步完成首次入库
 
 ### Step 1：选择资料来源
 
-<DocStep>
-
 填写自己的 TMDB Read Token，点“保存并测试 TMDB 连接”。也可以点“稍后配置 TMDB”，先用已有 NFO、本地缓存及启用的备用来源。
 
 测试成功表示服务器能够验证 TMDB 凭据和 API，不代表海报下载已验证。令牌获取见界面中的官方说明；Read Token 优先于 API Key。
 
-<template #image>
-
-<DocFigure src="../assets/previews/onboarding/01-source.webp" alt="资料来源步骤中保存并测试与稍后配置 TMDB 的入口" caption="演示点击“稍后配置 TMDB”；跳过不妨碍登记本地影片。" />
-
-</template>
-
-</DocStep>
+<DocFigure src="../assets/previews/onboarding/01-source.webp" mobile-src="../assets/previews/onboarding/01-source-mobile.webp" alt="资料来源步骤中保存并测试与稍后配置 TMDB 的入口" caption="演示点击“稍后配置 TMDB”；跳过不妨碍登记本地影片。" />
 
 ### Step 2：检查并使用视频库
 
-<DocStep>
+选择电影或剧集，再选择使用已有视频库、在已有位置添加视频库，或添加文件存放位置；手机通过“添加方式”下拉框切换。可添加本地、SMB、NFS 存储与视频子目录。
 
-选择电影或剧集，再选择使用已有视频库、在已有位置添加视频库，或添加文件存放位置；手机通过“添加方式”下拉框切换。可添加本地、SMB、NFS 存储与视频子目录。点击“检查并使用此视频库”，看到目录检查成功再继续。
+点击“检查并使用此视频库”，看到目录检查成功再继续。首次启动的默认库也需要检查。
 
-默认库仍需检查。电影与剧集目录不能重叠；已有内容的库不能直接改类型。Docker 中填应用看得见的路径（默认 `/app/media`），不是浏览器所在电脑的路径。本地可写库按需创建子目录，远程子目录需预先存在。
+填写目录时核对：
 
-<template #image>
+- 电影与剧集目录不能重叠；已有内容的库不能直接改类型。
+- Docker 中填应用看得见的路径（默认 `/app/media`），不是浏览器所在电脑的路径。
+- 本地可写库按需创建子目录，远程子目录需预先存在。
 
-<DocFigure src="../assets/previews/onboarding/02-library.webp" alt="视频库步骤显示电影目标库与检查并使用此视频库按钮" caption="点击“检查并使用此视频库”确认目标；演示使用隔离库，实际使用请选择自己的库。" />
-
-</template>
-
-</DocStep>
+<DocFigure src="../assets/previews/onboarding/02-library.webp" mobile-src="../assets/previews/onboarding/02-library-mobile.webp" alt="视频库步骤显示电影目标库与检查并使用此视频库按钮" caption="演示选择已有电影视频库；实际使用时核对自己的存储位置与子目录。" />
 
 ### Step 3：扫描或上传内容
 
-<DocStep>
+先核对顶部的目标视频库，再按文件所在位置选择：
 
-先核对顶部的目标视频库。视频已在服务器或 NAS 上，选择“扫描服务器已有文件”，再点“扫描此视频库”；视频在当前电脑或手机上，选择“从当前设备上传”。两种方式都使用上一步确认的目标。
+- 视频已在服务器或 NAS 上：选择“扫描服务器已有文件”，再点“扫描此视频库”。
+- 视频在当前电脑或手机上：选择“从当前设备上传”。
 
-只读库可以扫描和播放，上传需要写权限。电影支持多文件和文件夹；剧集优先上传带剧名的整个文件夹，散集需指定所属剧与季号。同名文件跳过，不覆盖。命名档和资料落盘选项在建库表单的折叠区，扫描可能按策略写入 NFO 和图片。
+两种方式都使用上一步确认的目标。只读库可以扫描和播放，上传需要写权限。
 
-剧集扫描或上传完成后会自动补齐缺资料并检查目录和命名；有可整理项时汇总显示预览，确认后才移动或改名。暂时不整理可选择稍后处理，详见[剧集整理与撤销](tv-organizing.md)。
+电影支持多文件和文件夹；剧集优先上传带剧名的整个文件夹，散集需指定所属剧与季号。同名文件跳过，不覆盖。
 
-<template #image>
+扫描可能按视频库策略写入 NFO 和图片；命名档和资料落盘选项在建库表单的折叠区。剧集扫描或上传完成后会自动补齐缺资料并检查目录和命名；有可整理项时汇总显示预览，确认后才移动或改名。暂时不整理可选择稍后处理，详见[剧集整理与撤销](tv-organizing.md)。
 
-<DocFigure src="../assets/previews/onboarding/03-import.webp" alt="添加内容步骤中扫描此视频库与上传入口" caption="点击“扫描此视频库”开始；演示目录预置合成短片，扫描后登记为一部电影。" />
-
-</template>
-
-</DocStep>
+<DocFigure src="../assets/previews/onboarding/03-import.webp" mobile-src="../assets/previews/onboarding/03-import-mobile.webp" alt="添加内容步骤中扫描此视频库与上传入口" caption="点击“扫描此视频库”开始；演示目录预置合成短片，扫描后登记为一部电影。" />
 
 ### Step 4：核对结果并试播
 
-<DocStep>
+查看已登记内容、待匹配提示与上传失败数。点击条目的“查看详情与播放”，核对片名、年份或集号，再点播放。未匹配的电影或整部剧可在详情点击“匹配资料”，展开搜索后继续核对。
 
-查看已登记内容、待匹配提示与上传失败数。点击条目的“查看详情与播放”，核对片名、年份或集号，再点播放。未匹配的电影或整部剧可在详情点击“匹配资料”，展开搜索后继续核对。目标视频库保持启用、类型一致且当前连接配置已检查成功，并已登记至少一部电影或一集时，可完成引导；还可以继续添加另一个视频库。
+文件传完不等于已登记；仅字幕、花絮或不能识别集号的文件不算完成导入。
 
-<template #image>
+目标视频库保持启用、类型一致且当前连接配置已检查成功，并已登记至少一部电影或一集时，可完成引导；还可以继续添加另一个视频库。
 
-<DocFigure src="../assets/previews/onboarding/04-result.webp" alt="结果页列出已登记的演示影片与详情入口" caption="文件传完不等于已登记；仅字幕、花絮或不能识别集号的文件不算完成导入。" />
+<DocFigure src="../assets/previews/onboarding/04-result.webp" mobile-src="../assets/previews/onboarding/04-result-mobile.webp" alt="结果页列出已登记的演示影片与详情入口" caption="演示结果中已登记一部电影，可从条目进入详情与播放。" />
+
+<details>
+<summary>查看首次试播画面</summary>
 
 <DocFigure src="../assets/previews/onboarding/07-play.webp" alt="演示影片在播放器中打开" caption="先确认能够播放，再按需完善匹配和整理目录。" />
 
-</template>
-
-</DocStep>
+</details>
 
 ## 看一遍完整操作
 

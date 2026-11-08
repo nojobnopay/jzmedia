@@ -103,7 +103,7 @@ test('active tutorial assets require matching provenance records without inventi
   t.after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(path.join(root, 'user-guide'))
   mkdirSync(path.join(root, 'assets'))
-  writeFileSync(path.join(root, 'user-guide/onboarding.md'), `<DocFigure src="../assets/still.webp" alt="截图" />
+  writeFileSync(path.join(root, 'user-guide/onboarding.md'), `<DocFigure src="../assets/still.webp" mobile-src="../assets/still-mobile.webp" alt="截图" />
 <DocVideo src="../assets/demo.mp4" poster="../assets/still.webp" captions="../assets/demo.vtt" />
 <DocDiagram src="../assets/flow.svg" alt="概念图" />
 <DocDiagram src="/.vitepress/diagrams/generated.svg" alt="缓存图" />
@@ -111,7 +111,7 @@ test('active tutorial assets require matching provenance records without inventi
 <DocFigure src="../assets/example.webp" alt="代码示例" />
 \`\`\`
 `)
-  const names = ['still.webp', 'demo.mp4', 'demo.vtt', 'flow.svg']
+  const names = ['still.webp', 'still-mobile.webp', 'demo.mp4', 'demo.vtt', 'flow.svg']
   const assets = names.map(file => {
     const bytes = Buffer.from(file)
     writeFileSync(path.join(root, 'assets', file), bytes)
@@ -120,6 +120,8 @@ test('active tutorial assets require matching provenance records without inventi
   const save = entries => writeFileSync(path.join(root, 'assets/manifest.json'), JSON.stringify({ assets: entries }))
   save(assets)
   assert.deepEqual(checkAssetManifest(root), [])
+  save(assets.filter(entry => entry.file !== 'still-mobile.webp'))
+  assert.match(checkAssetManifest(root).join('\n'), /组件素材未登记 assets\/still-mobile.webp/)
   save(assets.filter(entry => entry.file !== 'demo.vtt'))
   assert.match(checkAssetManifest(root).join('\n'), /组件素材未登记 assets\/demo.vtt/)
   save(assets)
@@ -146,7 +148,7 @@ test('figure, steps, and captioned video render usable content without a browser
   const [Figure, Step, Video] = await Promise.all(['DocFigure', 'DocStep', 'DocVideo'].map(loadComponent))
   const html = await renderToString(createSSRApp({ render() { return h('div', [
     h('h3', { id: 'step-1' }, 'Step 1：选择视频库'),
-    h(Step, {}, { default: () => h('p', '点击检查并使用此视频库'), image: () => h(Figure, { src: '/help/example.webp', alt: '检查连接按钮', caption: '隔离演示', marks: [{ x: 25, y: 50, label: '1' }] }) }),
+    h(Step, {}, { default: () => h('p', '点击检查并使用此视频库'), image: () => h(Figure, { src: '/help/example.webp', mobileSrc: '/help/example-mobile.webp', alt: '检查连接按钮', caption: '隔离演示', marks: [{ x: 25, y: 50, label: '1' }] }) }),
     h(Video, { src: '/help/demo.mp4', poster: '/help/poster.webp', captions: '/help/demo.vtt', title: '扫描演示' }, { default: () => h('p', '扫描后核对已登记数量') }),
   ]) } }))
   assert.match(html, /检查并使用此视频库/)
@@ -154,6 +156,7 @@ test('figure, steps, and captioned video render usable content without a browser
   assert.match(html, /<h3 id="step-1">Step 1：选择视频库<\/h3>/)
   assert.doesNotMatch(html, /<h2/)
   assert.match(html, /aria-label="放大图片：检查连接按钮"/)
+  assert.match(html, /<source media="\(max-width: 640px\)" srcset="\/help\/example-mobile.webp"/)
   assert.match(html, /left:clamp\(16px, 25%, calc\(100% - 16px\)\)/)
   assert.match(html, /preload="none"/)
   assert.match(html, /kind="captions"/)

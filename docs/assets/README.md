@@ -9,12 +9,13 @@
 | `screenshots/` | 正式教程 WebP 截图 | 按下表选择负责该场景的拍摄脚本 |
 | `previews/onboarding/` | 新手向导截图与旧入口跳转页 | `scripts/capture_docs.py`；`index.html` 保留为帮助站兼容入口 |
 | `videos/` | 连续操作录屏；每段包含 `.mp4`、`.webp` 封面和 `.vtt` 字幕 | `scripts/capture_docs.py` |
-| `diagrams/` | 媒体库关系、入库流程、整理路径三个 SVG 概念图 | `scripts/capture_docs_diagrams.py` |
+| `diagrams/` | 既有媒体库关系、入库流程与电影整理概念 SVG | `scripts/capture_docs_diagrams.py`；新增目录关系优先用响应式 HTML |
+| `illustrations/` | 投屏设备的桌面与移动构图 WebP | `design/doc-illustrations/` 母版与 `scripts/build_design.py` |
 | `design/` | 帮助站使用的品牌 SVG、favicon 及位图 | `design/` 母版与 `scripts/build_design.py`；不直接修改生成物 |
 
 2026-10-03 品牌修订 2 改为红白 J/播放一体轮廓，帮助站导航与 favicon 已同步。既有教程截图与录屏可能显示旧版黄色三角；本次未改变页面入口或操作步骤，保留各素材实际拍摄记录，不标记为重新拍摄。
 
-正文通过 `DocFigure`、`DocVideo`、`DocDiagram` 引用相对路径；同一画面复用同一文件。Mermaid 渲染缓存位于 `docs/.vitepress/diagrams/`，由 `npm --prefix docs run diagrams` 管理，和这里的业务概念图分开。
+正文通过 `DocFigure`、`DocVideo`、`DocDiagram` 引用相对路径；`DocStoryboard` 按固定标识引用生成的步骤数据和场景插图。同一画面复用同一文件。Mermaid 渲染缓存位于 `docs/.vitepress/diagrams/`，由 `npm --prefix docs run diagrams` 管理，和这里的业务概念图分开。
 
 ## 当前拍摄流程
 
@@ -33,8 +34,10 @@
 | `smoke_ai_ui.mjs --capture-docs` | AI 设置、搜索与匹配 |
 | `capture_docs.py` | 四步向导、首播、字幕、电影整理及连续录屏 |
 | `capture_docs.py --only subtitles` | 已入库演示的轨道快捷面板、字幕调整和本地字幕录屏 |
+| `capture_docs.py --only onboarding-mobile` | 全新隔离实例的手机欢迎卡与四步向导面板 |
 | `capture_docs.py --only player` | 已入库演示实例的播放信息与实际 720p 输出 |
 | `capture_docs_diagrams.py` | 三个业务概念 SVG |
+| `build_design.py` | 从 `design/doc-storyboards.json` 与场景母版生成响应式演示数据、两张 WebP 及逐文件清单 |
 
 ### 运行方式与来源边界
 
@@ -72,13 +75,18 @@ Python 拍摄入口连接 `preview_onboarding.py --docs-demo` 的隔离应用，
 python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
 python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录 --only subtitles
 python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录 --only player
+python scripts/capture_docs.py /tmp/jzmedia-preview-全新目录 --only onboarding-mobile
 ```
 
-播放器示例使用同一隔离应用中已入库的 1920×1080、H.264/AAC、180 秒演示视频。业务概念 SVG 由仓库代码生成，不使用浏览器拍摄或媒体数据：
+手机向导使用全新、尚未完成配置的 `--docs-demo` 实例，实际操作扫描与结果核对。五张 `*-mobile.webp` 来自 390×844 CSS 视口、DPR 2 的触屏浏览器，按欢迎卡或向导面板完整截取；视口与图片尺寸分别记入清单。教程通过 `DocFigure` 的 `mobile-src` 选择对应截图，来源是手机视口模拟，不作为实体手机验收。
+
+播放器示例使用同一隔离应用中已入库的 1920×1080、H.264/AAC、180 秒演示视频。既有三张业务概念 SVG 由仓库代码生成，不使用浏览器拍摄或媒体数据：
 
 ```bash
 python scripts/capture_docs_diagrams.py
 ```
+
+新增演示使用 `design/doc-storyboards.json` 的准确文字、关系和状态定义；投屏设备场景使用 `design/doc-illustrations/` 的桌面与移动 AI 静态母版，提示词、尺寸与摘要记录在该目录的 `manifest.json`。投屏通过 `picture` 选择构图，操作文字由 HTML 排版。剧集归属与整理改用响应式 HTML 关系和目录树，不再导出固定尺寸分镜。从根目录运行 `python3 scripts/build_design.py` 和 `python3 scripts/build_design.py --check` 生成与检查，来源登记为示意图，不作为实际界面、特定模型、GIF 输出或真机验收证据。图文分工、响应式布局和阅读行为见[图文与演示组件](../developer/documentation.md#图文与演示组件)。
 
 演示目录的准备方式和 Python Playwright 安装前置见[重新拍摄素材](../developer/documentation.md#重新拍摄素材)。普通新手预览仍使用 640×360、6 秒短片，不能据此演示从 1080p 降到 720p。原始浏览器截图和审查证据放在被忽略的 `output/playwright/` 或临时目录，正式文档只提交选定素材及来源记录。
 
@@ -101,7 +109,7 @@ python scripts/capture_docs_diagrams.py
 
 明确核对未变化的概念图时，可调用 `main(reviewed={"diagrams/libraries.svg": "核对过的源码路径及行为说明"})`；脚本要求该文件与现有清单的字节和哈希一致。`reviewed` 与 `captured` 表达不同事实。
 
-`npm --prefix docs run check` 检查公开正文的三个图文组件引用：本目录中的截图、SVG、视频、封面与字幕必须登记，字节数和 SHA-256 必须匹配。检查不要求当天日期，也不将 Mermaid 缓存或品牌生成物当作浏览器拍摄素材。修改后按[文档构建与检查](../developer/documentation.md#构建与检查)完成测试、构建与检查。
+`npm --prefix docs run check` 检查公开正文的图文组件与分镜引用：本目录中的截图、插图、SVG、视频、封面与字幕必须登记，字节数和 SHA-256 必须匹配。检查不要求当天日期，也不将 Mermaid 缓存或品牌生成物当作浏览器拍摄素材。修改后按[文档构建与检查](../developer/documentation.md#构建与检查)完成测试、构建与检查。
 
 ## 概念图的核对依据
 

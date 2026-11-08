@@ -89,3 +89,18 @@ def test_concept_review_preserves_generation_date_and_requires_matching_content(
     (assets / old["file"]).write_bytes(b"changed")
     with pytest.raises(ValueError, match="文件与清单一致"):
         manifest.main(reviewed={old["file"]: "Current schema"})
+
+
+def test_mobile_capture_records_actual_viewport_without_changing_other_evidence(asset_tree):
+    _, create, save = asset_tree
+    mobile = create("previews/onboarding/02-library-mobile.webp")
+    desktop = {**create("previews/onboarding/02-library.webp"), "viewport": {"width": 1440, "height": 1000}}
+    save([mobile, desktop], provenance_scope="per_asset")
+    details = {"viewport": {"width": 390, "height": 844, "device_scale_factor": 2},
+               "width": 732, "height": 1300, "capture_mode": "element", "capture_selector": ".setup-card"}
+    result = manifest.main(captured={mobile["file"]}, capture_details={mobile["file"]: details})
+    entries = {entry["file"]: entry for entry in result["assets"]}
+    assert all(entries[mobile["file"]][key] == value for key, value in details.items())
+    assert entries[desktop["file"]] == desktop
+    with pytest.raises(ValueError, match="本次实际拍摄"):
+        manifest.main(capture_details={desktop["file"]: details})

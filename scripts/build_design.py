@@ -15,6 +15,7 @@ import inspect
 import json
 from pathlib import Path
 import re
+import runpy
 import struct
 import sys
 import xml.etree.ElementTree as ET
@@ -744,6 +745,8 @@ def main():
     }
     outputs.update(brand_vector_outputs(exports,manifest))
     outputs.update(demo_artwork_outputs())
+    # Keep help illustrations and their precise, editable annotations in one pipeline.
+    outputs.update(runpy.run_path(str(Path(__file__).with_name('design_doc_storyboards.py')))['outputs'](ROOT))
     if args.render_brand:outputs.update(render_brand(exports,manifest))
     # Hash manifest lets default dependency-free check detect altered/obsolete raster content too.
     raster_paths=[e['path'] for e in exports if e['format'] in ('png','ico')]

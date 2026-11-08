@@ -2,9 +2,9 @@
 
 <span id="归档整理与撤销"></span>
 
-目标：在核对匹配后，预览并确认电影改名或移动。整理会修改真实文件；先备份重要媒体和数据目录，确认片名、年份与目标路径。只读库不能执行。
+整理按“核对匹配 → 预览路径 → 选择条目 → 确认执行”进行。它不是扫描后的必做步骤，只想观看可以保留原目录。
 
-<DocDiagram src="../assets/diagrams/organizing.svg" alt="核对匹配后先预览再确认执行，成功操作可在相应入口预览还原" caption="整理不是扫描的必做步骤；只想观看可以保留原目录。" />
+整理会修改真实文件。开始前备份重要媒体和数据目录，确认片名、年份与目标路径；只读库不能执行。
 
 <span id="电影从匹配到归档"></span>
 
@@ -18,9 +18,7 @@
 4. 对疑似错配返回电影详情修正匹配；对规格变体先调整版别/规格备注再重新预览。系统不会覆盖已占用目标。
 5. 确认执行选中项，等待结果并核对文件和详情记录。
 
-`kodi` 与 `plex` 的输出形式不同；`off` 保持命名。预览是当前磁盘状态的快照，执行前若外部软件移动了文件，应重新预览。首次入库位置会保存，“设置 → 扫描与整理 → 电影视频库 → 还原位置”可预览搬回候选；源缺失或原位置被占时会跳过，不能保证一键恢复所有动作。
-
-<DocFigure src="../assets/screenshots/restore-panel.webp" alt="恢复到原始位置候选" caption="“还原位置”作用于当前电影视频库，列出搬回候选与目标路径；目标被占或源缺失会跳过并提示。" />
+`kodi` 与 `plex` 的输出形式不同；`off` 保持命名。预览是当前磁盘状态的快照，执行前若外部软件移动了文件，应重新预览。
 
 电影就地归档前后（散文件收进同名目录）：
 
@@ -29,9 +27,38 @@
 → 待整理/大桥下面 (1984)/大桥下面 (1984).mp4
 ```
 
-<DocFigure src="../assets/screenshots/organize-preview.webp" alt="就地整理预览：原路径、目标路径与执行范围" caption="演示环境：就地整理把散文件收进同名目录；勾选要处理的行，必要时改单行动作后再确认执行。目标已存在时报冲突，不覆盖。" />
+<DocFigure src="../assets/screenshots/organize-preview.webp" alt="就地整理预览：原路径、目标路径与执行范围" caption="演示环境：对照每行的源路径与目标路径，再选择要执行的项。" />
+
+## 完成后检查
+
+核对成功、跳过和失败项，确认实际文件路径与详情一致，再试播。需要搬回首次入库位置时，使用下方的[还原位置](#还原位置)。
+
+<details>
+<summary>查看隔离演示中的整理结果</summary>
+
+<DocFigure src="../assets/screenshots/demo-organize-result.webp" alt="隔离演示整理完成后的结果" caption="结果中保留成功、跳过和失败项。" />
+
+</details>
+
+## 还原位置
+
+应用保存首次入库位置。打开 **设置 → 扫描与整理 → 电影视频库 → 还原位置**，只处理当前电影视频库：
+
+1. 查看搬回候选，对照当前路径与首次入库路径。
+2. 勾选需要恢复的项，点击“恢复全部选中”，再点击“确认恢复全部”。
+3. 核对结果。源文件缺失或原位置被占时会跳过并提示，不能保证一键还原所有动作。
+
+<details>
+<summary>查看还原候选与目标路径</summary>
+
+<DocFigure src="../assets/screenshots/restore-panel.webp" alt="当前电影视频库的还原候选与首次入库路径" caption="还原位置面板提供候选路径对照与恢复结果。" />
+
+</details>
 
 ## 看一遍预览与确认
+
+<details>
+<summary>观看隔离演示与补充路径对照</summary>
 
 <DocVideo src="../assets/videos/organizing.mp4" poster="../assets/videos/organizing.webp" captions="../assets/videos/organizing.vtt" title="隔离演示中的整理预览与确认">
 
@@ -41,11 +68,7 @@
 
 <DocFigure src="../assets/screenshots/demo-organize-preview.webp" alt="演示电影的原路径与目标路径对比" caption="隔离演示环境；先看具体变更，再决定是否执行。" />
 
-## 完成后检查
-
-确认实际文件路径与详情一致，再试播。需要恢复时打开当前电影视频库的“还原位置”，先预览当前路径与首次入库路径。目标占用或源文件缺失时会跳过，不能保证还原所有动作。
-
-<DocFigure src="../assets/screenshots/demo-organize-result.webp" alt="隔离演示整理完成后的结果" caption="整理完成后核对成功、跳过和失败项。" />
+</details>
 
 ## 常见问题
 

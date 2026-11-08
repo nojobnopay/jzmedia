@@ -62,7 +62,7 @@
 - **导航**：包含多个独立任务的长页可在开头放一行主要入口；不复制完整的多级目录。改标题时同步检查锚点，已有入口尽量保持稳定。
 - **图表**：截图定位控件，流程图说明分支，时序图说明协作，架构图说明职责与关系。图名和正文说明应能回答一个具体问题；不强制每页配图，不仅靠颜色表达关系，不手写全仓图表流水号。
 
-新增或重写正文时，让必要标题、步骤和结论在普通 Markdown 中完整可读，帮助站组件只增强布局与交互。关键内容不只放在组件属性中；涉及组件写法时同时核对源码阅读和帮助站渲染，不能假定两者等价。
+新增或重写正文时，让必要标题、步骤和结论在普通 Markdown 中完整可读，帮助站组件只增强布局与交互。关键内容不只放在组件属性中；涉及组件写法时同时核对源码阅读和帮助站渲染，不能假定两者等价。等价文字保证信息完整，不要求在图片、图注和正文中机械重复同一说明；图注补充读图所需的信息，详细操作与限制维护在正文。
 
 ### 修改后的评审
 
@@ -177,19 +177,23 @@ FastAPI 的 `app/help_site.py` 只挂载应用目标的 `docs/.vitepress/dist/`�
 ```bash
 npm --prefix docs run test:browser -- --url http://127.0.0.1:8080/help/
 npm --prefix docs run test:browser
+npm --prefix docs run test:browser -- --capture
 JZMEDIA_DOCS_TARGET=pages JZMEDIA_DOCS_BASE=/jzmedia/ npm --prefix docs run test:browser
 ```
 
 验证重点是：首页可进入首次入库、搜索可定位教程、旧入口和锚点可达、资源加载成功、窄屏可读、键盘能放大与关闭图片、视频字幕可选、关闭 JavaScript 后仍能读到正文及关键步骤。检查构建清单和发布包，确保私有目录、计划、运行数据与凭据未被复制。
+
+`--capture` 将三组演示全部步骤的桌面与 390px 截图写入 `output/playwright/docs-storyboards/`，三组演示另覆盖 320px、430px CSS 视口；不更新正式素材或拍摄记录。按页面实际显示尺寸审查全部状态与整段图文，核对文字可读性、时间和文件名断行、视觉层级、留白及重复信息；无横向溢出和交互测试通过不能代替这项审查。
 
 ## 图文与演示组件
 
 组件在主题中全局注册。资源路径相对当前 Markdown 文件解析；文件名使用稳定的场景名，不把时间或影片数据库 ID 当成公开资源名。
 
 - `DocStep` 只负责图文布局：在标签前用标准 `### Step N：动作` 写步骤标题，不传 `number`、`title`。文字放默认 slot，图放 `#image` slot；桌面并排，手机按顺序排列。标签前后保留空行，让 Markdown 正常解析。
-- `DocFigure` 使用 `src`、具体描述的 `alt`、`caption`，支持查看原图；`marks` 可按图片百分比坐标标注控件，必须核对实际截图。重拍后未经重新核对的旧坐标先移除，正文用实际按钮名称说明操作。不要让图注承担唯一操作说明。
+- `DocFigure` 使用 `src`、具体描述的 `alt`、`caption`，支持查看原图。独立手机截图添加 `phone`，正文内居中显示、最大宽度为 320px，窄屏不超过可用宽度；图注仍按正文字号排版。提供 `mobile-src` 时，640px 及以下使用手机素材并采用同样的宽度上限；放大与原图链接保持打开时的素材，关闭 JavaScript 后仍能选择对应图片。桌面 `marks` 与手机 `mobile-marks` 分别按各自图片的百分比坐标标注控件，必须核对实际截图；未提供手机标注时不沿用桌面坐标。重拍后未经重新核对的旧坐标先移除，正文用实际按钮名称说明操作。不要让图注承担唯一操作说明。
 - `DocDiagram` 与图片使用相同字段。适合两层媒体库关系、扫描与整理区别、系统架构等。
 - `DocVideo` 使用 `src`、`poster`、`captions`、`title`；slot 放等价文字步骤。视频手动播放，必须有 WebVTT 字幕和封面。
+- `DocStoryboard` 使用固定 `story` 标识：`tv-bindings`、`tv-organizing`、`casting`，例如 `<DocStoryboard story="tv-bindings" />`。默认停在第一步，可选择步骤、播放或暂停；启用减少动态效果时逐步查看。三组的步骤文字由 HTML 排版：剧集归属展示可重排的目录对应关系，整理展示前后目录树，文件名可以选择和复制；投屏使用一张按视口选择构图的设备插图。关闭 JavaScript 后保留完整顺序与含义，投屏只展示一次场景图；关键操作与限制仍写在组件外的正文中。
 
 步骤标题与布局分开书写，普通 Markdown 阅读器、站点目录和搜索都能读到同一标题：
 
@@ -203,11 +207,15 @@ JZMEDIA_DOCS_TARGET=pages JZMEDIA_DOCS_BASE=/jzmedia/ npm --prefix docs run test
 </DocStep>
 ```
 
-需要配图时按[首次入库](../user-guide/onboarding.md)使用 `#image` slot；没有图文并排需要时直接写 Markdown，无需包组件。
+局部控件适合图文并排时，可按[音轨与字幕](../user-guide/subtitles.md)使用 `#image` slot；桌面整页界面截图按[首次入库](../user-guide/onboarding.md)放在步骤说明后，使用正文宽度；手机截图采用上述紧凑展示，需要时点击放大查看细节。没有并排需要时直接写 Markdown，无需包组件。媒体库的两层关系由 `DocLibraryMap` 展示，使用它的页面通过本地 `script setup` 导入，窄屏自动纵排。
 
 先用截图定位控件，再用短句说明点击后的结果。连续交互使用短视频，选路和关系使用图表；命令、参数与详细限制仍以可检索和复制的文字呈现。图上需要标注时保留可修改源，避免只存不可编辑的合成图。
 
-资源目录为仓库 `docs/assets/screenshots/`、`docs/assets/videos/`、`docs/assets/diagrams/`；新手图位于 `docs/assets/previews/onboarding/`。新素材逐文件信息记录在仓库 `docs/assets/manifest.json`，批次来源和旧素材基线保留在 `docs/assets/README.md`。历史真实库截图与新隔离演示截图分别标明，不将移动模拟当作真机测试。
+插图负责表现情境，文字负责说明操作；只有关系本身需要解释时才添加连线或状态标记，不为填满版面叠加边框。移动端按 CSS 视口和读者任务重排图文；横向流程难以辨认时改为纵向步骤或独立构图，通过 `picture` 等方式选择适合的素材。文字优先由网页排版，不随整张图缩小；不按每款设备的物理分辨率复制整套内容。
+
+分镜的文字、关系和状态维护在仓库 `design/doc-storyboards.json`，投屏设备的桌面与移动 AI 静态场景母版及来源记录位于 `design/doc-illustrations/`。运行 `python3 scripts/build_design.py` 生成两张 WebP、主题的 `storyboards.mjs` 与逐文件素材清单，再运行同一命令的 `--check` 检查；不要手改生成物。目录关系、前后路径与投屏步骤由响应式网页表达，AI 场景不包含准确控件与操作证据；本流程不代表特定模型或 GIF 输出已实测。既有媒体库、入库与电影整理三张概念 SVG 仍由 `scripts/capture_docs_diagrams.py` 维护。
+
+资源目录为仓库 `docs/assets/screenshots/`、`docs/assets/videos/`、`docs/assets/diagrams/` 与 `docs/assets/illustrations/`；新手图位于 `docs/assets/previews/onboarding/`。新素材逐文件信息记录在仓库 `docs/assets/manifest.json`，批次来源和旧素材基线保留在 `docs/assets/README.md`。历史真实库截图与新隔离演示截图分别标明，不将移动模拟当作真机测试。
 
 ## 隔离演示
 
@@ -238,12 +246,15 @@ python3 -m venv /tmp/jzmedia-docs-python
 /tmp/jzmedia-docs-python/bin/python -m pip install playwright==1.63.0
 /tmp/jzmedia-docs-python/bin/python -m playwright install chromium
 /tmp/jzmedia-docs-python/bin/python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
+/tmp/jzmedia-docs-python/bin/python scripts/capture_docs.py /tmp/jzmedia-preview-全新目录 --only onboarding-mobile
 .venv/bin/python scripts/capture_docs_diagrams.py
 ```
 
 拍摄脚本真实操作隔离实例，生成新手、字幕、整理三段视频及对应截图，并补拍播放信息和实际降档界面；从系统 PATH 或项目静态 FFmpeg 依赖中寻找 FFmpeg/ffprobe。`--docs-demo` 生成 180 秒的 1920×1080 H.264/AAC 合成视频，供真实软件转码到 720p；普通演示仍为 640×360、6 秒。需先安装前端依赖。完整重拍必须使用全新 `--docs-demo` 实例；`--only subtitles` 或 `--only organizing` 用于已经完成入库、尚未整理的演示重拍，`--only player` 只重拍已入库演示的播放信息与降档截图。
 
-脚本限制目标为 `/tmp/jzmedia-preview-*`，拒绝主服务端口，并校验视频编码、30–90 秒时长及 10 MB 大小上限。演示启动器复制已构建的帮助站供本地预览；尚未构建时，旧 `/preview/index.html` 展示构建命令和继续配置链接。原始 WebM 与运行校验文件留在拍摄器打印的 `/tmp/jzmedia-docs-capture-*`，不随仓库发布。
+`--only onboarding-mobile` 需使用另一份全新、尚未完成引导的 `--docs-demo` 实例。它真实操作欢迎卡与四步向导，以 390×844 CSS 视口、DPR 2 截取完整面板，生成五张 `*-mobile.webp`；记录实际图片尺寸、视口和截取选择器，保留未重拍素材的历史证据。手机图与桌面图通过 `DocFigure` 的 `mobile-src` 配对，浏览器检查同时验证放大和原图链接使用当前素材。
+
+脚本限制目标为 `/tmp/jzmedia-preview-*`，拒绝主服务端口，录屏流程校验视频编码、30–90 秒时长及 10 MB 大小上限。演示启动器复制已构建的帮助站供本地预览；尚未构建时，旧 `/preview/index.html` 展示构建命令和继续配置链接。原始截图、WebM 与运行校验文件留在拍摄器打印的 `/tmp/jzmedia-docs-capture-*`，不随仓库发布。
 
 仓库 `docs/assets/manifest.json` 保存素材关联信息、时长、体积与校验值，`docs/assets/README.md` 记录基线。拍摄成功后自动更新本次实际拍摄项，内容哈希相同的重新拍摄也会记录此次核对；仅单独运行 `scripts/capture_docs_manifest.py` 整理清单时，未变化素材保留原来源和日期。三段视频保留真实操作时长、无旁白，中文说明由 WebVTT 字幕提供。用户概念图由 `scripts/capture_docs_diagrams.py` 生成，图表源可维护，不依赖截图中的文字。
 

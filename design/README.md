@@ -75,6 +75,12 @@ python -m venv /tmp/jzmedia-design-env
 
 修改母版或清单后运行 `python3 scripts/build_design.py`，再运行 `--check`。生成器校验母版摘要并更新 `scripts/fixtures/generated/demo-artwork.json`；`scripts/fixtures/uiReviewData.mjs` 读取该目录，在原有 SVG 图片响应中嵌入本地 WebP，不请求外部图片。素材不打入产品前端包，也不写入真实媒体库。教程截图按[素材流程](../docs/assets/README.md)重新拍摄，不能用生图直接生成操作界面。
 
+## 文档分镜与场景插画
+
+`doc-storyboards.json` 维护剧集归属、剧集整理与投屏三组演示的准确文字、关系和状态；`doc-illustrations/` 保存内置生图工具制作的投屏设备桌面与移动场景母版，提示词、来源、尺寸与摘要见该目录的 `manifest.json`。三组步骤均由 HTML 排版：剧集归属展示目录对应关系，整理展示前后目录树，投屏由 `picture` 选择适合视口的设备插图。AI 只提供设备场景，不把场景图作为真实界面、特定模型或 GIF 输出的实测证据。
+
+修改源后运行 `python3 scripts/build_design.py`，再运行 `python3 scripts/build_design.py --check`，生成并检查 `docs/assets/illustrations/` 的两张 WebP、`docs/.vitepress/theme/storyboards.mjs` 与素材逐文件清单。帮助站通过 `DocStoryboard` 展示，图文与移动端布局规则见[图文与演示组件](../docs/developer/documentation.md#图文与演示组件)，全部步骤的原尺寸审查见[文档构建与检查](../docs/developer/documentation.md#构建与检查)。既有三张业务概念 SVG 继续由 `scripts/capture_docs_diagrams.py` 管理，不经过这套分镜生成流程。
+
 ## 验收与边界
 
 检查桌面 1440px、手机 390/375px 和播放器 320px；普通/悬停/按下/焦点/选中/禁用/忙碌状态、减少动画、长文本及可访问名称。电视记录模拟器或设备的分辨率、实际 density、字体比例及遥控器输入；模拟器通过不能替代真机远距离辨识。

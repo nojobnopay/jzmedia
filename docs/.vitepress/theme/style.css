@@ -24,11 +24,11 @@
 .docs-home-content > p { margin: 18px 0; line-height: 1.85; }
 .docs-home-content a { color: var(--vp-c-brand-1); text-decoration: underline; }
 .doc-figure, .doc-video { margin: 22px 0; }
-.doc-figure-open { display: block; position: relative; width: 100%; border: 1px solid var(--vp-c-divider); border-radius: 12px; overflow: hidden; cursor: zoom-in; background: var(--vp-c-bg-soft); }
+.doc-figure-open { display: block; width: 100%; cursor: zoom-in; }
 .doc-figure-open:focus-visible { outline: 3px solid var(--vp-c-brand-1); outline-offset: 4px; }
-.doc-figure-frame { display: block; position: relative; }
+.doc-figure-frame { display: block; position: relative; border: 1px solid var(--vp-c-divider); border-radius: 12px; overflow: hidden; background: var(--vp-c-bg-soft); }
 .doc-figure-frame img { display: block; width: 100%; height: auto; }
-.doc-figure-hint { position: absolute; right: 8px; bottom: 8px; color: #fff; background: #151515d9; padding: 1px 9px; border-radius: 6px; font-size: 12px; }
+.doc-figure-hint { display: block; padding-top: 6px; color: var(--vp-c-text-2); font-size: 12px; line-height: 1.5; text-align: right; }
 .doc-figure-mark { display: grid; place-items: center; position: absolute; transform: translate(-50%, -50%); min-width: 28px; min-height: 28px; padding: 2px 6px; border-radius: 20px; background: #b61736; color: white; border: 2px solid white; font-size: 14px; line-height: 1; font-weight: 700; box-shadow: 0 2px 8px #0008; }
 .doc-figure figcaption, .doc-video figcaption { color: var(--vp-c-text-2); font-size: 14px; line-height: 1.65; margin-top: 8px; }
 .doc-image-dialog { padding: 0; border: 1px solid var(--vp-c-divider); border-radius: 12px; width: min(1440px, 96vw); max-width: 96vw; max-height: 94dvh; color: var(--vp-c-text-1); background: var(--vp-c-bg); }

@@ -42,10 +42,13 @@ def inherited_entry(entry, previous):
     return entry
 
 
-def main(captured=(), reviewed=None):
+def main(captured=(), reviewed=None, capture_details=None):
     """captured is supplied by the capture tool; reviewed maps unchanged files to evidence."""
     captured = set(captured)
     reviewed = reviewed or {}
+    capture_details = capture_details or {}
+    if set(capture_details) - captured:
+        raise ValueError("拍摄参数只能用于本次实际拍摄的文件")
     manifest = ASSETS / "manifest.json"
     previous = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {}
     previous_assets = {entry["file"]: inherited_entry(entry, previous) for entry in previous.get("assets", [])}
@@ -106,6 +109,10 @@ def main(captured=(), reviewed=None):
                     if entry["file"] == "previews/onboarding/06-mobile.webp"
                     else {"width": 1440, "height": 1000, "device_scale_factor": 1},
             })
+            details = capture_details.get(entry["file"], {})
+            for key in ("viewport", "width", "height", "capture_mode", "capture_selector"):
+                if key in details:
+                    entry[key] = details[key]
             if path.suffix == ".svg":
                 entry.update(source="可编辑业务概念图，由仓库脚本生成 SVG",
                              recording_script="scripts/capture_docs_diagrams.py", fixtures="无媒体数据")
