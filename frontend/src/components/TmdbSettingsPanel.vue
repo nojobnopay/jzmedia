@@ -24,12 +24,13 @@
         <div class="bar"><JzButton icon="undo" @click="clear">{{ armClear ? '确认恢复服务器配置' : '恢复服务器配置' }}</JzButton><JzButton v-if="armClear" @click="armClear = false">取消恢复</JzButton></div>
         <p v-if="armClear" class="hint">将移除在此保存的五项 TMDB 配置，改用服务器环境配置或默认值。</p>
       </details>
-      <div class="bar tmdb-actions">
+      <SettingsFormActions class="tmdb-actions" :dirty="dirty" :busy="busy" :status="message ? resultKind === 'error' ? '操作未完成，请查看错误提示' : resultKind === 'success' ? '连接正常' : '设置已保存' : ''" label="TMDB 配置操作">
         <JzButton variant="primary" :loading="pending === 'test'" :disabled="busy" @click="save(true)">保存并测试 TMDB 连接</JzButton>
         <JzButton :loading="pending === 'save'" :disabled="busy" @click="save(false)">保存配置</JzButton>
-      </div>
+        <JzButton v-if="dirty" :disabled="busy" @click="discard">放弃修改</JzButton>
+      </SettingsFormActions>
     </fieldset>
-    <div v-if="busy || message" class="tmdb-result" :class="resultKind" role="status"><strong>{{ busy ? '正在处理…' : resultKind === 'error' ? '连接或保存未完成' : resultKind === 'success' ? '连接验证通过' : '配置已更新' }}</strong><span v-if="!busy">{{ message }}</span></div>
+    <div v-if="busy || message" class="tmdb-result" :class="resultKind" role="status"><strong>{{ busy ? '正在处理…' : resultKind === 'error' ? '操作未完成，请查看错误提示' : resultKind === 'success' ? '连接正常' : '设置已保存' }}</strong><span v-if="!busy">{{ message }}</span></div>
   </section>
 </template>
 <script setup>
@@ -40,6 +41,7 @@ import { useSettingsDraft } from '../settingsDrafts.js'
 import { api } from '../api.js'
 import JzButton from './JzButton.vue'
 import JzField from './JzField.vue'
+import SettingsFormActions from './SettingsFormActions.vue'
 const props = defineProps({ settings: { type: Object, default: null } })
 const emit = defineEmits(['saved', 'validated', 'busy'])
 const s = ref(null)
@@ -63,7 +65,7 @@ function sync(value, preserveDraft = false) {
   s.value = value
   baseline.value = JSON.stringify(next)
 }
-function discard() { sync(s.value); armClear.value = false; message.value = '' }
+function discard() { if (busy.value) return; sync(s.value); armClear.value = false; message.value = '' }
 useSettingsDraft({ section: 'sec-tmdb', label: 'TMDB 连接配置', dirty: () => dirty.value,
   busy: () => busy.value, discard })
 watch(() => props.settings, value => sync(value, dirty.value), { immediate: true })
@@ -129,7 +131,7 @@ async function clear() {
 .credential-state { color: var(--jz-text-dim); font-size: var(--jz-font-s); padding: 4px 8px; background: var(--jz-surface-2); border-radius: var(--jz-radius-s); white-space: nowrap; }
 fieldset { max-width: var(--jz-form-width); border: 0; padding: 0; margin: 0; min-width: 0; }
 input { width: 100%; box-sizing: border-box; }
-.token-help { display: inline-block; font-size: var(--jz-font-s); margin-top: 8px; }
+.token-help { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; font-size: var(--jz-font-s); margin-top: 8px; }
 .tmdb-options { border-top: 1px solid var(--jz-border); border-bottom: 1px solid var(--jz-border); margin-top: 24px; padding: 12px 0; }
 summary { cursor: pointer; font-size: var(--jz-font-m); }
 summary small { color: var(--jz-text-dim); margin-left: 12px; font-size: var(--jz-font-s); }
@@ -145,10 +147,13 @@ a { color: var(--jz-link); }
 .tmdb-result.error { border-color: var(--jz-danger-border); background: var(--jz-danger-soft); }
 @media (max-width: 700px) {
   .tmdb-settings { --jz-control-current: var(--jz-touch-target); }
-  .tmdb-heading { margin-bottom: 16px; }
+  .tmdb-heading { margin-bottom: 4px; }
+  .tmdb-credentials :deep(.jz-field) { margin-top: 12px; }
+  .tmdb-option-fields { gap: 16px; margin: 12px 0; }
+  .tmdb-option-fields :deep(.jz-field) { margin-block: 0; }
   .tmdb-heading .hint { max-width: 24ch; }
   input, button { min-height: var(--jz-touch-target); }
-  .tmdb-options { margin-top: 20px; padding: 0; }
+  .tmdb-options { margin-top: 12px; padding: 0; }
   summary { min-height: 44px; box-sizing: border-box; padding: 10px 0; }
   .bar { gap: 8px; margin-top: 16px; padding: 0; }
 }

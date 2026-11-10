@@ -142,3 +142,5 @@ input[type="range"] { padding: 0; }
   .poster-play { transition: none; }
   .poster-play:hover { transform: none; }
 }
+
+@media (max-width: 700px) { .app-nav--settings { display: none; } }

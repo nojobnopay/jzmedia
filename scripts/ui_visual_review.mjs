@@ -54,7 +54,7 @@ const tutorialScenes=[
   {name:'tv-organize-preview',route:'/tv/201',overlay:true,action:async page=>{await page.locator('.action-menu summary').first().click();await page.getByRole('button',{name:'检查资料与整理',exact:true}).click();await page.getByRole('dialog',{name:'剧集入库与整理预览',exact:true}).waitFor();await page.locator('.ingest-group').first().waitFor()}},
   {name:'organize-history',route:'/settings?sec=sec-tvorganize&library=2',capture:'.undo',action:async page=>{await page.locator('.undo summary').click();await page.getByRole('button',{name:'预览撤销',exact:true}).click();await page.getByText(/可还原 2 条/).waitFor()}},
   {name:'restore-panel',route:'/settings?sec=sec-restore&library=1',capture:'#sec-restore'},
-  {name:'tv-maint',route:'/settings?sec=sec-libtools&library=2&tool=maintenance',capture:'.settings-main',action:async page=>{await page.getByRole('button',{name:'资料维护',exact:true}).click()}},
+  {name:'tv-maint',route:'/settings?sec=sec-libtools&library=2&tool=maintenance',capture:'.settings-main',action:async page=>{await page.locator('.tool-views').getByRole('button',{name:'资料维护',exact:true}).click()}},
   {name:'organize-preview',route:'/settings?sec=sec-organize&library=1',capture:'#sec-organize',action:async page=>{await page.locator('.plan-item').first().waitFor()}},
 ].map(scene=>({...scene,viewports:[1440]}))
 const scenes=[...coreScenes,...(core?[]:[...tutorialScenes,
@@ -122,8 +122,8 @@ async function captureDocs() {
     ['mobile-library','movie-wall',390,'user-guide/find-movies.md','390px 手机的搜索、继续观看、排序与三列海报墙'],
     ['collections','collection-detail',1440,'user-guide/collections.md','虚构合集详情及成员海报'],
     ['library-connection','settings-libraries',1440,'user-guide/libraries.md','媒体库连接及分组视频库条目'],
-    ['library-new','library-new',1440,'user-guide/libraries.md','按需展开的新建媒体库表单'],
-    ['settings-index','settings-maintenance',1440,'user-guide/settings.md','分开的索引修复与播放缓存维护'],
+    ['library-new','library-new',1440,'user-guide/libraries.md','独立的新建媒体库任务表单与返回列表入口'],
+    ['settings-index','settings-maintenance',1440,'user-guide/settings.md','数据容量、缓存清理与资料维护入口'],
     ['movie-detail','movie-detail',1440,'user-guide/movie-versions.md','电影详情、播放版本与继续观看入口'],
     ['tv-show','show-detail',1440,'user-guide/watch-tv.md','虚构剧集详情、播出与收藏状态、本地及官方季目录'],
     ['tv-season','season-detail',1440,'user-guide/watch-tv.md','季页分集、剧照和播放状态'],
@@ -210,7 +210,7 @@ try {
         page.on('response',response=>{if(response.status()>=400)failedRequests.push({status:response.status(),url:new URL(response.url()).pathname})})
         try{
           await page.goto(base+scene.route)
-          await page.getByRole('navigation',{name:'主导航'}).waitFor()
+          await page.locator('#main-content').waitFor()
           if(scene.mode==='loading')await page.waitForTimeout(180);else await page.waitForLoadState('networkidle')
           if(scene.action)await scene.action(page)
           if(scene.capture){await page.locator(scene.capture).waitFor();await page.locator(scene.capture).scrollIntoViewIfNeeded();await page.waitForLoadState('networkidle')}

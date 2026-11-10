@@ -58,7 +58,7 @@ async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail 
     throw new Error('Unexpected request: ' + path)
   }
   const component = await loadSfc(new URL('../src/components/OnlineSourcesPanel.vue', import.meta.url), {
-    vue: { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {} },
+    vue: { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {}, vShow: {} },
     'vue-router': { useRoute: () => route },
     '../api.js': { api }, '../settingsDrafts.js': { useSettingsDraft(entry) { draft = entry } },
   })

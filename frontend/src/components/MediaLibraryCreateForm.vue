@@ -61,12 +61,12 @@
     <div class="lib-form vid-form">
       <span class="form-sec-title">视频库 <span class="fhint">（至少一个；每个视频库指定媒体库下的子目录与类型：电影/剧集）</span></span>
       <div v-for="(v, i) in form.videos" :key="i" class="vid-line">
-        <input v-model="v.name" :aria-label="'视频库名称 ' + (i + 1)" v-bind="NOFILL" placeholder="名称（如 Movies）" />
-        <input v-model="v.subpath" :aria-label="'视频子目录 ' + (i + 1)" v-bind="NOFILL" placeholder="子目录（如 Movies；空=媒体库根）" @change="fillName(i)" />
-        <select v-model="v.kind" :aria-label="'视频库类型 ' + (i + 1)">
+        <label>视频库名称<input v-model="v.name" :aria-label="'视频库名称 ' + (i + 1)" v-bind="NOFILL" placeholder="例如 Movies" /></label>
+        <label>子目录<input v-model="v.subpath" :aria-label="'视频子目录 ' + (i + 1)" v-bind="NOFILL" placeholder="例如 Movies；留空使用媒体库根" @change="fillName(i)" /></label>
+        <label>内容类型<select v-model="v.kind" :aria-label="'视频库类型 ' + (i + 1)">
           <option value="movie">电影</option>
           <option value="tv">剧集</option>
-        </select>
+        </select></label>
         <JzButton v-if="form.videos.length > 1" @click="form.videos.splice(i, 1)" type="button" icon="delete">移除</JzButton>
       </div>
       <JzButton v-if="!compact" @click="form.videos.push({ name: '', subpath: '', kind: 'movie' })" type="button" icon="plus">添加视频库</JzButton>
@@ -122,10 +122,6 @@
 
     </details>
     <p class="hint">扫描可能按设置向媒体目录写入 NFO；目录整理仍需另行预览确认。</p>
-      <JzButton variant="primary" @click="create" :disabled="!!busy || !form.name.trim() || (form.source === 'local' && !form.path.trim())">
-        {{ busy === 'create' ? '创建中…' : '创建媒体库' }}
-      </JzButton>
-    <p role="status">{{ msg }}</p>
     <details class="settings-details">
       <summary>路径填写与连接帮助</summary>
       <ul class="hint-list">
@@ -142,6 +138,12 @@
           媒体库内视频库子目录不允许互相重叠（含根）。</li>
       </ul>
     </details>
+    <SettingsFormActions :dirty="dirty" :busy="!!busy || test.busy" label="创建媒体库" :status="msg">
+      <JzButton variant="primary" @click="create" :disabled="!!busy || !form.name.trim() || (form.source === 'local' && !form.path.trim())">
+        {{ busy === 'create' ? '创建中…' : '创建媒体库' }}
+      </JzButton>
+      <JzButton v-if="cancellable" :disabled="!!busy || test.busy" @click="emit('cancel')">取消</JzButton>
+    </SettingsFormActions>
     </fieldset></div>
 </template>
 <script setup>
@@ -152,11 +154,12 @@ import { useSettingsDraft } from '../settingsDrafts.js'
 import { api } from '../api.js'
 import { parseSmbInput } from '../smb.js'
 import JzButton from './JzButton.vue'
+import SettingsFormActions from './SettingsFormActions.vue'
 const props = defineProps({
-  kind: { type: String, default: 'movie' }, compact: Boolean, disabled: Boolean,
+  kind: { type: String, default: 'movie' }, compact: Boolean, disabled: Boolean, cancellable: Boolean,
   smbDriver: { type: String, default: 'auto' },
 })
-const emit = defineEmits(['created', 'busy'])
+const emit = defineEmits(['created', 'busy', 'cancel'])
 const busy = ref('')
 const msg = ref('')
 const advSplitting = ref(false)
@@ -277,7 +280,7 @@ input, select { min-width: 0 !important; width: 100%; max-width: 100%; box-sizin
 .lib-form label.ck input { width: 16px; height: 16px; }
 .lib-form > button { justify-self: start; align-self: end; }
 .vid-form { border-top: 1px solid var(--jz-border); padding-top: 20px; }
-.vid-line { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr 100px auto; gap: 10px; align-items: center; }
+.vid-line { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr 100px auto; gap: 10px; align-items: end; }
 .form-sec-title { grid-column: 1 / -1; color: var(--jz-text); font-size: var(--jz-font-m); font-weight: 600; }
 .form-sec-title .fhint { display: block; margin-top: 4px; font-weight: normal; }
 .parse-line { grid-column: 1 / -1; color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.8; }
@@ -297,7 +300,8 @@ input, select { min-width: 0 !important; width: 100%; max-width: 100%; box-sizin
 @media (max-width: 700px) {
   .lib-form { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .vid-line { grid-template-columns: minmax(0, 1fr) auto; }
-  .vid-line > input { grid-column: 1 / -1; }
+  .vid-line > label { grid-column: 1 / -1; }
+  .vid-line + .vid-line { border-top: 1px solid var(--jz-border); padding-top: 16px; }
   summary { min-height: 44px; box-sizing: border-box; padding: 10px 0; }
   .policy-details { padding: 0; }
 }

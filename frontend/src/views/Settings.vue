@@ -1,5 +1,12 @@
 <template>
-  <div class="settings-layout">
+  <div class="settings-layout" :style="{ '--settings-mobile-header-height': mobileHeaderHeight + 'px' }" :class="{ 'settings-home': active === 'sec-status', 'settings-files': active === 'sec-files' }">
+    <header ref="mobileHeader" class="settings-mobile-header">
+      <router-link class="settings-back" :to="active === 'sec-status' ? browseReturn : pageTarget(currentPage.parent || 'sec-status')" @click="rememberScroll">
+        <AppIcon name="back" :size="20" /><span>{{ active === 'sec-status' ? '返回浏览' : currentPage.parent ? '访问保护' : '设置' }}</span>
+      </router-link>
+      <div class="settings-mobile-title"><h1 tabindex="-1" ref="mobileTitle">{{ active === 'sec-status' ? '设置' : currentPage.label }}</h1><p v-if="active !== 'sec-status'">{{ settingsScope }}</p></div>
+      <HelpLink page="user-guide/settings" label="帮助" icon="help" aria-label="设置帮助（在新标签页打开）" />
+    </header>
     <aside class="side-nav" aria-label="设置导航">
       <h1>设置</h1><router-link class="setup-link" to="/setup">新手配置</router-link>
       <nav class="desktop-categories" aria-label="设置分区">
@@ -9,13 +16,6 @@
             @click="go(n.id)"><AppIcon :name="n.icon" :size="18" />{{ n.label }}</button>
         </section>
       </nav>
-      <div class="mobile-categories"><label for="settings-category">设置分类</label>
-        <select id="settings-category" :value="active" @change="changeCategory">
-          <optgroup v-for="group in navGroups" :key="group.name" :label="group.name">
-            <option v-for="n in group.pages" :key="n.id" :value="n.id">{{ n.label }}</option>
-          </optgroup>
-        </select>
-      </div>
     </aside>
     <main class="settings-main">
       <header class="settings-heading">
@@ -25,7 +25,8 @@
       <p v-if="loadError" class="settings-notice" role="alert">{{ loadError }} <JzButton @click="loadSettings" type="button" icon="refresh">重新加载</JzButton></p>
 
       <div v-show="active === 'sec-status'" id="sec-status">
-        <section class="card-block overview-tasks">
+        <details class="card-block overview-tasks" :open="!isPhone">
+          <summary class="overview-task-summary"><span>需要处理</span><span>{{ !stats || !tvStats ? statsError || tvStatsError ? '加载失败 · 展开重试' : '正在加载…' : todoCount ? `${todoCount} 项待办` : '暂无待办' }}</span><AppIcon name="forward" :size="18" /></summary>
           <div class="section-heading"><div><h3>需要处理</h3><p class="hint">按视频库核对匹配与失效文件。</p></div><JzButton @click="loadStats" type="button" icon="refresh">刷新统计</JzButton></div>
           <div v-for="row in movieTodos" :key="'movie-' + row.library_id" class="overview-task">
             <div><strong>{{ libraryName(row.library_id) }}</strong><span>{{ row.pending }} 项匹配待办 · {{ row.missing_files }} 个失效文件</span></div>
@@ -37,7 +38,17 @@
           </div>
           <p v-if="stats && tvStats && !movieTodos.length && !tvTodos.length" class="overview-clear">当前没有匹配或失效文件待办。</p>
           <p v-else-if="!stats || !tvStats" class="hint" role="status">{{ statsError || tvStatsError || '正在加载待办…' }}</p>
-        </section>
+        </details>
+        <nav class="settings-directory" aria-label="设置分类">
+          <section v-for="(group, index) in directoryGroups" :key="group.name" :aria-labelledby="'settings-directory-' + index">
+            <h2 :id="'settings-directory-' + index">{{ group.name }}</h2>
+            <router-link v-for="item in group.pages" :key="item.id" :to="pageTarget(item.id)" class="settings-directory-link" @click="rememberScroll">
+              <AppIcon :name="item.icon" :size="21" /><span>{{ item.label }}</span><AppIcon name="forward" :size="18" />
+            </router-link>
+          </section>
+          <div class="settings-directory-help"><router-link to="/setup"><AppIcon name="plus" :size="18" />新手配置</router-link><router-link :to="browseReturn">返回浏览</router-link></div>
+        </nav>
+        <details class="overview-statistics" :open="!isPhone"><summary>媒体库统计</summary>
         <div class="overview-collections">
           <section class="card-block"><h3>电影库概况</h3>
             <div v-if="stats" class="stat-grid">
@@ -66,6 +77,7 @@
           <p v-if="dataUsage?.over_limit" class="warn-text">已达到 {{ fmtBytes(dataUsage.warning_bytes) }} 总预算，请到“系统维护”重新分配容量或清理缓存。</p>
           <JzButton @click="go('sec-index')" type="button">打开系统维护</JzButton>
         </details>
+        </details>
         <div class="settings-shortcuts">
           <button @click="go('sec-libraries')"><b><AppIcon name="library" />媒体库连接</b><span>添加存储位置或检查连接</span></button>
           <button @click="go('sec-libtools')"><b><AppIcon name="organize" />扫描与整理</b><span>导入新文件，核对匹配，整理目录</span></button>
@@ -80,8 +92,8 @@
 
       <div v-if="visited.has('sec-tmdb')" v-show="active === 'sec-tmdb'" id="sec-tmdb">
         <TmdbSettingsPanel :settings="s" @saved="s = $event" />
-        <TvAiringMaintenance :active="active === 'sec-tmdb'" />
-        <section class="card-block provider-status">
+        <details class="settings-details provider-status"><summary>来源运行状态 <span v-if="unavailableProviders" class="warn-text">{{ unavailableProviders }} 个暂不可用</span></summary>
+        <section class="card-block">
           <div class="section-heading"><h3>来源运行状态</h3><JzButton @click="loadProviders" type="button" icon="refresh">刷新状态</JzButton></div>
           <p class="hint">各视频库共享连接状态。暂不可用的来源会自动重试。</p>
           <p v-if="unavailableProviders" class="warn-text">{{ unavailableProviders }} 个来源暂不可用</p>
@@ -93,7 +105,8 @@
           <p v-if="providerMsg" class="feedback" role="status">{{ providerMsg }}</p>
           <details class="settings-details"><summary>自动重试机制</summary><p class="hint">连续失败 {{ providerInfo?.fail_threshold ?? 3 }} 次后暂停使用，约 {{ Math.round((providerInfo?.cooldown_sec ?? 600) / 60) }} 分钟后重试。</p></details>
           <div class="bar"><JzButton @click="go('sec-matching')" type="button" icon="match">设置视频库匹配规则</JzButton></div>
-        </section>
+        </section></details>
+        <router-link class="settings-task-link" :to="pageTarget('sec-maintenance')"><span>剧集播出资料与儿童筛选维护</span><AppIcon name="forward" :size="18" /></router-link>
       </div>
 
       <div v-show="active === 'sec-matching'" id="sec-matching">
@@ -112,13 +125,12 @@
             </ol>
             <p class="hint">{{ chainSel.length ? chainOrderText : '至少选择一个来源。' }}</p>
             <p v-if="chainDraftCount" class="hint" role="status">{{ chainDraftCount }} 个视频库有未保存修改。切换视频库保留草稿；离开此分区前会提示处理未保存修改。</p>
-            <div class="bar"><JzButton class="primary" @click="saveChain" :disabled="savingChain || chainLibId == null || !chainSel.length" type="button" variant="primary" icon="match">{{ savingChain ? '保存中…' : '保存匹配规则' }}</JzButton><JzButton @click="chainSel = [...DEFAULT_CHAIN]" type="button" icon="undo">恢复默认选择</JzButton><JzButton v-if="chainDirty" @click="discardChain" type="button" icon="edit">放弃本库修改</JzButton></div>
+            <SettingsFormActions :dirty="chainDirty" :busy="savingChain" label="匹配规则操作"><JzButton class="primary" @click="saveChain" :disabled="savingChain || chainLibId == null || !chainSel.length" type="button" variant="primary" icon="match">{{ savingChain ? '保存中…' : '保存匹配规则' }}</JzButton><JzButton @click="chainSel = [...DEFAULT_CHAIN]" type="button" icon="undo">恢复默认选择</JzButton><JzButton v-if="chainDirty" @click="discardChain" type="button" icon="edit">放弃本库修改</JzButton></SettingsFormActions>
             <p v-if="chainMsg" class="feedback" role="status">{{ chainMsg }}</p>
           </div>
           <p v-else class="hint">添加视频库后即可设置匹配来源。<JzButton @click="go('sec-libraries')" type="button" icon="plus">添加媒体库</JzButton></p>
         </section>
-        <section v-if="chainLibrary" class="card-block">
-          <h3>测试当前视频库匹配</h3>
+        <details v-if="chainLibrary" class="settings-details matching-test"><summary>测试当前视频库匹配</summary><section class="card-block">
           <p class="hint">{{ libraryName(chainLibId) }} · {{ chainLibrary.kind === 'tv' ? '剧集' : '电影' }}。使用本库已保存的来源顺序查找候选，不会修改媒体资料。</p>
           <form class="settings-form" @submit.prevent="testChain">
             <label for="matching-query">{{ chainLibrary.kind === 'tv' ? '剧集名称' : '电影名称' }}</label>
@@ -128,7 +140,7 @@
           </form>
           <p v-if="chainTestMsg" class="feedback" role="status">{{ chainTestMsg }}</p>
           <ul v-if="chainTestResult?.items?.length" class="matching-results"><li v-for="(item, index) in chainTestResult.items.slice(0, 5)" :key="index">{{ item.title || item.name }} <span class="hint">{{ item.year || item.release_date?.slice(0, 4) }} · {{ CHAIN_LABELS[item.source] || item.source || '未标注来源' }}</span></li></ul>
-        </section>
+        </section></details>
       </div>
 
       <div v-if="visited.has('sec-ai')" v-show="active === 'sec-ai'" id="sec-ai"><AiSettingsPanel /></div>
@@ -144,16 +156,19 @@
 
       <section v-if="visited.has('sec-auth')" v-show="active === 'sec-auth'" id="sec-auth" class="card-block">
         <ProtectionSettings />
-        <ChildrenMetadataRefresh :active="active === 'sec-auth'" :libs="libList" :libraries-ready="ready" :libraries-error="librariesError" @retry-libraries="loadLibraries(true)" />
+        <router-link class="settings-task-link" :to="pageTarget('sec-token')"><span><strong>访问令牌</strong><small>{{ s?.jzmedia_token_masked ? '已启用写操作保护' : '为播放与修改操作设置令牌' }}</small></span><AppIcon name="forward" :size="18" /></router-link>
+        <router-link class="settings-task-link" :to="pageTarget('sec-maintenance')"><span>补全儿童筛选资料</span><AppIcon name="forward" :size="18" /></router-link>
+      </section>
+      <section v-if="visited.has('sec-token')" v-show="active === 'sec-token'" id="sec-token" class="card-block">
         <div class="section-heading"><h3>写操作保护</h3><span class="status-label">{{ s?.jzmedia_token_masked ? '已启用' : '未启用' }}</span></div>
         <p class="hint">作用于整个服务。启用后，修改内容、启动网页播放和保存进度需要令牌。观看模式的内容保护独立生效，隐私内容需要保护密码解锁。</p>
         <p v-if="s?.jzmedia_token_source === 'env'" class="hint">当前令牌由服务器配置提供。如需关闭保护，请在服务器移除 JZMEDIA_TOKEN；在此可保存新令牌替换。</p>
         <form class="settings-form" @submit.prevent="saveAuth()">
           <label for="access-token">{{ s?.jzmedia_token_masked ? '更换访问令牌' : '设置访问令牌' }}</label>
           <input id="access-token" :disabled="busy === 'auth'" v-model="authForm.token" type="password" minlength="8" pattern="[ -~]{8,}" required placeholder="至少 8 位英文、数字或半角符号" title="请使用至少 8 位英文字母、数字或半角符号" autocomplete="new-password" />
-          <div class="bar"><JzButton class="primary" type="submit" :disabled="!!busy || !s || authForm.token.trim().length < 8" variant="primary">{{ busy === 'auth' ? '保存中…' : '保存并启用保护' }}</JzButton><JzButton v-if="s?.jzmedia_token_source === 'db'" type="button" @click="armDisableAuth = true" :disabled="!!busy" icon="delete">移除已保存令牌…</JzButton></div>
+          <SettingsFormActions :dirty="!!authForm.token" :busy="busy === 'auth'" label="访问令牌操作"><JzButton class="primary" type="submit" :disabled="!!busy || !s" variant="primary">{{ busy === 'auth' ? '保存中…' : '保存并启用保护' }}</JzButton><JzButton v-if="s?.jzmedia_token_source === 'db'" type="button" @click="armDisableAuth = true" :disabled="!!busy" icon="delete">移除已保存令牌…</JzButton><JzButton v-if="authForm.token" :disabled="!!busy" @click="authForm.token = ''; authMsg = ''">放弃修改</JzButton></SettingsFormActions>
         </form>
-        <div v-if="armDisableAuth" class="settings-notice" role="alert"><span>将移除此处保存的令牌。若服务器仍配置了令牌，将恢复使用；否则关闭保护，任何能访问服务的人都可以修改内容。</span><JzButton class="danger" @click="saveAuth(true)" :disabled="!!busy" type="button" variant="danger">确认移除令牌</JzButton><JzButton @click="armDisableAuth = false" :disabled="!!busy" type="button">取消</JzButton></div>
+        <JzDialog v-if="armDisableAuth && active === 'sec-token'" title="移除访问令牌" size="small" :busy="busy === 'auth'" @close="armDisableAuth = false"><p>将移除此处保存的令牌。若服务器仍配置了令牌，将恢复使用；否则关闭保护，任何能访问服务的人都可以修改内容。</p><template #footer><JzButton @click="armDisableAuth = false" :disabled="!!busy">取消</JzButton><JzButton @click="saveAuth(true)" :loading="busy === 'auth'" variant="danger">确认移除令牌</JzButton></template></JzDialog>
         <p v-if="authMsg" class="feedback" role="status">{{ authMsg }}</p>
         <details class="settings-details"><summary>其他浏览器如何使用</summary><p class="hint">其他浏览器首次播放或修改内容时会要求输入令牌，并在该浏览器中记住。此处保存新令牌后，当前浏览器会自动更新。</p></details>
       </section>
@@ -168,6 +183,11 @@
 
       <div v-show="active === 'sec-index'" id="sec-index">
         <StorageUsagePanel />
+        <router-link class="settings-task-link" :to="pageTarget('sec-maintenance')"><span>资料补全与搜索索引维护</span><AppIcon name="forward" :size="18" /></router-link>
+      </div>
+      <div v-if="visited.has('sec-maintenance')" v-show="active === 'sec-maintenance'" id="sec-maintenance">
+        <details class="settings-details maintenance-task" open><summary>剧集播出资料</summary><TvAiringMaintenance :active="active === 'sec-maintenance'" /></details>
+        <details class="settings-details maintenance-task"><summary>儿童筛选资料</summary><ChildrenMetadataRefresh :active="active === 'sec-maintenance'" :libs="libList" :libraries-ready="ready" :libraries-error="librariesError" @retry-libraries="loadLibraries(true)" /></details>
         <section class="card-block maintenance-action"><div><h3>搜索索引</h3><p class="hint">搜索结果缺失或与资料不一致时，重建全部媒体库的索引。</p></div><div class="bar"><JzButton @click="doRebuildFts" :disabled="!!busy" type="button" icon="search">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</JzButton></div><p v-if="ftsMsg" class="feedback" role="status">{{ ftsMsg }}</p></section>
       </div>
 
@@ -183,6 +203,9 @@
 <script setup>
 import AppIcon from '../components/AppIcon.vue'
 import JzButton from '../components/JzButton.vue'
+import JzDialog from '../components/JzDialog.vue'
+import HelpLink from '../components/HelpLink.vue'
+import SettingsFormActions from '../components/SettingsFormActions.vue'
 import SettingsLeaveDialog from '../components/SettingsLeaveDialog.vue'
 import ProtectionSettings from '../components/ProtectionSettings.vue'
 import ChildrenMetadataRefresh from '../components/ChildrenMetadataRefresh.vue'
@@ -202,7 +225,7 @@ import { currentMediaId, listLibs, loadLibs } from '../libraries.js'
 import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
 
 import StorageUsagePanel from '../components/StorageUsagePanel.vue'
-import { SETTINGS_PAGES, settingsTarget } from '../settingsNavigation.js'
+import { SETTINGS_PAGES, SETTINGS_TASK_PAGES, settingsTarget, settingsBrowseTarget } from '../settingsNavigation.js'
 import { CHAIN_PROVIDERS, CHAIN_LABELS, DEFAULT_CHAIN, useMatchingSettings } from '../useMatchingSettings.js'
 import '../styles/settings.css'
 
@@ -410,20 +433,36 @@ async function onToolsChanged() {
 const librariesRef = ref(null)
 
 // Panels stay mounted after first use so switching pages retains forms and job progress.
-const navs = SETTINGS_PAGES
-const navGroups = [...new Set(navs.map(n => n.group))].map(name => ({ name, pages: navs.filter(n => n.group === name) }))
+const navs = [...SETTINGS_PAGES, ...SETTINGS_TASK_PAGES]
+const navGroups = [...new Set(SETTINGS_PAGES.map(n => n.group))].map(name => ({ name, pages: SETTINGS_PAGES.filter(n => n.group === name) }))
+const directoryGroups = navGroups.map(group => ({ ...group, pages: group.pages.filter(page => page.id !== 'sec-status') }))
+const isPhone = ref(false)
+const mobileTitle = ref(null), mobileHeader = ref(null), mobileHeaderHeight = ref(0)
+let headerObserver
+function measureHeader() { mobileHeaderHeight.value = mobileHeader.value?.getBoundingClientRect?.().height || 0 }
+let phoneQuery
+const syncPhone = () => { isPhone.value = !!phoneQuery?.matches }
+const browseReturn = settingsBrowseTarget(typeof window === 'undefined' ? null : window.history?.state?.back, route.query.media)
+const pageScroll = new Map()
+function rememberScroll() { if (typeof window !== 'undefined') pageScroll.set(active.value, window.scrollY) }
+function pageTarget(id) {
+  const query = { ...route.query, sec: id }
+  for (const key of ['ids', 'library', 'media', 'files_from', 'files_return', 'files_path']) delete query[key]
+  return { path: '/settings', query }
+}
+const todoCount = computed(() => movieTodos.value.reduce((n, row) => n + Number(row.pending || 0) + Number(row.missing_files || 0), 0) + tvTodos.value.reduce((n, row) => n + Number(row.pending || 0), 0))
 const active = ref(settingsTarget(route.query).page)
 const currentPage = computed(() => navs.find(n => n.id === active.value) || navs[0])
 const settingsScope = computed(() => {
-  if (active.value === 'sec-display') return '作用范围：当前浏览器'
-  if (active.value === 'sec-auth') return '作用范围：见下方各项'
-  if (active.value === 'sec-online') return '作用范围：此服务的在线点播'
-  if (['sec-libtools', 'sec-files', 'sec-matching'].includes(active.value)) return '作用范围：下方选中的视频库'
-  if (active.value === 'sec-status') return '统计范围：全部媒体库'
-  return '作用范围：此服务的全部媒体库'
+  if (active.value === 'sec-display') return '当前浏览器 · 自动保存'
+  if (active.value === 'sec-auth') return '全部媒体库'
+  if (active.value === 'sec-online') return '此服务的在线点播'
+  if (['sec-libtools', 'sec-files', 'sec-matching'].includes(active.value)) return '选中的视频库'
+  if (active.value === 'sec-status') return '全部媒体库'
+  return '此服务的全部媒体库'
 })
 draftGuard.register({
-  section: 'sec-auth', label: '访问令牌', dirty: () => !!authForm.value.token,
+  section: 'sec-token', label: '访问令牌', dirty: () => !!authForm.value.token,
   busy: () => busy.value === 'auth',
   discard: () => { authForm.value.token = ''; armDisableAuth.value = false; authMsg.value = '' },
 })
@@ -444,10 +483,16 @@ let disposed = false
 async function activate(query) {
   const generation = ++navigationGeneration
   const target = settingsTarget(query)
+  const changed = active.value !== target.page
+  if (changed) rememberScroll()
   active.value = target.page
   visited.value.add(target.page)
   await nextTick()
   if (generation !== navigationGeneration) return
+  if (changed && isPhone.value) {
+    window.scrollTo({ top: pageScroll.get(target.page) || 0 })
+    mobileTitle.value?.focus({ preventScroll: true })
+  }
   if (target.page === 'sec-libraries') librariesRef.value?.ensure()
   if ((target.page === 'sec-libtools' || target.page === 'sec-files') && ready.value) {
     await toolsRef.value?.focus(target)
@@ -457,14 +502,9 @@ async function activate(query) {
   }
 }
 async function go(id) {
-  const query = { ...route.query, sec: id }
-  for (const key of ['ids', 'library', 'media', 'files_from', 'files_return', 'files_path']) delete query[key]
-  const failure = await router.push({ path: '/settings', query })
-  if (!failure) window.scrollTo({ top: 0 })
-}
-async function changeCategory(event) {
-  try { await go(event.target.value) }
-  finally { event.target.value = active.value }
+  rememberScroll()
+  const failure = await router.push(pageTarget(id))
+  if (!failure && !isPhone.value) window.scrollTo({ top: 0 })
 }
 watch(() => route.query, activate)
 
@@ -489,6 +529,12 @@ async function loadLibraries(force = false) {
   }
 }
 onMounted(async () => {
+  phoneQuery = window.matchMedia?.('(max-width: 700px)')
+  syncPhone()
+  phoneQuery?.addEventListener('change', syncPhone)
+  await nextTick()
+  measureHeader()
+  if (window.ResizeObserver && mobileHeader.value) { headerObserver = new window.ResizeObserver(measureHeader); headerObserver.observe(mobileHeader.value) }
   window.addEventListener('jzmedia:data-usage-changed', loadDataUsage)
   window.addEventListener('jzmedia:libraries-changed', onLibrariesLoaded)
   window.addEventListener('beforeunload', draftGuard.beforeUnload)
@@ -499,6 +545,8 @@ onMounted(async () => {
   ])
 })
 onUnmounted(() => {
+  phoneQuery?.removeEventListener('change', syncPhone)
+  headerObserver?.disconnect()
   window.removeEventListener('jzmedia:data-usage-changed', loadDataUsage)
   disposed = true
   removeAfterEach()

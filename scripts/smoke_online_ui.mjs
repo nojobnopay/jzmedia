@@ -1,6 +1,6 @@
 // Real Vue App and Router, in-memory API and local demo artwork only.
 // Run one check at a time under the repository's bounded validation wrapper.
-// node scripts/smoke_online_ui.mjs [--baseline] [--width 1440|390|375|320] [--capture-docs|--capture-preview]
+// node scripts/smoke_online_ui.mjs [--baseline|--settings-only] [--width 1440|390|375|320] [--capture-docs|--capture-preview]
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -15,16 +15,18 @@ import { chromium } from '../docs/node_modules/playwright/index.mjs'
 import { artworkFingerprint, createFixture, movies, shows } from './fixtures/uiReviewData.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url)), args = process.argv.slice(2)
-let baseline = false, captureDocs = false, capturePreview = false, widths = [1440, 390, 375, 320]
+let baseline = false, settingsOnly = false, captureDocs = false, capturePreview = false, widths = [1440, 390, 375, 320]
 for (let index = 0; index < args.length; index++) {
   if (args[index] === '--baseline') baseline = true
+  else if (args[index] === '--settings-only') settingsOnly = true
   else if (args[index] === '--capture-docs' || args[index] === '--capture-preview') { captureDocs = true; capturePreview = args[index] === '--capture-preview'; widths = [1440, 390] }
   else if (args[index] === '--width') { const width = Number(args[++index]); assert.ok(widths.includes(width)); widths = [width] }
-  else if (args[index] === '--help') { console.log('node scripts/smoke_online_ui.mjs [--baseline] [--width 1440|390|375|320] [--capture-docs|--capture-preview]'); process.exit(0) }
+  else if (args[index] === '--help') { console.log('node scripts/smoke_online_ui.mjs [--baseline|--settings-only] [--width 1440|390|375|320] [--capture-docs|--capture-preview]'); process.exit(0) }
   else throw new Error('Unknown argument: ' + args[index])
 }
+assert.ok(!(settingsOnly && (baseline || captureDocs)), 'Settings checks use current source and isolated fixtures')
 assert.ok(!(baseline && captureDocs), 'Documentation captures require current source')
-const label = baseline ? 'before' : 'after'
+const label = settingsOnly ? 'settings-after' : baseline ? 'before' : 'after'
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-ui-'))
 const output = path.join(root, 'output/playwright/online-ui', label), dist = path.join(work, 'dist')
 const fixture = createFixture(), sourceA = 'src_' + '1'.repeat(32), sourceB = 'src_' + '2'.repeat(32)
@@ -54,6 +56,20 @@ const metadata = Array.from({ length: 24 }, (_, index) => {
 const identity = (entry, episode = 6) => ({ source_id: entry.source.id, item_id: entry.item.id, line_id: lineId(entry.index),
   kind: entry.item.kind === 'tv' ? 'episode' : 'movie', episode_id: entry.item.kind === 'tv' ? episodeId(entry.index, episode) : null })
 const state = { rows: [], epoch: 0, delay: '', requests: [], unexpected: [], expectedFailures: [], failNextBrowse: false }
+const settingsProfileId = 'np_' + '3'.repeat(32)
+const settingsData = { enabled: true, sources: [], profiles: [], policies: {} }
+function resetSettings() {
+  settingsData.enabled = true
+  settingsData.sources = sources.map(source => ({ ...source, enabled: true,
+    api_base_url: 'https://catalog.example/api', allowed_hosts: ['catalog.example'], provider_options: {} }))
+  settingsData.profiles = [{ id: settingsProfileId, name: '共享演示代理', mode: 'proxy', proxy_url: 'http://proxy.example:7890', has_credentials: false,
+    connect_timeout_seconds: 10, read_timeout_seconds: 20, max_connections: 4, ca_file: '', ca_dir: '' }]
+  settingsData.policies = Object.fromEntries(sources.map(source => [source.id, Object.fromEntries(
+    ['default', 'api', 'media', 'image', 'subtitle', 'subscription'].map(purpose => [purpose, purpose === 'api' ? { mode: 'direct' }
+      : purpose === 'media' ? { mode: 'proxy', profile_id: settingsProfileId } : { mode: 'inherit' }]))]))
+}
+resetSettings()
+
 const scope = () => (16 + state.epoch).toString(16).padStart(64, '0')
 function reset() {
   state.epoch = 0; state.delay = ''; state.failNextBrowse = false
@@ -67,6 +83,30 @@ reset()
 function api(url, method, body) {
   const key = url.pathname, query = url.searchParams
   state.requests.push({ path: key, method, query: Object.fromEntries(query), ...(body ? { body } : {}) })
+  if (settingsOnly) {
+    if (key === '/api/online/settings') { if (method === 'PATCH') settingsData.enabled = body.enabled; return { enabled: settingsData.enabled } }
+    if (key === '/api/online/sources') return { items: settingsData.sources }
+    if (key === '/api/online/network/profiles') return { items: settingsData.profiles }
+    if (key === '/api/online/network/default') return { rule: { mode: 'direct' } }
+    if (key === '/api/online/source-templates') return { items: [] }
+    if (key === '/api/online/network/profiles/' + settingsProfileId) {
+      Object.assign(settingsData.profiles[0], body); return settingsData.profiles[0]
+    }
+    const sourceMatch = /^\/api\/online\/sources\/(src_[a-f0-9]{32})(?:\/(network|host-check|allow-hosts))?$/.exec(key)
+    if (sourceMatch) {
+      const source = settingsData.sources.find(item => item.id === sourceMatch[1]); assert.ok(source)
+      if (sourceMatch[2] === 'network') {
+        if (method === 'PATCH') settingsData.policies[source.id] = body
+        return { policy: settingsData.policies[source.id] }
+      }
+      if (sourceMatch[2] === 'host-check') return { source_id: source.id, external_id: body.external_id,
+        configuration_fingerprint: 'd'.repeat(64), missing_hosts: ['media.example.com', 'images.example.com'],
+        allowed_hosts: source.allowed_hosts, rejected_count: 0 }
+      if (sourceMatch[2] === 'allow-hosts') source.allowed_hosts = [...new Set([...source.allowed_hosts, ...body.hosts])]
+      else if (method === 'PATCH') Object.assign(source, body)
+      return source
+    }
+  }
   if (captureDocs && key === '/api/online/settings') return { enabled: true }
   if (captureDocs && key === '/api/online/sources') return { items: sources.map(source => ({ ...source, enabled: true })) }
   if (captureDocs && key === '/api/online/network/profiles') return { items: [] }
@@ -193,6 +233,95 @@ async function touchTargets(page, width) {
   if (!baseline) assert.deepEqual(small, [], 'Phone controls must retain 44px targets')
 }
 
+async function checkSourceSettings(page, base, width) {
+  await page.goto(base + '/settings?sec=sec-online')
+  const sourceRow = page.locator(`[data-online-source-row="${sourceA}"]`)
+  await sourceRow.waitFor()
+  const edit = sourceRow.getByRole('button', { name: '编辑 光影片库', exact: true })
+  await edit.click()
+  const form = page.locator('[data-online-source-form]')
+  await form.waitFor()
+  assert.equal(await sourceRow.isVisible(), false, 'Editing is a separate task, not a form after the list')
+  const field = page.getByLabel('来源名称', { exact: true })
+  const box = await field.boundingBox()
+  if (width <= 700) assert.ok(box.y < 360, 'The first source field is immediately visible')
+  if (width === 1440) {
+    const originalFont = await page.evaluate(() => document.documentElement.style.fontSize)
+    const alignment = []
+    for (const viewportWidth of [1440, 1024, 900, 768, 701, 390, 320]) {
+      await page.setViewportSize({ width: viewportWidth, height: 1000 })
+      await page.evaluate(() => { document.documentElement.style.fontSize = '20px' })
+      const layout = await form.evaluate(element => {
+        const hint = element.querySelector('#online-source-priority-description').getBoundingClientRect()
+        const option = element.querySelector('.online-source-check').getBoundingClientRect()
+        return { hintBottom: hint.bottom, optionTop: option.top, optionHeight: option.height,
+          overflow: document.documentElement.scrollWidth > innerWidth + 1 }
+      })
+      assert.ok(layout.optionTop >= layout.hintBottom, 'Source enabled option stays below priority help when it wraps')
+      assert.ok(layout.optionHeight >= 44, 'Source enabled option retains its touch target')
+      assert.equal(layout.overflow, false, 'Source fields fit at large text sizes')
+      alignment.push({ width: viewportWidth, font: 20, ...layout })
+      await capture(page, 'source-alignment', viewportWidth)
+    }
+    await writeFile(path.join(root, 'output/playwright/online-ui', label, 'source-alignment.json'), JSON.stringify(alignment, null, 2) + '\n')
+    await page.evaluate(font => { document.documentElement.style.fontSize = font }, originalFont)
+    await page.setViewportSize({ width, height: 1000 })
+  }
+  await field.fill('尚未保存的来源名称')
+  await page.getByRole('button', { name: '返回视频源列表', exact: true }).click()
+  await page.getByRole('button', { name: '继续编辑', exact: true }).click()
+  assert.equal(await field.inputValue(), '尚未保存的来源名称')
+  await page.getByRole('button', { name: '返回视频源列表', exact: true }).click()
+  await page.getByRole('button', { name: '放弃修改并离开', exact: true }).click()
+  await sourceRow.waitFor()
+  assert.equal(await edit.evaluate(element => element === document.activeElement), true, 'Returning restores the source entry focus')
+  await edit.click(); await field.fill('已保存的来源名称')
+  await page.getByRole('button', { name: '保存来源', exact: true }).click()
+  await page.getByText('来源已保存；尚未验证上游连通性。', { exact: true }).waitFor()
+  assert.equal(settingsData.sources[0].name, '已保存的来源名称')
+  await capture(page, 'source-list', width)
+
+  const network = sourceRow.getByRole('button', { name: '网络 已保存的来源名称', exact: true })
+  state.failSettingsNetwork = true
+  await network.click()
+  await page.getByRole('button', { name: '重试', exact: true }).click()
+  const networkForm = page.locator('[data-online-network-form]')
+  await networkForm.waitFor()
+  await networkForm.locator('summary').filter({ hasText: '高级：按用途分别配置' }).click()
+  assert.equal(await page.locator('#online-network-media').inputValue(), 'profile:' + settingsProfileId)
+  await page.locator('#online-network-default').selectOption('direct')
+  await page.getByRole('button', { name: '保存网络规则', exact: true }).click()
+  await sourceRow.waitFor()
+  assert.equal(settingsData.policies[sourceA].api.mode, 'direct', 'Explicit API direct routing survives saving')
+  assert.equal(settingsData.policies[sourceA].media.profile_id, settingsProfileId, 'Media override survives saving')
+  await network.click(); await networkForm.waitFor()
+  await page.locator('#online-network-mode').selectOption('proxy')
+  await capture(page, 'source-network', width)
+  await page.getByRole('button', { name: '返回视频源列表', exact: true }).click()
+  await page.getByRole('button', { name: '放弃修改并离开', exact: true }).click()
+
+  await page.locator('.online-shared-profiles > summary').click()
+  await page.getByRole('button', { name: '编辑代理 共享演示代理', exact: true }).click()
+  await page.getByLabel('配置名称', { exact: true }).fill('共享代理草稿')
+  assert.equal(await network.isDisabled(), true, 'A shared proxy draft protects source tasks')
+  await page.getByRole('button', { name: '取消编辑', exact: true }).click()
+  assert.equal(await network.isEnabled(), true)
+
+  await page.goto(base + `/settings?sec=sec-online&source=${sourceA}&item=fixture-1`)
+  await page.locator('[data-online-host-check]').waitFor()
+  await page.getByRole('button', { name: '检查媒体主机', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'images.example.com', exact: true }).uncheck()
+  await page.getByRole('button', { name: '加入允许列表', exact: true }).click()
+  await page.getByText('媒体主机已加入允许列表。返回影片详情后会重新读取播放线路。', { exact: true }).waitFor()
+  assert.deepEqual(settingsData.sources[0].allowed_hosts, ['catalog.example', 'media.example.com'])
+  await capture(page, 'source-hosts', width)
+  await page.getByRole('button', { name: '关闭检查', exact: true }).click()
+  await sourceRow.waitFor()
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'Settings fit the viewport')
+  report.checks.push({ width, checks: ['source edit visible immediately', 'draft keep/discard', 'focus return', 'source save semantics', 'network failure/retry',
+    'per-purpose network preservation', 'shared proxy draft locking', 'explicit host permission', 'task cancel', 'no horizontal overflow'] })
+}
+
 try {
   await mkdir(output, { recursive: true })
   report.commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
@@ -204,7 +333,7 @@ try {
   }
   report.source_sha256 = await fingerprint(path.join(source, 'frontend/src'))
   report.fixture_sha256 = createHash('sha256').update(JSON.stringify(metadata)).update(artworkFingerprint).digest('hex')
-  if (!baseline && !captureDocs) {
+  if (!baseline && !captureDocs && !settingsOnly) {
     const previous = await readFile(path.join(root, 'output/playwright/online-ui/before/report.json'), 'utf8').then(JSON.parse).catch(() => null)
     if (previous) assert.equal(previous.fixture_sha256, report.fixture_sha256, 'Recapture baseline after changing the comparison fixture')
   }
@@ -230,6 +359,10 @@ try {
           state.failNextBrowse = false; state.expectedFailures.push(key)
           res.writeHead(503, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ code: 'provider_timeout', detail: '隔离目录暂时不可用' })); return
         }
+        if (settingsOnly && state.failSettingsNetwork && /\/sources\/[^/]+\/network$/.test(key) && req.method === 'GET') {
+          state.failSettingsNetwork = false; state.expectedFailures.push(key)
+          res.writeHead(503, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ detail: '隔离网络配置暂不可用' })); return
+        }
         const data = api(url, req.method, body)
         res.writeHead(data === undefined ? 501 : 200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data ?? { detail: 'Unmocked isolated API' })); return
       }
@@ -244,7 +377,7 @@ try {
   const base = `http://127.0.0.1:${server.address().port}`
   browser = await chromium.launch({ headless: true })
   for (const width of widths) {
-    reset()
+    reset(); resetSettings()
     const context = await browser.newContext({ viewport: { width, height: width > 700 ? 1000 : 844 }, hasTouch: width <= 700,
       serviceWorkers: 'block', reducedMotion: 'reduce', timezoneId: 'Asia/Shanghai', locale: 'zh-CN' })
     await context.route('**/*', route => {
@@ -254,6 +387,7 @@ try {
     const page = currentPage = await context.newPage(); currentWidth = width; page.setDefaultTimeout(10000)
     page.on('pageerror', error => report.errors.push(String(error)))
     page.on('console', message => { if (message.type() === 'error' && !/(?:503 \(Service Unavailable\)|404 \(Not Found\))/.test(message.text())) report.errors.push(message.text()) })
+    if (settingsOnly) { await checkSourceSettings(page, base, width); await context.close(); continue }
     await go(page, base)
     await page.locator('[data-online-result]').first().waitFor()
     await capture(page, 'home', width)

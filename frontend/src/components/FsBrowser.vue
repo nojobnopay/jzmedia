@@ -1,11 +1,12 @@
 <template>
-  <section :id="active ? 'sec-files' : undefined" ref="root" class="fs-browser" tabindex="0" aria-label="文件管理器" @keydown="onKeydown" @pointerdown="closeOutsideMenu">
+  <section :id="active ? 'sec-files' : undefined" ref="root" class="fs-browser" :class="{ 'has-selection': selection.length, 'has-clipboard': clipboard.rels.length }" tabindex="0" aria-label="文件管理器" @keydown="onKeydown" @pointerdown="closeOutsideMenu">
     <header class="fs-heading">
       <p>单击定位 · 双击打开 · 勾选后批量操作</p>
-      <details class="fs-help"><summary>操作说明</summary><p>点击左侧复选框勾选，Shift + 点击复选框连选。方向键定位，空格勾选，Enter 打开。Ctrl / ⌘ + A 全选、C 复制、X 剪切、V 粘贴；F2 改名、Delete 删除仅操作勾选项，Esc 清除。右键菜单会显示操作对象，不改变勾选。Backspace 上级、F5 刷新。快捷键仅在文件管理器内生效。目录仅支持复制、删除空目录；改名或移动目录请使用归档整理。</p></details>
+      <details class="fs-help" :open="helpOpen" @toggle="helpOpen = $event.target.open"><summary>操作说明</summary><p>点击左侧复选框勾选，Shift + 点击复选框连选。方向键定位，空格勾选，Enter 打开。Ctrl / ⌘ + A 全选、C 复制、X 剪切、V 粘贴；F2 改名、Delete 删除仅操作勾选项，Esc 清除。右键菜单会显示操作对象，不改变勾选。Backspace 上级、F5 刷新。快捷键仅在文件管理器内生效。目录仅支持复制、删除空目录；改名或移动目录请使用归档整理。</p></details>
     </header>
     <div v-if="pending" class="fs-pending" role="status"><span><strong>{{ pendingChanges.count || 1 }} 项文件变更待扫描</strong><small>{{ library?.name }} · 扫描后继续核对匹配结果</small></span><JzButton :disabled="hasPendingOperation" @click="scan" type="button" icon="scan">扫描并核对</JzButton></div>
     <div class="fs-shell">
+      <div class="fs-library-picker"><label :for="libraryInputId">视频库</label><select :id="libraryInputId" :value="libraryId ?? ''" :disabled="busy" @change="switchLibrary(Number($event.target.value))"><option v-if="libraryId == null" value="" disabled>选择视频库</option><option v-for="lib in videoLibs" :key="lib.id" :value="lib.id">{{ libraryName(lib.id) }}{{ lib.name === '电影' || lib.name === '剧集' ? '' : ' · ' + (lib.kind === 'tv' ? '剧集' : '电影') }}</option></select><span v-if="!writable && hasLoaded && !loading && !loadError" class="fs-picker-readonly">只读</span></div>
       <nav class="fs-tree" aria-label="视频库目录">
         <span class="fs-tree-title">视频库</span>
         <template v-for="lib in videoLibs" :key="lib.id">
@@ -23,16 +24,17 @@
       </nav>
       <div class="fs-main">
         <div class="fs-location">
-          <div class="fs-navigation"><JzButton title="返回" aria-label="返回" :disabled="busy || historyIndex <= 0" @click="historyMove(-1)" type="button" icon-only><AppIcon name="back" /></JzButton><JzButton title="前进" aria-label="前进" :disabled="busy || historyIndex >= history.length - 1" @click="historyMove(1)" type="button" icon-only><AppIcon name="forward" /></JzButton><JzButton title="上级目录" aria-label="上级目录" :disabled="busy || !path" @click="up" type="button" icon-only><AppIcon name="arrow-up" /></JzButton><JzButton title="刷新目录" aria-label="刷新目录" :disabled="busy || loading" @click="load(loadError ? loadTarget : path)" type="button" icon-only><AppIcon name="refresh" /></JzButton></div>
+          <div class="fs-navigation"><JzButton class="fs-history-action" title="返回" aria-label="返回" :disabled="busy || historyIndex <= 0" @click="historyMove(-1)" type="button" icon-only><AppIcon name="back" /></JzButton><JzButton class="fs-history-action" title="前进" aria-label="前进" :disabled="busy || historyIndex >= history.length - 1" @click="historyMove(1)" type="button" icon-only><AppIcon name="forward" /></JzButton><JzButton title="上级目录" aria-label="上级目录" :disabled="busy || !path" @click="up" type="button" icon-only><AppIcon name="arrow-up" /></JzButton><JzButton class="fs-refresh-action" title="刷新目录" aria-label="刷新目录" :disabled="busy || loading" @click="load(loadError ? loadTarget : path)" type="button" icon-only><AppIcon name="refresh" /></JzButton></div>
           <nav class="fs-crumbs" aria-label="当前位置"><button :disabled="busy" @click="navigate('')">{{ library?.name || '选择视频库' }}</button><template v-for="crumb in crumbs" :key="crumb.rel"><span aria-hidden="true">/</span><button :disabled="busy" @click="navigate(crumb.rel)">{{ crumb.name }}</button></template></nav>
-          <input v-model="query" class="fs-search" type="search" aria-label="搜索当前目录" placeholder="搜索当前目录" :disabled="loading || !!loadError || !hasLoaded" />
+          <JzButton class="fs-search-toggle" variant="ghost" aria-label="搜索当前目录" :aria-expanded="searchOpen || !!query" :aria-controls="searchInputId" icon-only @click="toggleSearch"><AppIcon name="search" /></JzButton>
+          <input :id="searchInputId" ref="searchInput" v-model="query" class="fs-search" :class="{ 'is-open': searchOpen || !!query }" type="search" aria-label="搜索当前目录" placeholder="搜索当前目录" :disabled="loading || !!loadError || !hasLoaded" />
         </div>
-        <div class="fs-toolbar" role="toolbar" aria-label="文件操作">
+        <div class="fs-toolbar" :class="{ 'has-clipboard': clipboard.rels.length }" role="toolbar" aria-label="文件操作">
           <JzButton class="fs-open-action" :disabled="!currentRow || busy || loading || !!loadError" @click="open()" type="button" icon="eye">{{ currentRow?.isDir ? '打开文件夹' : '预览' }}</JzButton>
-          <JzButton :disabled="!writable || busy || loading || !!loadError" @click="beginMkdir" type="button" icon="folder">新建文件夹</JzButton>
+          <JzButton class="fs-create-action" :disabled="!writable || busy || loading || !!loadError" @click="beginMkdir" type="button" icon="folder">新建文件夹</JzButton>
           <JzButton class="fs-secondary-action" :disabled="!selection.length || busy || loading || !!loadError" @click="copy('copy')" type="button" icon="copy">复制</JzButton>
           <JzButton class="fs-secondary-action" :disabled="!canCut" :title="selectedRows.some(r => r.isDir) ? '目录移动请使用归档整理' : '剪切选中文件'" @click="copy('cut')" type="button" icon="cut">剪切</JzButton>
-          <JzButton :disabled="!canPaste" @click="paste" type="button" icon="paste">粘贴{{ clipboard.mode === 'cut' ? '（移动）' : '' }}</JzButton>
+          <JzButton class="fs-paste-action" :disabled="!canPaste" @click="paste" type="button" icon="paste">粘贴{{ clipboard.mode === 'cut' ? '（移动）' : '' }}</JzButton>
           <JzButton class="fs-secondary-action" :disabled="!canRename" :title="one?.isDir ? '目录改名请使用归档整理' : '重命名（F2）'" @click="beginRename()" type="button" icon="edit">重命名</JzButton>
           <JzButton class="fs-secondary-action" :disabled="!writable || !selection.length || busy || loading || !!loadError" @click="beginDelete()" type="button" icon="delete">删除…</JzButton>
           <JzButton ref="moreButton" aria-label="更多文件操作" :aria-expanded="!!menu" @click="openMore" type="button" icon="more">更多</JzButton>
@@ -66,10 +68,10 @@
         <div class="fs-table-area">
         <div class="fs-table-wrap" :aria-busy="loading" @contextmenu.prevent="openContext($event)" @click.self="resetSelection(); root?.focus()">
           <table class="fs-table" :inert="loading || !!loadError || !hasLoaded" aria-label="当前目录文件" aria-multiselectable="true">
-            <thead><tr><th class="fs-check"><label class="fs-check-target"><input type="checkbox" aria-label="全选当前目录" :checked="!!rows.length && selection.length === rows.length" :indeterminate="selection.length > 0 && selection.length < rows.length" :disabled="loading || !!loadError || !hasLoaded || !rows.length" @change="$event.target.checked ? selectAll() : clearSelection()" /></label></th><th v-for="col in columns" :key="col.key" :class="'fs-col-' + col.key" :aria-sort="sort === col.key ? (direction === 1 ? 'ascending' : 'descending') : 'none'"><button @click="setSort(col.key)">{{ col.label }}<AppIcon v-if="sort === col.key" :name="direction === 1 ? 'sort-asc' : 'sort-desc'" :size="16" /></button><span v-if="col.key === 'name'" class="fs-mobile-sort"><select :value="sort" aria-label="文件排序" @change="setSort($event.target.value)"><option v-for="option in columns" :key="option.key" :value="option.key">按{{ option.label }}</option></select><button :aria-label="direction === 1 ? '切换为降序' : '切换为升序'" @click="setSort(sort)"><AppIcon :name="direction === 1 ? 'sort-asc' : 'sort-desc'" :size="18" /></button></span></th></tr></thead>
+            <thead><tr><th class="fs-check"><label class="fs-check-target"><input type="checkbox" aria-label="全选当前目录" :checked="!!rows.length && selection.length === rows.length" :indeterminate="selection.length > 0 && selection.length < rows.length" :disabled="loading || !!loadError || !hasLoaded || !rows.length" @change="$event.target.checked ? selectAll() : clearSelection()" /></label></th><th v-for="col in columns" :key="col.key" :class="'fs-col-' + col.key" :aria-sort="sort === col.key ? (direction === 1 ? 'ascending' : 'descending') : 'none'"><button class="fs-desktop-sort" @click="setSort(col.key)">{{ col.label }}<AppIcon v-if="sort === col.key" :name="direction === 1 ? 'sort-asc' : 'sort-desc'" :size="16" /></button><span v-if="col.key === 'name'" class="fs-mobile-sort"><select :value="sort" aria-label="文件排序" @change="setSort($event.target.value)"><option v-for="option in columns" :key="option.key" :value="option.key">按{{ option.label }}</option></select><button :aria-label="direction === 1 ? '切换为降序' : '切换为升序'" @click="setSort(sort)"><AppIcon :name="direction === 1 ? 'sort-asc' : 'sort-desc'" :size="18" /></button></span></th></tr></thead>
             <tbody><tr v-for="row in rows" :key="row.rel" class="fs-row" :class="{ selected: selection.includes(row.rel), focused: focused === row.rel, cut: clipboard.mode === 'cut' && clipboard.library_id === libraryId && clipboard.rels.includes(row.rel) }" :data-fs-rel="row.rel" tabindex="-1" :aria-current="focused === row.rel ? 'true' : undefined" :aria-selected="selection.includes(row.rel)" @click="rowClick($event, row)" @dblclick="open(row)" @contextmenu.stop.prevent="openContext($event, row)">
               <td class="fs-check" @click.stop @dblclick.stop><label class="fs-check-target"><input type="checkbox" :aria-label="'选择 ' + row.name" :checked="selection.includes(row.rel)" :disabled="loading || !!loadError || !hasLoaded" @focus="focusRow(row)" @click="checkboxClick($event, row)" /></label></td>
-              <td class="fs-name" :title="row.name"><div class="fs-file-caption"><AppIcon :name="row.isDir ? 'folder' : 'file'" :size="18" class="fs-file-icon" :class="{ folder: row.isDir }" /><div><span class="fs-file-label">{{ row.name }}</span><small class="fs-mobile-meta">{{ row.isDir ? '文件夹' : fmtBytes(row.size) + ' · ' + fsType(row) }}<template v-if="fsMatchStatus(row) !== '—'"> · {{ fsMatchStatus(row) }}</template></small></div></div></td>
+              <td class="fs-name" :title="row.name"><div class="fs-file-caption"><AppIcon :name="row.isDir ? 'folder' : 'file'" :size="18" class="fs-file-icon" :class="{ folder: row.isDir }" /><div><span class="fs-file-label">{{ row.name }}</span><small class="fs-mobile-meta">{{ row.isDir ? '文件夹' : fmtBytes(row.size) + ' · ' + fsType(row) }}<template v-if="fsMatchStatus(row) !== '—'"> · {{ fsMatchStatus(row) }}</template></small></div><JzButton class="fs-row-open" variant="ghost" icon-only :aria-label="(row.isDir ? '打开文件夹 ' : '预览 ') + row.name" :disabled="busy || loading || !!loadError" @click.stop="openRow(row)" @dblclick.stop><AppIcon :name="row.isDir ? 'chevron-right' : 'eye'" :size="18" /></JzButton></div></td>
               <td class="fs-col-size">{{ row.isDir ? '—' : fmtBytes(row.size) }}</td><td class="fs-col-mtime">{{ formatDate(row.mtime) }}</td><td class="fs-col-type">{{ fsType(row) }}</td><td class="fs-col-status"><span :class="{ 'fs-unmatched': fsMatchStatus(row) === '待匹配', 'fs-unregistered': fsMatchStatus(row) === '待扫描' }">{{ fsMatchStatus(row) }}</span></td>
             </tr></tbody>
           </table>
@@ -85,7 +87,7 @@
         </div>
         <div v-else-if="loadState === 'unselected'" class="fs-directory-state"><p>请先选择一个视频库</p></div>
         </div>
-        <footer class="fs-status fs-selection-summary" role="status"><span v-if="loadState === 'loading'">正在加载目录…</span><span v-else-if="loadState === 'error'">目录未能加载</span><span v-else-if="loadState !== 'ready'">等待读取目录</span><span v-else>{{ rows.length }} 项{{ query ? `（共 ${dirs.length + files.length} 项）` : '' }}<strong v-if="selection.length"> · 已勾选 {{ selection.length }} 项</strong></span><JzButton variant="ghost" size="compact" v-if="selection.length" @click="clearSelection" type="button">清除勾选</JzButton><span v-if="clipboard.rels.length">{{ clipboard.mode === 'cut' ? '已剪切' : '已复制' }} {{ clipboard.rels.length }} 项{{ clipboard.library_id !== libraryId ? '（其他视频库）' : '' }}</span></footer>
+        <footer class="fs-status fs-selection-summary" role="status"><span v-if="loadState === 'loading'">正在加载目录…</span><span v-else-if="loadState === 'error'">目录未能加载</span><span v-else-if="loadState !== 'ready'">等待读取目录</span><span v-else>{{ rows.length }} 项{{ query ? `（共 ${dirs.length + files.length} 项）` : '' }}<strong v-if="selection.length"> · 已勾选 {{ selection.length }} 项</strong></span><JzButton v-if="selection.length" class="fs-selection-actions" variant="ghost" size="compact" @click="openMore" aria-label="勾选文件操作" icon="more">操作</JzButton><JzButton variant="ghost" size="compact" v-if="selection.length" @click="clearSelection" type="button">清除勾选</JzButton><span v-if="clipboard.rels.length">{{ clipboard.mode === 'cut' ? '已剪切' : '已复制' }} {{ clipboard.rels.length }} 项{{ clipboard.library_id !== libraryId ? '（其他视频库）' : '' }}</span></footer>
       </div>
     </div>
     <div v-if="jobs.length" class="fs-tasks" aria-label="文件任务"><div v-for="job in jobs" :key="job.job_id" class="fs-task"><span>{{ jobText(job) }}<small>目标：{{ libraryName(job.library_id) }} / {{ job.to_dir || '根目录' }}</small></span><progress :value="jobProgress(job)" max="100" :aria-label="jobText(job)"></progress><JzButton v-if="jobRunning(job)" :disabled="job.state === 'cancelled'" @click="cancelCopy(job)" type="button" icon="copy">{{ job.state === 'cancelled' ? '正在取消…' : '取消复制' }}</JzButton><JzButton v-else @click="jobs = jobs.filter(j => j.job_id !== job.job_id)" type="button">收起</JzButton><details v-if="jobIssues(job).length" class="fs-task-issues"><summary>查看需核对项目（{{ jobIssues(job).length }}）</summary><ul><li v-for="item in jobIssues(job)" :key="item.from">{{ item.from }} → {{ item.to }}<small>{{ jobIssueText(item) }}</small></li></ul></details></div></div>
@@ -121,8 +123,13 @@ const menuEl = ref(null)
 const moreButton = ref(null)
 const nameInput = ref(null)
 const promptEl = ref(null)
+const searchInput = ref(null)
+const searchOpen = ref(false)
+const helpOpen = ref(false)
 const menu = ref(null)
 const inputId = 'fs-name-' + useId()
+const libraryInputId = 'fs-library-' + useId()
+const searchInputId = 'fs-search-' + useId()
 const columns = [{ key: 'name', label: '名称' }, { key: 'size', label: '大小' }, { key: 'mtime', label: '修改时间' }, { key: 'type', label: '类型' }, { key: 'status', label: '入库 / 匹配' }]
 const promptTitle = computed(() => ({ rename: '重命名文件', mkdir: '新建文件夹', delete: '删除确认', copy: '复制确认', move: '移动确认' }[prompt.value?.type] || '确认操作'))
 const menuRows = computed(() => rows.value.filter(row => menu.value?.rels.includes(row.rel)))
@@ -137,9 +144,12 @@ const menuItems = computed(() => [
   { id: 'rename', icon: 'edit', label: '重命名', disabled: !writable.value || !menuOne.value || menuOne.value.isDir || menuBlocked.value, hint: menuOne.value?.isDir ? '目录改名请使用归档整理' : '', shortcut: 'F2', run: () => beginRename(menuOne.value) },
   { id: 'delete', icon: 'delete', label: '删除…', disabled: !writable.value || !menuRows.value.length || menuBlocked.value, shortcut: 'Delete', run: () => beginDelete(menu.value.rels) },
   { id: 'mkdir', icon: 'folder', label: '新建文件夹', disabled: !writable.value || busy.value || loading.value || !!loadError.value, run: beginMkdir },
+  { id: 'back', icon: 'back', label: '返回上一目录', disabled: busy.value || historyIndex.value <= 0, run: () => historyMove(-1) },
+  { id: 'forward', icon: 'forward', label: '前进下一目录', disabled: busy.value || historyIndex.value >= history.value.length - 1, run: () => historyMove(1) },
   { id: 'path', icon: 'link', label: '复制库内路径', disabled: libraryId.value == null, run: () => copyPath(menu.value.rels) },
+  { id: 'help', icon: 'info', label: helpOpen.value ? '收起操作说明' : '操作说明', run: async () => { helpOpen.value = !helpOpen.value; await nextTick(); if (helpOpen.value) root.value?.querySelector('.fs-help')?.scrollIntoView({ block: 'nearest' }) } },
   { id: 'refresh', icon: 'refresh', label: '刷新', disabled: busy.value || loading.value, shortcut: 'F5', run: () => load(loadError.value ? loadTarget.value : path.value) },
-].filter(item => menuRows.value.length || ['paste', 'mkdir', 'path', 'refresh'].includes(item.id)))
+].filter(item => menuRows.value.length || ['paste', 'mkdir', 'path', 'refresh', 'help', 'back', 'forward'].includes(item.id)))
 function jobIssueText(item) {
   return item.status.startsWith('copied_scan_warn:') ? '文件已复制，入库失败：' + item.status.slice(17) : '复制失败：' + item.status.replace(/^error:\s*/, '')
 }
@@ -154,6 +164,11 @@ function libraryName(id) {
   return multipleMedia && lib.media_name ? `${lib.media_name} · ${lib.name}` : lib.name
 }
 function statusText(status) { return ({ conflict_disk_exists: '目标已存在', conflict_db_occupied: '目标已有媒体记录，请先扫描核对', dir_not_empty: '目录非空，跳过', skipped_missing_src: '文件已不存在' }[status] || status) }
+function openRow(row) { focusRow(row); open(row) }
+async function toggleSearch() {
+  searchOpen.value = !searchOpen.value || !!query.value
+  if (searchOpen.value) { await nextTick(); searchInput.value?.focus() }
+}
 function rowClick(event, row) { if (loading.value) return; focusRow(row); event.currentTarget.focus() }
 function checkboxClick(event, row) {
   toggleSelection(row, event)
@@ -190,15 +205,15 @@ function openContext(event, row = null) {
   if (row) focusRow(row)
   showMenu(event.clientX, event.clientY, row, !row)
 }
-function openMore() {
+function openMore(event) {
   if (menu.value) { menu.value = null; return }
-  const rect = moreButton.value.el.getBoundingClientRect()
+  const rect = (event?.currentTarget || moreButton.value.el).getBoundingClientRect()
   showMenu(rect.left, rect.bottom + 4)
 }
 function closeOutsideMenu(event) { if (menu.value && !menuEl.value?.contains(event.target) && !moreButton.value?.el?.contains(event.target)) menu.value = null }
-function runMenu(item) { if (item.disabled) return; item.run(); menu.value = null; root.value?.focus() }
+function runMenu(item) { if (item.disabled) return; item.run(); menu.value = null; root.value?.focus({ preventScroll: true }) }
 function onMenuKeydown(event) {
-  if (event.key === 'Escape') { event.preventDefault(); menu.value = null; root.value?.focus() }
+  if (event.key === 'Escape') { event.preventDefault(); menu.value = null; root.value?.focus({ preventScroll: true }) }
   else if (event.key === 'Tab') menu.value = null
   else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
     event.preventDefault()
@@ -248,6 +263,7 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 .fs-pending { margin: 0 16px 14px; padding: 12px 14px; background: var(--jz-warn-soft); border: 1px solid var(--jz-warn-border); border-radius: var(--jz-radius-m); display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: .87rem; }
 .fs-pending small { display: block; margin-top: 4px; color: var(--jz-text-dim); }
 .fs-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); border-top: 1px solid var(--jz-border); }
+.fs-library-picker, .fs-search-toggle, .fs-row-open, .fs-selection-actions { display: none; }
 .fs-tree { display: block; background: var(--jz-bg); border-right: 1px solid var(--jz-border); padding: 14px 8px; overflow: auto; max-height: 680px; }
 .fs-tree-title { display: block; margin: 0 8px 12px; font-size: .8rem; color: var(--jz-text-dim); font-weight: 600; }
 .fs-tree-line { display: flex; align-items: center; min-height: 36px; border-radius: var(--jz-radius-s); }
@@ -258,7 +274,7 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 .fs-main { min-width: 0; display: flex; flex-direction: column; }
 .fs-location { padding: 10px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-bottom: 1px solid var(--jz-border); }
 .fs-navigation { display: flex; gap: 3px; }
-.fs-navigation button { width: var(--jz-control-compact); display: inline-flex; justify-content: center; align-items: center; }
+.fs-navigation button { width: var(--jz-control-compact); justify-content: center; align-items: center; }
 .fs-crumbs { padding: 0; background: transparent; flex: 1; min-width: 140px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--jz-text-faint); }
 .fs-crumbs button { background: transparent; border: 0; padding: 3px 4px; color: var(--jz-text-dim); font-size: .8rem; overflow-wrap: anywhere; }
 .fs-search { width: 166px; min-width: 0; font-size: .8rem; padding: 7px 9px; }
@@ -288,7 +304,7 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 .fs-table-wrap { overflow: auto; position: relative; min-height: 260px; max-height: 540px; flex: 1; border-top: 1px solid var(--jz-border); }
 .fs-table { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: .79rem; }
 .fs-table th { text-align: left; position: sticky; top: 0; background: var(--jz-surface-2); z-index: 1; border-bottom: 1px solid var(--jz-border-strong); font-weight: 500; }
-.fs-table th button { display: inline-flex; align-items: center; gap: var(--jz-gap-xs); border: 0; background: none; padding: 10px 6px; color: var(--jz-text-dim); font: inherit; white-space: nowrap; }
+.fs-desktop-sort, .fs-mobile-sort button { display: inline-flex; align-items: center; gap: var(--jz-gap-xs); border: 0; background: none; padding: 10px 6px; color: var(--jz-text-dim); font: inherit; white-space: nowrap; }
 .fs-table td { padding: 10px 6px; border-bottom: 1px solid var(--jz-border); color: var(--jz-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fs-table .fs-check { width: 44px; padding: 0; }
 .fs-check-target { display: flex; align-items: center; justify-content: center; width: 44px; min-height: 40px; margin: 0; cursor: pointer; user-select: none; }
@@ -331,13 +347,63 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 .fs-context-menu small { color: var(--jz-text-dim); font-size: .7rem; }
 .fs-menu-target { padding: 6px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--jz-border); color: var(--jz-text-dim); font-size: .75rem; overflow-wrap: anywhere; }
 @media (max-width: 1100px) { .fs-shell { grid-template-columns: 170px minmax(0, 1fr); } .fs-table .fs-col-mtime { width: 116px; } .fs-table .fs-col-type { display: none; } .fs-search { width: 140px; } }
-@media (max-width: 760px) { .fs-heading { padding: 14px; } .fs-heading p { max-width: 230px; } .fs-shell { display: block; } .fs-tree { display: flex; align-items: center; gap: 5px; max-height: 110px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--jz-border); padding: 8px; } .fs-tree-title, .fs-tree .fs-expander, .fs-tree-line[style] { display: none; } .fs-tree-line { flex-shrink: 0; } .fs-tree-name { display: flex; align-items: center; gap: var(--jz-gap-xs); padding: 7px 10px; } .fs-location { gap: 6px; } .fs-search { width: 100%; } .fs-toolbar { gap: 5px; } .fs-secondary-action { display: none; } .fs-toolbar button { padding: 7px 8px; } .fs-table .fs-col-mtime, .fs-table .fs-col-type, .fs-table .fs-col-size, .fs-table .fs-col-status { display: none; } .fs-table .fs-check { width: 44px; padding: 0; } .fs-table td { padding: 12px 4px; } .fs-file-caption { gap: 8px; } .fs-file-label { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; } .fs-mobile-meta { display: block; margin-top: 4px; font-size: .75rem; color: var(--jz-text-dim); } .fs-col-name > button { display: none; } .fs-mobile-sort { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 4px 0; gap: 8px; } .fs-mobile-sort select { flex: 1; min-width: 0; border: 0; background: transparent; } .fs-help[open] { position: absolute; background: var(--jz-surface-2); padding: 12px; left: 20px; right: 20px; z-index: 3; max-width: none; } .fs-pending { margin: 0 10px 12px; padding: 10px; } .fs-status { flex-wrap: wrap; } }
+@media (max-width: 760px) {
+  .fs-browser { --jz-control-current: var(--jz-touch-target); overflow: visible; }
+  .fs-heading { padding: 0; }
+  .fs-heading > p { display: none; }
+  .fs-help { width: 100%; max-width: none; }
+  .fs-help summary { display: none; }
+  .fs-help[open] summary { display: flex; align-items: center; min-height: 44px; }
+  .fs-help[open] { padding: 12px; box-sizing: border-box; }
+  .fs-shell { display: block; border-top: 0; }
+  .fs-tree { display: none; }
+  .fs-library-picker { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--jz-border); }
+  .fs-library-picker label { flex: none; color: var(--jz-text-dim); font-size: var(--jz-font-m); }
+  .fs-library-picker select { flex: 1; min-width: 0; min-height: 44px; font-size: 1rem; }
+  .fs-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+  .fs-main > :not(.fs-location):not(.fs-toolbar) { grid-column: 1 / -1; }
+  .fs-location { min-width: 0; padding: 8px 0 8px 8px; gap: 4px; }
+  .fs-history-action, .fs-refresh-action { display: none; }
+  .fs-crumbs { flex: 1; min-width: 0; flex-wrap: nowrap; overflow-x: auto; }
+  .fs-crumbs button { flex: none; max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fs-search-toggle { display: inline-flex; width: 44px; min-width: 44px; padding: 8px; }
+  .fs-search { display: none; width: 100%; flex: 0 0 100%; box-sizing: border-box; }
+  .fs-search.is-open { display: block; }
+  .fs-toolbar { padding: 8px 8px 8px 0; gap: 4px; border-bottom: 1px solid var(--jz-border); }
+  .fs-toolbar button { padding: 7px 8px; }
+  .fs-secondary-action, .fs-open-action, .fs-create-action, .fs-paste-action { display: none; }
+  .fs-toolbar.has-clipboard { max-width: 132px; }
+  .fs-toolbar.has-clipboard .fs-paste-action { display: inline-flex; }
+  .fs-readonly { display: none; }
+  .fs-table-wrap { overflow: visible; max-height: none; }
+  .fs-table th { position: static; }
+  .fs-table .fs-col-mtime, .fs-table .fs-col-type, .fs-table .fs-col-size, .fs-table .fs-col-status { display: none; }
+  .fs-table .fs-check { width: 44px; padding: 0; }
+  .fs-table td { padding: 10px 4px; }
+  .fs-file-caption { gap: 8px; }
+  .fs-file-label { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .fs-mobile-meta { display: block; margin-top: 4px; font-size: .75rem; color: var(--jz-text-dim); white-space: normal; }
+  .fs-row-open { display: inline-flex; flex: none; width: 44px; min-width: 44px; min-height: 44px; padding: 8px; }
+  .fs-desktop-sort { display: none; }
+  .fs-mobile-sort { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 4px 0; gap: 8px; }
+  .fs-mobile-sort button { min-width: var(--jz-touch-target); min-height: var(--jz-touch-target); }
+  .fs-mobile-sort select { flex: 1; min-width: 0; border: 0; background: transparent; }
+  .fs-pending { margin: 8px 10px; padding: 10px; flex-wrap: wrap; }
+  .fs-status { display: none; grid-row: 3; position: sticky; top: var(--settings-mobile-header-height, 56px); z-index: 3; padding: 6px 10px; flex-wrap: wrap; background: var(--jz-surface-2); }
+  .fs-browser.has-selection .fs-status, .fs-browser.has-clipboard .fs-status { display: flex; }
+  .fs-selection-actions { display: inline-flex; }
+  .fs-selection-summary button { margin-left: 0; }
+  .fs-selection-summary > span:first-child { flex: 1; }
+  .fs-picker-readonly { font-size: var(--jz-font-s); color: var(--jz-warn); }
+  .fs-confirm-actions { flex-wrap: wrap; }
+}
+
 .fs-table .fs-col-size, .fs-table .fs-col-mtime, .fs-status { font-variant-numeric: tabular-nums; }
 @media (max-width: 700px), (pointer: coarse) {
   .fs-crumbs { min-width: 0; }
   .fs-browser { --jz-control-current: var(--jz-touch-target); }
   .fs-navigation button { width: var(--jz-touch-target); }
-  .fs-toolbar button, .fs-context-menu button, .fs-tree-name { display: flex; align-items: center; gap: var(--jz-gap-xs); min-height: var(--jz-touch-target); }
+  .fs-toolbar button, .fs-context-menu button, .fs-tree-name { align-items: center; gap: var(--jz-gap-xs); min-height: var(--jz-touch-target); }
   .fs-check-target { min-height: var(--jz-touch-target); }
 }
 @media (max-width: 700px), (pointer: coarse) {

@@ -56,9 +56,13 @@ function apply() {
 .ai-panel { border: 1px solid var(--jz-border, #444); border-radius: 10px; padding: 16px; margin: 12px 0; }
 .ai-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 h3 { margin: 0; }
-label { display: flex; flex-direction: column; gap: 6px; }
+label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 textarea, input, select { min-width: 0; width: 100%; box-sizing: border-box; }
-.ai-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 12px 0; }
+.ai-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); align-items: end; gap: 16px 12px; margin: 12px 0; }
+@supports (grid-template-rows: subgrid) {
+  .ai-fields > label { display: grid; grid-template-rows: subgrid; grid-row: span 2; align-self: stretch; row-gap: 6px; }
+  .ai-fields > label > :is(input, select) { align-self: start; }
+}
 .hint { color: var(--jz-text-dim); font-size: .875rem; }
 .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 0; }
 a { color: var(--jz-link); }

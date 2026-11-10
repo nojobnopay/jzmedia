@@ -43,7 +43,9 @@
         "delete",
         "folder",
         "link",
-        "refresh"
+        "refresh",
+        "back",
+        "forward"
       ],
       "reason": "menuItems由文件操作定义；文案和快捷键与图标共同保持操作语义",
       "values_source": "frontend/src/components/FsBrowser.vue"
@@ -261,7 +263,8 @@
         "image",
         "lock",
         "settings",
-        "play"
+        "play",
+        "refresh"
       ],
       "reason": "settingsNavigation.js SETTINGS_PAGES维护固定页面导航",
       "values_source": "frontend/src/settingsNavigation.js"
@@ -415,6 +418,27 @@
         "play"
       ],
       "reason": "仅支持直接播放的在线条目显示播放图标，不支持项保留说明"
+    },
+    {
+      "source": "frontend/src/views/Settings.vue",
+      "expression": "item.icon",
+      "assets": [
+        "home",
+        "library",
+        "organize",
+        "folder",
+        "link",
+        "match",
+        "ai",
+        "download",
+        "image",
+        "lock",
+        "settings",
+        "play",
+        "refresh"
+      ],
+      "reason": "手机设置目录复用settingsNavigation.js的页面导航语义",
+      "values_source": "frontend/src/settingsNavigation.js"
     }
   ],
   "specialized_controls": [

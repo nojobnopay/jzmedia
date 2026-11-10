@@ -313,7 +313,13 @@ node scripts/smoke_settings_ui.mjs --capture-docs
 node scripts/smoke_settings_ui.mjs --previews-only --capture-docs
 node scripts/smoke_settings_ui.mjs --cache-only --capture-docs
 node scripts/smoke_settings_ui.mjs --scan-cleanup-only --capture-docs
+node scripts/smoke_mobile_files_ui.mjs
+node scripts/smoke_online_ui.mjs --settings-only --width 390
 ```
+
+手机文件专项检查会自行启动隔离演示，覆盖 320/390/760/761/1440px 的文件列表、菜单与选择行为，以及批量标签、合集和删除弹窗。在线视频源的 `--settings-only` 使用模拟配置 API，检查独立任务、草稿离开、网络失败重试及共享代理保护；`--width` 可指定 320、375、390 或 1440。
+
+手机表单专项先用 `node scripts/ui_visual_review.mjs --demo` 启动演示，再执行 `node scripts/smoke_mobile_settings_ui.mjs --base http://127.0.0.1:端口`，端口使用演示打印的值。检查 320/375/390/430px 及短视口、保存区可见性、键盘焦点、错误定位和草稿保留；截图与测量存于 `output/playwright/mobile-settings-after/`。这些检查使用 Chromium 模拟视口，不能代替 iOS Safari 和实体手机软键盘验收。
 
 该脚本构建真实 Vue 页面，但使用内存 API 模拟；不读取 `.env`、真实数据库或媒体。覆盖设置分组、按库草稿与来源顺序、明确打开/返回入口、刷新后返回原工具标签、目录分页、右键改名、退出守卫、切库与扫描目标一致性，以及手机更多菜单。预览用 FFmpeg 在临时目录生成测试视频和图片，另有合成字幕/NFO/PDF；真实播放器对照验证预览不触发任何观看进度请求或已看/连播事件，普通播放仍读取、清除、保存进度。截图来源逐项记录在 `docs/assets/manifest.json`；不能当作真实 NAS 写入或网络服务验证。运行需要已安装 FFmpeg（可使用现有 static-ffmpeg），`--capture-docs` 同时用它生成 WebP。
 

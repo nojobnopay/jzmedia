@@ -1,6 +1,6 @@
 <template>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
-  <nav class="app-nav" :class="{ 'app-nav--online': !isChildren }" aria-label="主导航">
+  <nav class="app-nav" :class="{ 'app-nav--online': !isChildren, 'app-nav--settings': route.path === '/settings' && viewing.ready && !managementBlocked }" aria-label="主导航">
     <router-link :to="navTarget('/')" custom v-slot="{ href, navigate }">
       <a :href="href" class="brand" aria-label="jzmedia 电影" @click="navigate"><img src="/favicon.svg" alt="" width="26" height="26" /><span>jzmedia</span></a>
     </router-link>
@@ -128,6 +128,7 @@ const activeSection = computed(() => {
 })
 function navTarget(path) {
   if (path === '/online') return { path }
+  if (path === '/settings') return { path, query: { sec: 'sec-status', ...(currentId.value ? { media: currentId.value } : {}) } }
   return currentId.value ? { path, query: { media: currentId.value } } : { path }
 }
 

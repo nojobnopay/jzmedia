@@ -274,6 +274,41 @@ const savedAiSettings = overrides => ({ enabled: false, provider: 'deepseek',
   base_url: 'https://api.deepseek.com', model: 'deepseek-flash', timeout_seconds: 12,
   daily_limit: 100, api_key_set: true, api_key_source: 'db', api_key_masked: '****1234',
   usage: { date: '2026-10-02', requests: 0, input_tokens: 0, output_tokens: 0 }, ...overrides })
+test('settings explain invalid fields, reveal advanced errors and submit only after correction', async t => {
+  const requests = []
+  const ui = await mount(t, 'AiSettingsPanel', {}, async (path, opts) => {
+    requests.push({ path, body: opts.body && JSON.parse(opts.body) })
+    return savedAiSettings(opts.body ? JSON.parse(opts.body) : {})
+  })
+  await flush()
+  await ui.button('配置与测试服务').props.onClick()
+  await flush()
+  const input = id => ui.nodes().find(n => n.type === 'input' && n.props.id === id)
+  input('ai-model').props['onUpdate:modelValue']('')
+  input('ai-base-url').props['onUpdate:modelValue']('https://')
+  input('ai-timeout').props['onUpdate:modelValue'](1)
+  await flush()
+  assert.equal(ui.button('保存智能辅助配置').props.disabled, false, 'Invalid fields still allow an explicit validation attempt')
+  await ui.button('保存智能辅助配置').props.onClick()
+  await flush()
+  assert.equal(requests.length, 1, 'Invalid values must never reach the API')
+  assert.match(ui.text(), /请填写模型名称/)
+  assert.match(ui.text(), /完整的 HTTP 或 HTTPS/)
+  assert.match(ui.text(), /2–60 秒/)
+  assert.equal(input('ai-model').props['aria-invalid'], true)
+  assert.equal(input('ai-model').props['aria-describedby'], 'ai-model-description')
+  assert.equal(ui.nodes().find(n => n.type === 'details' && n.props.class === 'ai-advanced').el.open, true,
+    'Advanced errors are revealed rather than left in a collapsed group')
+  input('ai-model').props['onUpdate:modelValue']('valid-model')
+  input('ai-base-url').props['onUpdate:modelValue']('http://localhost:11434/v1')
+  input('ai-timeout').props['onUpdate:modelValue'](12)
+  await flush()
+  await ui.button('保存智能辅助配置').props.onClick()
+  await flush()
+  assert.equal(requests.length, 2)
+  assert.equal(requests[1].body.model, 'valid-model')
+  assert.equal(input('ai-model').props['aria-invalid'], undefined)
+})
 const providerSelect = ui => ui.nodes().find(n => n.type === 'select')
 const fieldByValue = (ui, value) => ui.nodes().find(n => n.type === 'input' && n.dirs?.[0]?.value === value)
 async function chooseProvider(ui, provider) {

@@ -6,7 +6,7 @@
       <label>内容类型<select v-model="form.kind" :disabled="hasContent"><option value="movie">电影</option><option value="tv">剧集</option></select></label>
       </div><p v-if="hasContent" class="hint">库内已有记录，类型不可改。子目录不能与同一存储下的其他视频库重叠。</p>
       <p v-else class="hint">空库可调整类型；电影和剧集应使用独立目录。</p>
-      <div class="bar"><JzButton variant="primary" @click="save">{{ busy ? '保存中…' : library.id ? '保存视频库' : '创建视频库' }}</JzButton><JzButton @click="emit('cancel')" type="button">取消</JzButton></div>
+      <SettingsFormActions :dirty="JSON.stringify(form) !== baseline" :busy="busy" label="视频库配置"><JzButton variant="primary" @click="save">{{ busy ? '保存中…' : library.id ? '保存视频库' : '创建视频库' }}</JzButton><JzButton @click="emit('cancel')" type="button">取消</JzButton></SettingsFormActions>
     </fieldset>
     <p role="status">{{ error }}</p>
   </div>
@@ -16,6 +16,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useSettingsDraft } from '../settingsDrafts.js'
 import { api } from '../api.js'
 import JzButton from './JzButton.vue'
+import SettingsFormActions from './SettingsFormActions.vue'
 const props = defineProps({ library: { type: Object, required: true }, disabled: Boolean })
 const emit = defineEmits(['saved', 'cancel', 'busy'])
 const form = reactive({ name: '', subpath: '', kind: 'movie' })
@@ -60,7 +61,6 @@ label { display: flex; flex-direction: column; gap: 8px; font-size: var(--jz-fon
 .video-form { width: 100%; }
 .video-form-fields { display: grid; grid-template-columns: 1fr 1fr 120px; gap: 16px; }
 input, select { width: 100%; min-width: 0; box-sizing: border-box; }
-.bar { display: flex; gap: 8px; }
 .hint { color: var(--jz-text-dim); font-size: .875rem; }
 @media (max-width: 700px) { .video-form-fields { grid-template-columns: minmax(0, 1fr); } }
 </style>

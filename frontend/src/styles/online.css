@@ -116,6 +116,7 @@
 .online-source-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--jz-gap-l); }
 .online-source-fields .wide { grid-column: 1 / -1; }
 .online-source-check { display: flex; align-items: center; gap: var(--jz-gap-s); min-height: 44px; }
+.online-source-fields > .online-source-check { grid-column: 1 / -1; }
 .online-source-feedback { color: var(--jz-text-dim); overflow-wrap: anywhere; }
 .online-source-feedback.is-error { color: var(--jz-danger); }
 .online-network-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--jz-gap-l); }

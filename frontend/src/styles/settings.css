@@ -6,7 +6,17 @@
 .settings-layout .desktop-categories section + section { margin-top: 20px; }
 .settings-layout .nav-group { margin: 16px 12px 6px; color: var(--jz-text-dim); font-size: var(--jz-font-m); font-weight: 600; }
 .settings-layout .side-nav button { display: flex; align-items: center; gap: var(--jz-gap-s); width: 100%; border-color: transparent; background: transparent; text-align: left; padding: 10px 12px; color: var(--jz-text-dim); }
-.settings-layout .mobile-categories { display: none; }
+.settings-mobile-header, .settings-directory { display: none; }
+.overview-task-summary, .overview-statistics > summary { display: none; }
+.settings-task-link { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; padding: 12px 0; border-top: 1px solid var(--jz-border); color: var(--jz-text); text-decoration: none; font-size: var(--jz-font-m); }
+.settings-task-link > span { min-width: 0; }
+.settings-task-link strong, .settings-task-link small { display: block; }
+.settings-task-link small { margin-top: 4px; color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+.settings-task-link:hover { color: var(--jz-link); }
+.settings-task-link > .app-icon { flex: none; }
+.settings-layout .maintenance-task > summary { color: var(--jz-text); font-weight: 600; }
+.settings-layout .maintenance-task > .card-block { padding-top: 16px; }
+.settings-layout :is(input, select, textarea, summary, h2, h3, [tabindex]) { scroll-margin-block: 110px; }
 .settings-layout .side-nav button:hover { background: var(--jz-surface-2); color: var(--jz-text); }
 .settings-layout .side-nav button.on { background: var(--jz-surface-3); color: var(--jz-text); box-shadow: inset 3px 0 var(--jz-accent); }
 .settings-layout .settings-main { min-width: 0; }
@@ -94,21 +104,41 @@
   .settings-layout .card-block { padding: 24px 0; }
 }
 @media (max-width: 700px) {
-  .settings-layout { --jz-control-current: var(--jz-touch-target); display: block; padding: 16px 16px 40px; }
-  .settings-layout .side-nav { position: static; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-bottom: 24px; max-height: none; overflow: visible; padding: 0; border: 0; }
-  .settings-layout .side-nav h1 { margin: 0; font-size: 1.25rem; align-self: center; }
-  .settings-layout .desktop-categories { display: none; }
-  .settings-layout .mobile-categories { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 12px; font-size: var(--jz-font-m); color: var(--jz-text-dim); }
-  .settings-layout .mobile-categories label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .settings-layout .side-nav .setup-link { grid-column: 3; grid-row: 1; padding: 0; font-size: var(--jz-font-s); }
-  .settings-layout .mobile-categories select { flex: 1; min-width: 0; min-height: 44px; font: inherit; }
-  .settings-layout .settings-heading { gap: 8px; margin-bottom: 0; padding-bottom: 20px; }
-  .settings-layout .settings-heading h2 { font-size: 1.5rem; margin: 0; }
-  .settings-layout .settings-heading p { margin-top: 8px; line-height: 1.5; }
+  .settings-layout { --jz-control-current: var(--jz-touch-target); display: block; padding: 0 16px max(40px, env(safe-area-inset-bottom)); }
+  .settings-layout .side-nav, .settings-layout .settings-heading, .settings-layout .settings-shortcuts { display: none; }
+  .settings-mobile-header { position: sticky; top: 0; z-index: 15; display: grid; grid-template-columns: auto minmax(0, 1fr) 44px; align-items: center; gap: 12px; margin-inline: -16px; padding: max(8px, env(safe-area-inset-top)) 16px 8px; min-height: 64px; box-sizing: border-box; border-bottom: 1px solid var(--jz-border); background: var(--jz-bg); }
+  .settings-back { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; color: var(--jz-text); text-decoration: none; font-size: var(--jz-font-m); white-space: nowrap; }
+  .settings-mobile-title { min-width: 0; }
+  .settings-mobile-title h1 { margin: 0; font-size: 1.25rem; line-height: 1.4; overflow-wrap: anywhere; }
+  .settings-mobile-title p { margin: 3px 0 0; color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.4; }
+  .settings-mobile-header .help-link { display: flex; align-items: center; justify-content: center; width: 44px; min-height: 44px; color: var(--jz-text-dim); }
+  .settings-mobile-header .help-link > span { display: none; }
   .settings-layout .card-block { padding: 20px 0; margin: 0; }
+  .settings-home .overview-tasks { padding: 0; border-bottom: 1px solid var(--jz-border); }
+  .overview-task-summary { display: flex; align-items: center; gap: 8px; min-height: 60px; padding-block: 8px; list-style: none; }
+  .overview-task-summary::-webkit-details-marker { display: none; }
+  .overview-task-summary > span:first-child { font-size: var(--jz-font-m); font-weight: 600; }
+  .overview-task-summary > span:nth-child(2) { margin-left: auto; color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+  .overview-tasks[open] > .overview-task-summary .app-icon { transform: rotate(90deg); }
+  .settings-layout .overview-tasks .section-heading h3 { display: none; }
+  .settings-directory { display: block; padding-bottom: 20px; }
+  .settings-directory section { margin-top: 24px; }
+  .settings-directory h2 { margin: 0 0 8px; color: var(--jz-text-dim); font-size: var(--jz-font-m); font-weight: 600; }
+  .settings-directory-link { display: flex; align-items: center; gap: 14px; min-height: 56px; padding: 10px 12px; box-sizing: border-box; background: var(--jz-surface); border-bottom: 1px solid var(--jz-border); color: var(--jz-text); text-decoration: none; font-size: 1rem; }
+  .settings-directory-link:first-of-type { border-radius: var(--jz-radius-m) var(--jz-radius-m) 0 0; }
+  .settings-directory-link:last-child { border-bottom: 0; border-radius: 0 0 var(--jz-radius-m) var(--jz-radius-m); }
+  .settings-directory-link > span { flex: 1; min-width: 0; }
+  .settings-directory-link > .app-icon { flex-shrink: 0; color: var(--jz-text-dim); }
+  .settings-directory-link:hover, .settings-directory-link:active { background: var(--jz-surface-2); }
+  .settings-directory-help { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding-top: 20px; }
+  .settings-directory-help a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: var(--jz-font-m); }
+  .overview-statistics > summary { display: flex; align-items: center; min-height: 52px; border-top: 1px solid var(--jz-border); color: var(--jz-text-dim); font-size: var(--jz-font-m); }
+  .settings-layout .source-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; }
+  .settings-layout .source-options label { min-height: 44px; }
+  .settings-layout input[type="range"] { min-height: 44px; }
   .settings-layout .card-block .card-block { padding: 0; }
   .settings-layout .section-heading { gap: var(--jz-gap-s); margin-bottom: 12px; }
-  .settings-layout .card-block h3 { margin-bottom: 12px; }
+  .settings-layout .card-block h3 { margin-bottom: 12px; font-size: 1rem; }
   .settings-layout .section-heading h3 { margin-bottom: 0; }
   .settings-layout .form-columns { grid-template-columns: 1fr; gap: var(--jz-gap-m); }
   .settings-layout .stat-grid { gap: 24px; }
@@ -141,7 +171,7 @@
 .settings-layout .overview-task { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; border-top: 1px solid var(--jz-border); font-size: var(--jz-font-m); }
 .settings-layout .overview-task strong, .settings-layout .overview-task span { display: block; }
 .settings-layout .overview-task span { margin-top: 6px; color: var(--jz-text-dim); }
-.settings-layout .overview-task a { flex-shrink: 0; color: var(--jz-link); padding: 8px 0; }
+.settings-layout .overview-task a { display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; flex-shrink: 0; color: var(--jz-link); padding: 8px 0; }
 .settings-layout .overview-clear { color: var(--jz-text-dim); margin: 16px 0 0; font-size: var(--jz-font-m); }
 .settings-layout .overview-collections { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--jz-border); gap: 28px; }
 .settings-layout .overview-detail { color: var(--jz-text-dim); margin: 18px 0 0; font-size: var(--jz-font-s); line-height: 1.7; }

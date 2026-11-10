@@ -1,6 +1,9 @@
 <template>
   <div class="cache-settings">
-    <form v-if="saved" @submit.prevent="save">
+    <template v-if="saved">
+    <details class="cache-task capacity-task" :open="capacityOpen" @toggle="capacityOpen = $event.target.open">
+      <summary><span>调整容量</span><small>{{ gb(saved.data_warning_gb) }} 总预算<span v-if="dirty"> · 未保存</span><span v-else-if="budget.error"> · 需要调整</span></small><AppIcon name="forward" :size="18" class="task-chevron" /></summary>
+    <form @submit.prevent="save">
       <JzField id="data_warning_gb" label="应用数据总预算（软上限，GB）" :error="capacityError(draft.data_warning_gb, 1)"
         hint="规划整个应用的数据空间，包含两项缓存和基础数据。活动播放与必要的数据写入受保护，实际占用可能暂时超过预算。"
         v-slot="{ id, describedby, invalid }">
@@ -37,12 +40,6 @@
         <p v-if="budget.error && !usageLoading" id="cache-budget-error" class="budget-error" role="alert">{{ budget.error }}</p>
 
         <p class="hint capacity-note">色条表示规划额度。两项缓存与基础数据预留共同计入总预算；调低额度后，后续维护回收可淘汰缓存。1 GB 按 1024³ 字节计算，最多可设 102400 GB。</p>
-        <div class="bar capacity-actions">
-          <JzButton type="submit" variant="primary" icon="save" :loading="saving" :disabled="!draftDirty || !budget.valid || usageLoading || !!editor">保存容量设置</JzButton>
-          <JzButton :disabled="!dirty || saving || !!editor" @click="discard">放弃修改</JzButton>
-        </div>
-        <p v-if="error" class="warn-text" role="alert">{{ error }}</p>
-        <p v-if="message" class="feedback" role="status">{{ message }}</p>
 
         <div class="budget-base">
           <div class="base-heading"><h4>基础数据</h4><span v-if="budget.available">已用 {{ fmtBytes(budget.baseBytes) }} · 自动预留 {{ gb(budget.reservedGb) }}</span></div>
@@ -52,17 +49,26 @@
           </details>
         </div>
 
-        <div v-for="field in cacheFields" :key="field.key" class="cache-budget-row" :data-cache="field.part">
-          <div class="base-heading"><h4>{{ field.part === 'transcode' ? '播放缓存' : '进度缩略图' }}</h4>
-            <p class="cache-actual">实际占用 <strong>{{ usage?.ok ? fmtBytes(usage.categories[field.part]) : '暂不可用' }}</strong></p></div>
+      </section>
+        <SettingsFormActions class="capacity-actions" :dirty="dirty" :busy="saving" :status="error ? '保存失败，修改已保留' : message ? '容量配置已更新' : budget.error ? '预算尚未满足保存条件，请查看预算提示' : ''" label="容量设置操作">
+          <JzButton type="submit" variant="primary" icon="save" :loading="saving" :disabled="!draftDirty || !budget.valid || usageLoading || !!editor">保存容量设置</JzButton>
+          <JzButton :disabled="!dirty || saving || !!editor" @click="discard">放弃修改</JzButton>
+        </SettingsFormActions>
+        <p v-if="error" class="warn-text" role="alert">{{ error }}</p>
+        <p v-if="message" class="feedback" role="status">{{ message }}</p>
+    </form>
+    </details>
+        <details v-for="field in cacheFields" :key="field.key" class="cache-task cache-budget-row" :data-cache="field.part" :open="cleanupOpen[field.part]" @toggle="cleanupOpen[field.part] = $event.target.open">
+          <summary><span>{{ field.part === 'transcode' ? '清理播放缓存' : '清理进度缩略图' }}</span><small>实际占用 {{ usage?.ok ? fmtBytes(usage.categories[field.part]) : '暂不可用' }}</small><AppIcon name="forward" :size="18" class="task-chevron" /></summary>
+          <div class="cache-task-body">
           <p class="hint">{{ field.hint }}</p>
           <ObsoletePreviewCleanup v-if="field.part === 'previews'" :disabled="saving"
             @busy-change="cleanupBusy" @checked="cleanupChecked" @cleaned="cleanupChecked" />
           <p v-if="field.part === 'previews'" class="hint">清理全部缩略图会删除当前有效的缓存，之后需要重新生成。</p>
           <CacheCleanupControls :kind="field.part" :disabled="saving" />
-        </div>
-      </section>
-    </form>
+          </div>
+        </details>
+    </template>
     <p v-else-if="!error" class="hint" role="status">正在加载容量设置…</p>
     <p v-if="error && !saved" class="warn-text" role="alert">{{ error }} <JzButton @click="load" icon="refresh">重新加载</JzButton></p>
     <BudgetQuotaEditor v-if="editor" ref="quotaEditor" :label="editor.field.label" :value="editor.value" :error="editor.error"
@@ -84,6 +90,7 @@ import ObsoletePreviewCleanup from './ObsoletePreviewCleanup.vue'
 import AppIcon from './AppIcon.vue'
 import JzButton from './JzButton.vue'
 import JzField from './JzField.vue'
+import SettingsFormActions from './SettingsFormActions.vue'
 
 const props = defineProps({ usage: { type: Object, default: null }, usageError: { type: String, default: '' }, usageLoading: Boolean })
 const emit = defineEmits(['saving', 'refresh'])
@@ -93,6 +100,8 @@ const cacheFields = [
   { key: 'preview_cache_gb', part: 'previews', label: '进度缩略图额度',
     hint: '包含电影、剧集和花絮的进度预览；达到额度的 90% 时暂停闲时生成。' },
 ]
+const startExpanded = typeof window === 'undefined' || !window.matchMedia?.('(max-width: 700px)').matches
+const capacityOpen = ref(startExpanded), cleanupOpen = ref({ transcode: startExpanded, previews: startExpanded })
 const saved = ref(null), draft = ref({}), saving = ref(false), error = ref(''), message = ref('')
 const allocationBar = ref(null), quotaEditor = ref(null), editor = shallowRef(null)
 const controller = new AbortController()
@@ -148,7 +157,7 @@ function confirmEditor() {
 function clearMessage() { message.value = ''; error.value = '' }
 function discard() { editor.value = null; draft.value = { ...saved.value }; clearMessage() }
 useSettingsDraft({ section: 'sec-index', label: '应用数据与缓存', dirty: () => dirty.value,
-  busy: () => saving.value, discard, edit: () => editor.value ? quotaEditor.value?.focus() : document.getElementById('data_warning_gb')?.focus() })
+  busy: () => saving.value, discard, edit: async () => { capacityOpen.value = true; await nextTick(); if (editor.value) quotaEditor.value?.focus(); else document.getElementById('data_warning_gb')?.focus() } })
 watch(saving, value => emit('saving', value), { flush: 'sync' })
 async function load() {
   error.value = ''
@@ -200,16 +209,26 @@ h4 { margin: 0; font-size: var(--jz-font-m); font-weight: 600; }
 .budget-base { margin-top: 24px; padding-block: 16px; border-block: 1px solid var(--jz-border); }
 .base-heading > span, .cache-actual { color: var(--jz-text-dim); font-size: var(--jz-font-s); }
 .base-details summary { font-size: var(--jz-font-s); color: var(--jz-text-dim); }
-.cache-budget-row { margin-top: 20px; padding: 0 0 4px 16px; border-left: 2px solid var(--jz-border-strong); }
+.cache-task { border-bottom: 1px solid var(--jz-border); }
+.cache-task > summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; min-height: 56px; padding-block: 12px; cursor: pointer; box-sizing: border-box; }
+.cache-task > summary > span { font-size: var(--jz-font-m); font-weight: 600; }
+.cache-task > summary > small { color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+.cache-task > summary .task-chevron { flex: none; margin-left: auto; }
+.cache-task[open] > summary .task-chevron { transform: rotate(90deg); }
+.cache-task-body { padding-bottom: 20px; }
+.cache-task form { padding-bottom: 4px; }
+.cache-budget-row { margin-top: 4px; }
 .cache-actual { margin: 0; }
 .cache-actual strong { color: var(--jz-text); font-weight: 500; }
 .capacity-note { margin-top: 12px; }
-.capacity-actions { padding: 8px 0 0; flex-wrap: wrap; }
+
 @media (max-width: 700px) {
   .budget-legend { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
   .budget-legend li { flex-wrap: wrap; }
   .budget-legend li:not(.is-editable) > strong { width: 100%; margin-left: 17px; }
   .budget-quota-trigger { width: 100%; }
-  .cache-budget-row { padding-left: 12px; }
+  .cache-task > summary { gap: 4px 12px; }
+  .cache-task > summary > small { flex: 1; text-align: right; }
+  .cache-task form > :deep(.jz-field) { margin-top: 8px; }
 }
 </style>

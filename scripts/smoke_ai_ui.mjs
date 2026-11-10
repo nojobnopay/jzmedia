@@ -206,6 +206,50 @@ async function ffmpegBinary() {
   throw new Error('Install FFmpeg or prepare the existing static-ffmpeg app dependency before --capture-docs')
 }
 
+async function checkSearchFieldAlignment() {
+  const output = path.join(project, 'output/playwright/form-alignment-20261110')
+  await mkdir(output, { recursive: true })
+  const originalViewport = page.viewportSize()
+  const originalFont = await page.evaluate(() => document.documentElement.style.fontSize)
+  const panel = page.getByRole('region', { name: '智能搜索', exact: true })
+  const results = []
+  try {
+    for (const width of [1440, 1100, 900, 701, 700, 390, 320]) {
+      await page.setViewportSize({ width, height: 1000 })
+      for (const font of [16, 20]) {
+        await page.evaluate(size => { document.documentElement.style.fontSize = size + 'px' }, font)
+        const layout = await panel.locator('.ai-fields').evaluate(grid => {
+          const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').length
+          const fields = [...grid.children].map(label => {
+            const control = label.querySelector('input,select'), rect = control.getBoundingClientRect()
+            return { label: label.textContent.trim(), labelTop: label.getBoundingClientRect().top,
+              top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }
+          })
+          return { columns, fields, overflow: document.documentElement.scrollWidth > innerWidth + 1 }
+        })
+        assert.equal(layout.overflow, false, `AI fields fit ${width}px at ${font}px text`)
+        for (let i = 0; i < layout.fields.length; i += layout.columns) {
+          const row = layout.fields.slice(i, i + layout.columns)
+          assert.ok(Math.max(...row.map(field => field.labelTop)) - Math.min(...row.map(field => field.labelTop)) <= 1,
+            `AI label tops align across wrapped and single-line labels: ${width}px / ${font}px`)
+          assert.ok(Math.max(...row.map(field => field.top)) - Math.min(...row.map(field => field.top)) <= 1,
+            `AI input tops align when labels wrap: ${width}px / ${font}px / ${JSON.stringify(row)}`)
+          assert.ok(Math.max(...row.map(field => field.bottom)) - Math.min(...row.map(field => field.bottom)) <= 1,
+            `AI input and select bottoms align: ${width}px / ${font}px`)
+          if (width <= 700) assert.ok(row.every(field => field.height >= 44), 'Phone fields keep 44px targets')
+        }
+        results.push({ width, font, ...layout })
+        await panel.screenshot({ path: path.join(output, `after-${width}-${font}.png`), animations: 'disabled' })
+      }
+    }
+    await writeFile(path.join(output, 'after.json'), JSON.stringify(results, null, 2) + '\n')
+  } finally {
+    await page.evaluate(font => { document.documentElement.style.fontSize = font }, originalFont)
+    await page.setViewportSize(originalViewport)
+  }
+  console.log('PASS AI field alignment: 320/390/700/701/900/1100/1440px, 16/20px text, multiline labels and equal input/select edges')
+}
+
 async function captureDocs(go) {
   const binary = await ffmpegBinary(), assets = path.join(project, 'docs/assets')
   await mkdir(path.join(assets, 'screenshots'), { recursive: true })
@@ -335,7 +379,8 @@ try {
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
   const go = async pathname => {
     await page.goto(base + pathname)
-    await page.getByRole('combobox', { name: '切换媒体库' }).waitFor()
+    if (pathname.startsWith('/settings')) await page.locator('.settings-layout').waitFor()
+    else await page.getByRole('combobox', { name: '切换媒体库' }).waitFor()
   }
 
   await go('/settings?sec=sec-ai')
@@ -346,7 +391,7 @@ try {
     const box = group.getBoundingClientRect(), heading = group.querySelector('.nav-group').getBoundingClientRect()
     return { x: box.x, y: box.y, width: box.width, height: heading.height }
   }))
-  assert.equal(desktopGroups.length, 3)
+  assert.equal(desktopGroups.length, 4)
   assert.ok(desktopGroups.every((group, index) => group.width >= 150 && group.height < 35
     && (!index || (group.y > desktopGroups[index - 1].y && group.x === desktopGroups[index - 1].x))),
   'Desktop navigation groups must stack vertically with single-line headings')
@@ -472,6 +517,7 @@ try {
   assert.match(await rules.getByRole('list', { name: '已启用来源的匹配顺序' }).innerText(), /^1\. TMDB/)
   await rules.getByRole('button', { name: '保存匹配规则', exact: true }).click()
   await rules.getByText('已保存：TMDB → 本地索引', { exact: true }).waitFor()
+  await rules.locator('.matching-test > summary').click()
   await rules.getByLabel('电影名称', { exact: true }).fill('无结果')
   await rules.getByRole('button', { name: '测试已保存规则', exact: true }).click()
   await rules.getByText(/未找到候选/).waitFor()
@@ -492,15 +538,17 @@ try {
   await config.getByRole('button', { name: '保存智能辅助配置' }).waitFor()
   await config.scrollIntoViewIfNeeded()
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Settings overflow on a 390px viewport')
-  await page.getByLabel('设置分类', { exact: true }).selectOption('sec-offline')
-  await page.locator('.settings-heading h2').filter({ hasText: '离线资料' }).waitFor()
-  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Settings category selector must fit the viewport')
+  await page.locator('.settings-mobile-header').getByRole('link', { name: '设置', exact: true }).click()
+  await page.locator('.settings-directory').getByRole('link', { name: '离线资料', exact: true }).click()
+  await page.locator('.settings-mobile-title h1').filter({ hasText: '离线资料' }).waitFor()
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Settings directory and task header must fit the viewport')
   await go('/?media=1')
   await page.getByRole('button', { name: '智能搜索', exact: true }).click()
   await page.getByRole('region', { name: '智能搜索', exact: true }).getByLabel('想看什么').fill('手机搜索')
   await page.getByRole('button', { name: '解析条件', exact: true }).click()
   await page.getByRole('button', { name: '确认应用条件' }).waitFor()
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'AI search overflow on a 390px viewport')
+  await checkSearchFieldAlignment()
   assert.deepEqual(unexpected, [], 'All requests must remain in explicitly mocked APIs and local frontend assets')
   assert.deepEqual(errors, [], 'Browser runtime or console errors')
   assert.equal(requests.some(r => r.method !== 'GET' && /organize|scan|delete/.test(r.path)), false)

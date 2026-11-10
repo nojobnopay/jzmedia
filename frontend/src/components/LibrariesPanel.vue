@@ -1,6 +1,6 @@
 <template>
   <section id="sec-libraries" class="card-block">
-    <div class="section-heading"><h3>媒体库列表</h3><JzButton class="primary" :disabled="!!busy" @click="showCreate = !showCreate" type="button" variant="primary" icon="plus">{{ showCreate ? '收起新建表单' : '添加媒体库' }}</JzButton></div>
+    <div v-show="!taskActive" class="library-list"><div class="section-heading"><h3 ref="listHeading" tabindex="-1">媒体库列表</h3><JzButton class="primary" :disabled="!!busy" @click="showCreate = true" type="button" variant="primary" icon="plus">添加媒体库</JzButton></div>
     <HelpLink page="user-guide/libraries" label="连接本地目录或 NAS 的图解" />
     <p v-if="!mediaItems.length" class="hint">添加存储位置，再选择其中的电影或剧集目录。</p>
     <div v-else class="media-connections">
@@ -42,25 +42,6 @@
               </ul>
             </div>
           </div>
-          <div v-if="connEdit && connEdit.id === m.id">
-            <div class="path-edit">
-              <label>SMB 共享路径<input :disabled="!!busy" v-model="connEdit.url" v-bind="NOFILL" name="jz-conn-url" placeholder="\\ServerName\ShareName\Folder" /></label>
-              <label>SMB 用户名<input :disabled="!!busy" v-model="connEdit.username" v-bind="NOFILL" name="jz-conn-user" placeholder="SMB 登录用户名" /></label>
-              <label>SMB 密码<input :disabled="!!busy" v-model="connEdit.password" v-bind="NOFILL_PW" name="jz-conn-pass" type="password" placeholder="SMB 密码（留空不改）" /></label>
-              <label>连接地址<input :disabled="!!busy" v-model="connEdit.connect_host" v-bind="NOFILL" name="jz-conn-connect" placeholder="连接地址（可选，Tailscale IP）" /></label>
-              <JzButton @click="saveConn(m)" :disabled="!!busy" type="button" icon="link">{{ busy === 'conn' ? '保存中…' : '保存并连接' }}</JzButton>
-              <JzButton :disabled="!!busy" @click="connEdit = null" type="button">取消</JzButton>
-              <span class="fhint" :class="{ 'warn-text': connPreview.error }">{{ connPreview.error || `→ ${connPreview.host}/${connPreview.share}/${connPreview.subpath}` }}</span>
-            </div>
-          </div>
-          <div v-if="pathEdit && pathEdit.id === m.id">
-            <div class="path-edit">
-              <label>媒体库根目录<input :disabled="!!busy" v-model="pathEdit.value" v-bind="NOFILL" name="jz-path-edit" placeholder="/app/media（容器内路径）" /></label>
-              <JzButton @click="savePath(m)" :disabled="!!busy" type="button" icon="eye">{{ busy === 'path' ? '保存中…' : '保存并检查' }}</JzButton>
-              <JzButton :disabled="!!busy" @click="pathEdit = null" type="button">取消</JzButton>
-              <span class="fhint">媒体库根；仅当库内 0 记录时可改。NAS Docker 里填 /app/media 这类容器路径</span>
-            </div>
-          </div>
 
         <div v-show="expanded[m.id]" class="video-libraries">
           <h4>视频库 <span>{{ m.video_libraries.length }}</span></h4>
@@ -73,17 +54,7 @@
               <JzButton class="danger" :disabled="!!busy" @click="armDeleteVideo(v, m)" type="button" variant="danger" icon="delete">移除视频库…</JzButton>
             </div>
           </div>
-          <div v-if="videoEdit && videoEdit.mediaId === m.id" class="path-edit">
-            <VideoLibraryForm :library="videoEdit" :disabled="!!busy" @saved="onVideoSaved" @cancel="videoEdit = null" @busy="videoBusy = $event" />
-          </div>
-          <div v-if="newVideo[m.id]" class="path-edit">
-            <label>视频库名称<input :disabled="!!busy" v-model="newVideo[m.id].name" v-bind="NOFILL" name="jz-nv-name" placeholder="留空按子目录命名" /></label>
-            <label>子目录<input :disabled="!!busy" v-model="newVideo[m.id].subpath" v-bind="NOFILL" name="jz-nv-sub" placeholder="相对媒体库根目录，留空使用根目录" /></label>
-            <label>内容类型<select :disabled="!!busy" v-model="newVideo[m.id].kind"><option value="movie">电影</option><option value="tv">剧集</option></select></label>
-            <div class="ops-wrap"><JzButton @click="createVideo(m)" :disabled="!!busy" type="button" icon="plus">{{ busy === 'video' ? '创建中…' : '创建视频库' }}</JzButton><JzButton :disabled="!!busy" @click="newVideo[m.id] = null" type="button">取消</JzButton><JzButton @click="detectSubdirs(m)" :disabled="subdirLoading[m.id]" type="button">{{ subdirLoading[m.id] ? '读取中…' : '检测子目录' }}</JzButton></div>
-            <div v-if="subdirs[m.id] && subdirs[m.id].length" class="subdir-chips"><JzButton v-for="d in subdirs[m.id]" :key="d.rel" class="chip" @click="pickSubdir(m, d)" type="button">{{ d.rel }}</JzButton></div>
-            <span v-else-if="subdirs[m.id]" class="fhint">没有可用子目录</span>
-          </div>
+
         </div>
       </article>
     </div>
@@ -96,38 +67,86 @@
       <JzButton class="cb-close" @click="created = null" type="button">关闭引导</JzButton>
     </div>
 
-    <div v-if="arm" class="danger-box">
+    </div>
+
+    <JzDialog v-if="arm" title="移除媒体库" :busy="!!busy" @close="arm = null">
       <p>将删除媒体库「{{ arm.name }}」及其 <b>{{ arm.video_libraries.length }}</b> 个视频库的
         <b>{{ arm.movie_count }}</b> 条影片记录 / <b>{{ arm.episode_count }}</b> 条剧集记录与合集/花絮/缓存索引；
         <b>磁盘文件与远端数据不会被删除</b>（Plex/文件浏览不受影响）。</p>
-      <div class="bar">
+      <p v-if="deleteError" class="feedback msg-err" role="alert">{{ deleteError }}</p>
+      <template #footer>
         <JzButton class="danger" @click="doDeleteMedia" :disabled="!!busy" type="button" variant="danger" icon="delete">{{ busy === 'delete' ? '删除中…' : '确认删除记录' }}</JzButton>
-        <JzButton @click="arm = null" type="button">取消</JzButton>
-      </div>
-    </div>
+        <JzButton :disabled="!!busy" @click="arm = null" type="button">取消</JzButton>
+      </template>
+    </JzDialog>
 
-    <div v-if="armVideo" class="danger-box">
+    <JzDialog v-if="armVideo" title="移除视频库" :busy="!!busy" @close="armVideo = null">
       <p>将删除视频库「{{ armVideo.name }}」（{{ armVideo.subpath || '媒体库根' }}）的
         <b>{{ armVideo.movie_count }}</b> 条影片 / <b>{{ armVideo.episode_count }}</b> 条剧集记录；
         <b>磁盘文件不会被删除</b>。媒体库连接保留。</p>
-      <div class="bar">
+      <p v-if="deleteError" class="feedback msg-err" role="alert">{{ deleteError }}</p>
+      <template #footer>
         <JzButton class="danger" @click="doDeleteVideo" :disabled="!!busy" type="button" variant="danger" icon="delete">{{ busy === 'delete' ? '删除中…' : '确认删除记录' }}</JzButton>
-        <JzButton @click="armVideo = null" type="button">取消</JzButton>
-      </div>
-    </div>
+        <JzButton :disabled="!!busy" @click="armVideo = null" type="button">取消</JzButton>
+      </template>
+    </JzDialog>
 
-    <MediaLibraryCreateForm v-show="showCreate || !mediaItems.length" :smb-driver="smbDriver"
-      :disabled="!!busy" @created="onCreated" @busy="createBusy = $event" />
+    <div v-show="taskActive" class="library-task">
+      <header class="library-task-heading"><JzButton :disabled="!!busy" icon="back" @click="requestCloseTask">返回媒体库列表</JzButton><h3 ref="taskHeading" tabindex="-1">{{ taskTitle }}</h3><p v-if="editorMedia" class="hint">{{ editorMedia.name }} · {{ pathText(editorMedia) }}</p></header>
+      <MediaLibraryCreateForm v-show="showCreate" :smb-driver="smbDriver" :disabled="!!operation || videoBusy" cancellable
+        @created="onCreated" @busy="createBusy = $event" @cancel="requestCloseTask" />
+      <template v-if="editorMedia">
+          <div v-if="connEdit && connEdit.id === editorMedia.id">
+            <div class="path-edit">
+              <label>SMB 共享路径<input :disabled="!!busy" v-model="connEdit.url" v-bind="NOFILL" name="jz-conn-url" placeholder="\\ServerName\ShareName\Folder" /></label>
+              <label>SMB 用户名<input :disabled="!!busy" v-model="connEdit.username" v-bind="NOFILL" name="jz-conn-user" placeholder="SMB 登录用户名" /></label>
+              <label>SMB 密码<input :disabled="!!busy" v-model="connEdit.password" v-bind="NOFILL_PW" name="jz-conn-pass" type="password" placeholder="SMB 密码（留空不改）" /></label>
+              <label>连接地址<input :disabled="!!busy" v-model="connEdit.connect_host" v-bind="NOFILL" name="jz-conn-connect" placeholder="连接地址（可选，Tailscale IP）" /></label>
+              <SettingsFormActions :dirty="libraryDrafts.length > 0" :busy="!!busy" label="媒体库配置">
+              <JzButton @click="saveConn(editorMedia)" :disabled="!!busy" type="button" icon="link">{{ busy === 'conn' ? '保存中…' : '保存并连接' }}</JzButton>
+              <JzButton :disabled="!!busy" @click="requestCloseTask" type="button">取消</JzButton>
+              </SettingsFormActions>
+              <span class="fhint" :class="{ 'warn-text': connPreview.error }">{{ connPreview.error || `→ ${connPreview.host}/${connPreview.share}/${connPreview.subpath}` }}</span>
+            </div>
+          </div>
+          <div v-if="pathEdit && pathEdit.id === editorMedia.id">
+            <div class="path-edit">
+              <label>媒体库根目录<input :disabled="!!busy" v-model="pathEdit.value" v-bind="NOFILL" name="jz-path-edit" placeholder="/app/media（容器内路径）" /></label>
+              <SettingsFormActions :dirty="libraryDrafts.length > 0" :busy="!!busy" label="媒体库配置">
+              <JzButton @click="savePath(editorMedia)" :disabled="!!busy" type="button" icon="eye">{{ busy === 'path' ? '保存中…' : '保存并检查' }}</JzButton>
+              <JzButton :disabled="!!busy" @click="requestCloseTask" type="button">取消</JzButton>
+              </SettingsFormActions>
+              <span class="fhint">媒体库根；仅当库内 0 记录时可改。NAS Docker 里填 /app/media 这类容器路径</span>
+            </div>
+          </div>
+
+          <div v-if="videoEdit && videoEdit.mediaId === editorMedia.id" class="path-edit">
+            <VideoLibraryForm :library="videoEdit" :disabled="!!busy" @saved="onVideoSaved" @cancel="requestCloseTask" @busy="videoBusy = $event" />
+          </div>
+          <div v-if="newVideo[editorMedia.id]" class="path-edit">
+            <label>视频库名称<input :disabled="!!busy" v-model="newVideo[editorMedia.id].name" v-bind="NOFILL" name="jz-nv-name" placeholder="留空按子目录命名" /></label>
+            <label>子目录<input :disabled="!!busy" v-model="newVideo[editorMedia.id].subpath" v-bind="NOFILL" name="jz-nv-sub" placeholder="相对媒体库根目录，留空使用根目录" /></label>
+            <label>内容类型<select :disabled="!!busy" v-model="newVideo[editorMedia.id].kind"><option value="movie">电影</option><option value="tv">剧集</option></select></label>
+            <SettingsFormActions :dirty="libraryDrafts.length > 0" :busy="!!busy" label="新建视频库"><JzButton @click="createVideo(editorMedia)" :disabled="!!busy" type="button" icon="plus">{{ busy === 'video' ? '创建中…' : '创建视频库' }}</JzButton><JzButton :disabled="!!busy" @click="requestCloseTask" type="button">取消</JzButton><JzButton @click="detectSubdirs(editorMedia)" :disabled="subdirLoading[editorMedia.id]" type="button">{{ subdirLoading[editorMedia.id] ? '读取中…' : '检测子目录' }}</JzButton></SettingsFormActions>
+            <div v-if="subdirs[editorMedia.id] && subdirs[editorMedia.id].length" class="subdir-chips"><JzButton v-for="d in subdirs[editorMedia.id]" :key="d.rel" class="chip" @click="pickSubdir(editorMedia, d)" type="button">{{ d.rel }}</JzButton></div>
+            <span v-else-if="subdirs[editorMedia.id]" class="fhint">没有可用子目录</span>
+          </div>
+        <p v-if="rowMsg['m:' + editorMedia.id]" :class="msgClass('m:' + editorMedia.id)" role="status">{{ rowMsg['m:' + editorMedia.id].text }}</p>
+      </template>
+    </div>
 
   </section>
 </template>
 
 <script setup>
 import JzButton from './JzButton.vue'
+import JzDialog from './JzDialog.vue'
+import SettingsFormActions from './SettingsFormActions.vue'
+import { useSettingsTaskNavigation } from '../useSettingsTaskNavigation.js'
 
 import HelpLink from './HelpLink.vue'
 import AppIcon from './AppIcon.vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import MediaLibraryCreateForm from './MediaLibraryCreateForm.vue'
 import VideoLibraryForm from './VideoLibraryForm.vue'
 import { useSettingsDraft } from '../settingsDrafts.js'
@@ -147,6 +166,7 @@ const createBusy = ref(false)
 const expanded = reactive({})       // media_id -> 展开视频库
 const arm = ref(null)
 const armVideo = ref(null)
+const deleteError = ref('')
 const pathEdit = ref(null)
 const connEdit = ref(null)
 const connBaseline = ref('')
@@ -165,6 +185,18 @@ const scanning = computed(() => {
   return out
 })
 const connPreview = computed(() => parseSmbInput(connEdit.value ? connEdit.value.url : ''))
+const newVideoMediaId = computed(() => Object.keys(newVideo).find(id => newVideo[id]))
+const taskActive = computed(() => showCreate.value || !!connEdit.value || !!pathEdit.value || !!videoEdit.value || !!newVideoMediaId.value)
+const editorMedia = computed(() => mediaItems.value.find(m => m.id === Number(connEdit.value?.id || pathEdit.value?.id || videoEdit.value?.mediaId || newVideoMediaId.value)))
+const taskTitle = computed(() => showCreate.value ? '添加媒体库' : connEdit.value ? '编辑连接' : pathEdit.value ? '修改根目录' : videoEdit.value ? '编辑视频库' : '添加视频库')
+function closeTask() {
+  showCreate.value = false; connEdit.value = null; pathEdit.value = null; videoEdit.value = null
+  for (const id of Object.keys(newVideo)) newVideo[id] = null
+}
+const { heading: taskHeading, listHeading, focusTask, requestClose: requestCloseTask } = useSettingsTaskNavigation({
+  section: 'sec-libraries', active: taskActive, busy: () => !!busy.value, close: closeTask,
+})
+
 
 const mediaName = id => mediaItems.value.find(m => m.id === Number(id))?.name || `媒体库 ${id}`
 const libraryDrafts = computed(() => {
@@ -177,7 +209,7 @@ const libraryDrafts = computed(() => {
   return items
 })
 useSettingsDraft({ section: 'sec-libraries', dirty: () => libraryDrafts.value.length > 0,
-  busy: () => !!operation.value, items: () => libraryDrafts.value.length ? libraryDrafts.value : [{ label: '媒体库操作' }],
+  busy: () => !!operation.value, edit: focusTask, items: () => libraryDrafts.value.length ? libraryDrafts.value : [{ label: '媒体库操作' }],
   discard: () => {
     pathEdit.value = null; connEdit.value = null
     for (const id of Object.keys(newVideo)) newVideo[id] = null
@@ -246,9 +278,9 @@ async function load () {
     const d = await api('/api/media-libraries')
     mediaItems.value = d.items || []
     smbDriver.value = d.smb_driver || 'auto'
-    // 默认展开最近使用的媒体库
+    // Desktop keeps the first connection expanded; phones start with a concise list.
     const cur = mediaItems.value[0]
-    if (cur && expanded[cur.id] === undefined) expanded[cur.id] = true
+    if (cur && expanded[cur.id] === undefined && (typeof window === 'undefined' || !window.matchMedia('(max-width: 700px)').matches)) expanded[cur.id] = true
     try { await loadLibs(api, { force: true }) } catch (e) { /* 忽略 */ }
     emit('changed')
   } catch (e) { msg.value = '媒体库加载失败：' + e.message }
@@ -283,7 +315,7 @@ function driverText (m) {
 
 function closeMenu (e) {
   const d = e.target.closest('details')
-  if (d) d.removeAttribute('open')
+  if (d) { d.removeAttribute('open'); d.querySelector('summary')?.focus() }
 }
 
 async function copyCmd (key) {
@@ -489,6 +521,7 @@ async function toggleEnabled (m) {
 }
 
 function armDelete (m) {
+  deleteError.value = ''
   arm.value = m
   armVideo.value = null
 }
@@ -502,14 +535,16 @@ async function doDeleteMedia () {
     delete rowMsg['m:' + arm.value.id]
     arm.value = null
     await load()
+    await nextTick(); listHeading.value?.focus({ preventScroll: true })
   } catch (e) {
-    msg.value = '删除失败：' + e.message
+    deleteError.value = '删除失败：' + e.message
   } finally {
     operation.value = ''
   }
 }
 
 function armDeleteVideo (v, m) {
+  deleteError.value = ''
   arm.value = null
   armVideo.value = { id: v.id, name: v.name, subpath: v.subpath,
     movie_count: v.movie_count, episode_count: v.episode_count, mediaId: m.id }
@@ -524,8 +559,9 @@ async function doDeleteVideo () {
     delete rowMsg['v:' + armVideo.value.id]
     armVideo.value = null
     await load()
+    await nextTick(); listHeading.value?.focus({ preventScroll: true })
   } catch (e) {
-    msg.value = '删除失败：' + e.message
+    deleteError.value = '删除失败：' + e.message
   } finally {
     operation.value = ''
   }
@@ -622,6 +658,15 @@ defineExpose({ ensure: load })
 </script>
 
 <style scoped>
+.library-task { max-width: var(--jz-form-width); }
+.library-task-heading { margin-bottom: 20px; }
+.library-task-heading h3 { margin: 16px 0 8px; scroll-margin-top: 88px; }
+.library-task-heading p { overflow-wrap: anywhere; }
+.library-task :deep(.create-library-form) { margin: 0; padding: 0; border: 0; }
+.library-task :deep(.create-library-form > fieldset > h4), .library-task :deep(.create-library-form > fieldset > h4 + .hint) { display: none; }
+.library-task .path-edit { margin-top: 0; padding-top: 0; border-top: 0; }
+.library-task .path-edit > .settings-form-actions { flex-basis: 100%; }
+
 .media-connections { margin-top: 24px; }
 .media-connection { padding: 24px 0; border-top: 1px solid var(--jz-border); }
 .media-connection:first-child { padding-top: 0; border-top: 0; }
@@ -638,7 +683,7 @@ defineExpose({ ensure: load })
 .ops-wrap { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .connection-actions { margin: 18px 0 0 28px; }
 .badge { display: inline-block; margin-left: 8px; font-size: var(--jz-font-s); color: var(--jz-text-dim); border: 1px solid var(--jz-border-strong); border-radius: 4px; padding: 1px 6px; font-weight: 400; }
-.danger-box { border: 1px solid var(--jz-danger-border); background: var(--jz-danger-soft); border-radius: var(--jz-radius-m); padding: 16px; margin: 16px 0; }
+
 .status-pill { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; font-size: var(--jz-font-s); color: var(--jz-text-dim); }
 .status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .status-pill.st-ok, .msg-ok { color: var(--jz-success); }

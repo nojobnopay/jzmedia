@@ -3,20 +3,20 @@
     <EmptyState v-if="loading" state="loading" title="正在加载在线视频源设置" />
     <EmptyState v-else-if="loadError" state="error" title="在线视频源设置加载失败" :text="loadError" retry @retry="load" />
     <template v-else>
-      <section class="card-block">
+      <header v-if="taskActive" class="online-task-heading"><JzButton icon="back" :disabled="saving || networkSaving || hostApplying || profilesLocked" @click="requestCloseTask">{{ hostSource ? '关闭检查' : '返回视频源列表' }}</JzButton><h3 ref="taskHeading" tabindex="-1">{{ taskTitle }}</h3><p class="hint">{{ taskScope }}</p></header>
+      <section v-show="!taskActive" class="card-block">
         <div class="section-heading"><h3>在线点播</h3><JzButton :variant="settings.enabled ? 'secondary' : 'primary'" :loading="toggling" :disabled="saving || networkSaving || profilesLocked || hostApplying" @click="toggleEnabled">{{ settings.enabled ? '关闭在线点播' : '启用在线点播' }}</JzButton></div>
         <p class="hint">{{ settings.enabled ? '已启用；仅已启用的来源可被查询或播放。' : '默认关闭；启用后仍需启用至少一个来源。' }} 作用于此服务的所有播放设备。</p>
-        <p class="hint">优先选择免费且可直连的来源。视频由播放设备解码；此功能不会自动启动 NAS 转码或生成预览。</p>
+        <details class="online-source-help"><summary>播放与来源说明</summary><p class="hint">优先选择免费且可直连的来源。视频由播放设备解码；此功能不会自动启动 NAS 转码或生成预览。保存后可测试目录，实际播放还取决于媒体线路。</p></details>
         <p v-if="message" class="online-source-feedback" :class="{ 'is-error': messageError }" :role="messageError ? 'alert' : 'status'">{{ message }}</p>
       </section>
-      <section class="card-block">
-        <div class="section-heading"><h3>视频源</h3><JzButton icon="plus" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editSource()">添加来源</JzButton></div>
-        <p class="hint">从来源目录选择后即可保存，也可以填写自己的接口。新增来源默认启用；保存后可测试目录，实际播放还取决于媒体线路。</p>
-        <EmptyState v-if="!sources.length && !editorOpen" state="empty" title="还没有视频源" text="添加自己的 MacCMS JSON 来源，或选择开放样例目录。" />
-        <div class="online-source-list"><article v-for="source in sources" :key="source.id" class="online-source-row" :data-online-source-row="source.id"><div><h4>{{ source.name }}</h4><p>{{ source.provider === 'open_catalog' ? '开放样例目录' : 'MacCMS JSON' }} · {{ source.enabled ? '已启用' : '已停用' }} · 优先级 {{ source.priority }}</p><p v-if="sourceChecks[source.id]" role="status">{{ sourceChecks[source.id] }}</p></div><div class="online-source-actions"><JzButton :aria-label="'测试来源 ' + source.name" :loading="testingSource === source.id" :disabled="!!testingSource || hostChecking || saving || networkSaving || profilesBusy || hostApplying || !settings.enabled || !source.enabled" @click="testSource(source)">测试来源</JzButton><JzButton icon="edit" :aria-label="'编辑 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editSource(source)">编辑</JzButton><JzButton icon="link" :aria-label="'网络 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editNetwork(source)">网络</JzButton></div></article></div>
-        <p v-if="sources.length && !settings.enabled" class="hint">先启用上方的在线点播，再测试已启用来源。</p>
+      <section v-show="!taskActive || editorOpen" class="card-block online-source-task">
+        <div v-show="!taskActive" class="section-heading"><h3 ref="listHeading" tabindex="-1">视频源</h3><JzButton icon="plus" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editSource()">添加来源</JzButton></div>
+        <p v-show="!taskActive" class="hint">选择来源或填写接口。新增来源默认启用，保存后可测试目录。</p>
+        <EmptyState v-if="!sources.length && !taskActive" state="empty" title="还没有视频源" text="添加自己的 MacCMS JSON 来源，或选择开放样例目录。" />
+        <div v-show="!taskActive" class="online-source-list"><article v-for="source in sources" :key="source.id" class="online-source-row" :data-online-source-row="source.id"><div><h4>{{ source.name }}</h4><p>{{ source.provider === 'open_catalog' ? '开放样例目录' : 'MacCMS JSON' }} · {{ source.enabled ? '已启用' : '已停用' }} · 优先级 {{ source.priority }}</p><p v-if="sourceChecks[source.id]" role="status">{{ sourceChecks[source.id] }}</p></div><div class="online-source-actions"><JzButton :aria-label="'测试来源 ' + source.name" :loading="testingSource === source.id" :disabled="!!testingSource || hostChecking || saving || networkSaving || profilesBusy || hostApplying || !settings.enabled || !source.enabled" @click="testSource(source)">测试来源</JzButton><JzButton icon="edit" :aria-label="'编辑 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editSource(source)">编辑</JzButton><JzButton icon="link" :aria-label="'网络 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editNetwork(source)">网络</JzButton></div></article></div>
+        <p v-if="!taskActive && sources.length && !settings.enabled" class="hint">先启用上方的在线点播，再测试已启用来源。</p>
         <form v-if="editorOpen" class="online-source-editor" data-online-source-form @submit.prevent="saveSource">
-          <h4>{{ editingId ? '编辑来源' : '添加来源' }}</h4>
           <template v-if="!editingId">
             <JzField id="online-source-template" label="选择视频源" hint="选择来源会预填配置；不会自动添加其他来源或联系上游。"><template #default="field"><select :id="field.id" v-model="templateId" :disabled="saving || profilesLocked" :aria-describedby="field.describedby" @change="applyTemplate"><option value="">自定义接口</option><option v-for="item in sourceTemplates" :key="item.id" :value="item.id">{{ item.name }}</option></select></template></JzField>
             <p v-if="templatesLoading" class="hint online-loading-label" role="status"><Spinner :size="16" />正在加载来源目录…</p>
@@ -34,11 +34,10 @@
           <details v-if="form.provider === 'maccms'"><summary>接口兼容设置</summary><div class="online-source-fields"><JzField id="online-search-action" label="搜索 action"><template #default="field"><select :id="field.id" v-model="form.search_action" :disabled="saving || profilesLocked"><option value="list">list（标准）</option><option value="detail">detail</option><option value="videolist">videolist</option></select></template></JzField><JzField id="online-detail-action" label="详情 action"><template #default="field"><select :id="field.id" v-model="form.detail_action" :disabled="saving || profilesLocked"><option value="detail">detail（标准）</option><option value="videolist">videolist</option></select></template></JzField></div></details>
           <p v-else class="hint">开放样例用于验证播放能力。影片详情保留发布者、原项目和许可说明。</p>
           <p v-if="formError" class="online-source-feedback is-error" role="alert">{{ formError }}</p>
-          <div class="bar"><JzButton type="submit" variant="primary" :loading="saving" :disabled="profilesLocked || !form.name.trim() || !form.api_base_url.trim()">保存来源</JzButton><JzButton :disabled="saving || profilesLocked" @click="cancelEditor">取消</JzButton></div>
+          <SettingsFormActions :dirty="sourceDirty" :busy="saving" label="来源配置"><JzButton type="submit" variant="primary" :loading="saving" :disabled="profilesLocked || !form.name.trim() || !form.api_base_url.trim()">保存来源</JzButton><JzButton :disabled="saving || profilesLocked" @click="requestCloseTask">取消</JzButton></SettingsFormActions>
         </form>
       </section>
       <section v-if="hostSource" class="card-block online-host-check" data-online-host-check>
-        <div class="section-heading"><h3>{{ hostSource.name }} · 检查媒体主机</h3><JzButton :disabled="hostApplying || profilesLocked" @click="cancelHostCheck">关闭检查</JzButton></div>
         <p class="hint">检查所选内容的目录信息，列出尚未允许的媒体和图片主机。检查不会访问这些新主机，也不会自动修改来源。</p>
         <form class="online-host-form" data-online-host-form @submit.prevent="checkHosts">
           <JzField id="online-host-item" label="来源内容编号" hint="从影片详情进入时自动填写。">
@@ -61,12 +60,11 @@
         <p v-if="hostApplied" class="online-source-feedback" role="status">媒体主机已加入允许列表。返回影片详情后会重新读取播放线路。</p>
         <router-link v-if="validHostItem" :to="hostReturnTarget" data-online-host-return>返回影片详情</router-link>
       </section>
-      <section class="card-block">
-        <h3>来源网络</h3>
+      <section v-if="networkTarget" class="card-block online-source-task">
         <p class="hint">按运行 jzmedia 的服务器能否访问来源，选择直连或代理。服务默认：{{ defaultSummary }}。</p>
-        <p v-if="networkError" class="online-source-feedback is-error" role="alert">{{ networkError }}</p>
+        <p v-if="networkError" class="online-source-feedback is-error" role="alert">{{ networkError }}<JzButton v-if="!networkSource" icon="refresh" @click="editNetwork(networkTarget)">重试</JzButton></p>
+        <p v-if="networkLoading" class="online-loading-label" role="status"><Spinner :size="16" />正在读取网络规则…</p>
         <form v-if="networkSource" class="online-source-editor" data-online-network-form @submit.prevent="saveNetwork">
-          <h4>{{ networkSource.name }} 的网络规则</h4>
           <JzField id="online-network-mode" class="online-connection-choice" label="连接方式" :hint="networkChoices.default === 'inherit' ? '当前沿用服务默认。切换后将为此来源单独保存。' : '此连接用于本来源；高级设置中的单独规则会保留。'"><template #default="field"><select :id="field.id" :value="networkMode" :disabled="networkSaving || profilesLocked" :aria-describedby="field.describedby" @change="changeNetworkMode($event.target.value)"><option v-if="networkMode === 'unavailable'" value="unavailable" disabled>默认网络暂不可用</option><option value="direct">直连</option><option value="proxy">HTTP(S) 代理</option></select></template></JzField>
           <template v-if="networkMode === 'proxy'">
             <JzField id="online-proxy-profile" class="online-connection-choice" label="代理配置"><template #default="field"><select :id="field.id" :value="proxyChoice" :disabled="networkSaving || profilesLocked" @change="selectProxy($event.target.value)"><option value="new">填写新的代理</option><option v-for="profile in proxyProfiles" :key="profile.id" :value="profile.id">{{ profile.name }} · {{ profile.proxy_url }}</option></select></template></JzField>
@@ -76,7 +74,7 @@
               <JzField id="online-proxy-port" label="端口"><template #default="field"><input :id="field.id" v-model="proxyForm.port" :disabled="networkSaving || profilesLocked" type="number" min="1" max="65535" inputmode="numeric" placeholder="7890" /></template></JzField>
               <details class="online-proxy-auth"><summary>代理认证（可选）</summary><div class="online-proxy-credentials"><JzField id="online-proxy-username" label="代理用户名"><template #default="field"><input :id="field.id" v-model="proxyForm.username" :disabled="networkSaving || profilesLocked" autocomplete="off" /></template></JzField><JzField id="online-proxy-password" label="代理密码" hint="仅写入保存，不会回显。"><template #default="field"><input :id="field.id" v-model="proxyForm.password" :disabled="networkSaving || profilesLocked" type="password" autocomplete="new-password" :aria-describedby="field.describedby" /></template></JzField></div></details>
             </div>
-            <p v-else class="hint online-proxy-endpoint">{{ selectedProxy?.proxy_url }}{{ selectedProxy?.has_credentials ? ' · 已保存认证信息' : '' }}。现有代理可供多个来源共用。<a href="#online-proxy-configurations">查看或编辑已保存的代理</a></p>
+            <p v-else class="hint online-proxy-endpoint">{{ selectedProxy?.proxy_url }}{{ selectedProxy?.has_credentials ? ' · 已保存认证信息' : '' }}。现有代理可供多个来源共用。<a href="#online-proxy-configurations" @click.prevent="openProfiles">查看或编辑已保存的代理</a></p>
           </template>
           <div class="online-network-paths" aria-label="当前网络路径"><p>搜索与详情：{{ purposeSummary('api') }}</p><p>视频播放：{{ purposeSummary('media') }}</p></div>
           <p v-if="separateRules" class="online-network-overrides">已保留 {{ separateRules }} 项单独网络规则，修改上方连接不会覆盖它们。<JzButton size="compact" :disabled="networkSaving || profilesLocked" @click="inheritAllPurposes">全部用途使用此连接</JzButton></p>
@@ -85,12 +83,11 @@
             <div class="online-network-fields"><JzField v-for="purpose in PURPOSES" :id="'online-network-' + purpose.key" :key="purpose.key" :label="purpose.label"><template #default="field"><select :id="field.id" v-model="networkChoices[purpose.key]" :disabled="networkSaving || profilesLocked"><option value="inherit">继承{{ purpose.key === 'default' ? '服务默认' : '来源默认' }}</option><option value="direct">直连</option><option v-if="networkChoices[purpose.key] === 'new-proxy'" value="new-proxy">新代理（待保存）</option><option v-for="profile in profiles" :key="profile.id" :value="'profile:' + profile.id">{{ profile.name }} · {{ profile.mode === 'proxy' ? profile.proxy_url : '直连' }}</option></select></template></JzField></div>
           </details>
           <p class="hint">保存规则不做连通性验证。API 与媒体可选择不同出口，图片、字幕和订阅的配置也会分别保留。</p>
-          <div class="bar"><JzButton type="submit" variant="primary" :loading="networkSaving" :disabled="profilesLocked">保存网络规则</JzButton><JzButton :disabled="networkSaving || profilesLocked" @click="cancelNetwork">取消</JzButton></div>
+          <SettingsFormActions :dirty="sourceDirty" :busy="networkSaving" label="来源网络"><JzButton type="submit" variant="primary" :loading="networkSaving" :disabled="profilesLocked">保存网络规则</JzButton><JzButton :disabled="networkSaving || profilesLocked" @click="requestCloseTask">取消</JzButton></SettingsFormActions>
         </form>
-        <p v-else class="hint">在上方视频源旁选择“网络”以修改其规则。</p>
       </section>
-      <OnlineProxyProfiles ref="profilesEditor" :profiles="profiles" :application-default="applicationDefault" :disabled="sourceDirty || saving || networkSaving || hostApplying || toggling"
-        @updated="profileUpdated" @deleted="profileDeleted" @default-updated="defaultUpdated" @busy="profilesBusy = $event" @dirty="profilesDirty = $event" />
+      <details v-show="!taskActive" ref="profilesDetails" class="online-shared-profiles"><summary>共享代理与服务默认</summary><OnlineProxyProfiles ref="profilesEditor" :profiles="profiles" :application-default="applicationDefault" :disabled="sourceDirty || saving || networkSaving || hostApplying || toggling"
+        @updated="profileUpdated" @deleted="profileDeleted" @default-updated="defaultUpdated" @busy="profilesBusy = $event" @dirty="profilesDirty = $event" /></details>
     </template>
   </div>
 </template>
@@ -106,6 +103,8 @@ import { useSettingsDraft } from '../settingsDrafts.js'
 import EmptyState from './EmptyState.vue'
 import JzButton from './JzButton.vue'
 import JzField from './JzField.vue'
+import SettingsFormActions from './SettingsFormActions.vue'
+import { useSettingsTaskNavigation } from '../useSettingsTaskNavigation.js'
 import Spinner from './Spinner.vue'
 import OnlineProxyProfiles from './OnlineProxyProfiles.vue'
 import '../styles/online.css'
@@ -123,9 +122,11 @@ const hostSource = ref(null), hostExternalId = ref(''), hostReport = ref(null), 
 const hostChecking = ref(false), hostApplying = ref(false), hostError = ref(''), hostApplied = ref(false)
 const validHostItem = computed(() => /^[A-Za-z0-9_-]{1,128}$/.exec(hostExternalId.value)?.[0] === hostExternalId.value)
 const hostReturnTarget = computed(() => ({ path: '/online', query: { source: hostSource.value?.id, item: hostExternalId.value } }))
+const networkTarget = ref(null), networkLoading = ref(false)
 const networkSource = ref(null), networkChoices = ref({}), savedNetwork = ref(''), networkError = ref('')
 const emptyProxyForm = () => ({ protocol: 'http', host: '', port: '7890', username: '', password: '' })
 const proxyForm = ref(emptyProxyForm())
+const profilesDetails = ref(null)
 const profilesEditor = ref(null), profilesBusy = ref(false), profilesDirty = ref(false)
 const profilesLocked = computed(() => profilesBusy.value || profilesDirty.value)
 let disposed = false, generation = 0, networkGeneration = 0, sourceTestGeneration = 0, hostGeneration = 0
@@ -153,7 +154,22 @@ function networkSnapshot() { return JSON.stringify({ choices: networkChoices.val
 const sourceDirty = computed(() => editorOpen.value && savedForm.value !== JSON.stringify(form.value)
   || !!networkSource.value && savedNetwork.value !== networkSnapshot())
 const dirty = computed(() => sourceDirty.value || profilesDirty.value)
-useSettingsDraft({ section: 'sec-online', label: '在线视频源', dirty: () => dirty.value,
+const taskActive = computed(() => editorOpen.value || !!networkTarget.value || !!hostSource.value)
+const taskTitle = computed(() => editorOpen.value ? (editingId.value ? '编辑来源' : '添加来源') : networkTarget.value ? '来源网络' : '检查媒体主机')
+const taskScope = computed(() => (editorOpen.value ? form.value.name : networkTarget.value?.name || hostSource.value?.name) || '此服务的在线点播')
+const { heading: taskHeading, listHeading, focusTask, requestClose: requestCloseTask } = useSettingsTaskNavigation({
+  section: 'sec-online', active: taskActive, busy: () => saving.value || networkSaving.value || hostApplying.value,
+  close: () => { cancelEditor(); cancelNetwork(); cancelHostCheck() },
+})
+async function openProfiles() {
+  if (!await requestCloseTask()) return
+  await nextTick()
+  if (!profilesDetails.value) return
+  profilesDetails.value.open = true
+  profilesDetails.value.querySelector('summary')?.focus()
+}
+
+useSettingsDraft({ section: 'sec-online', label: '在线视频源', edit: focusTask, dirty: () => dirty.value,
   busy: () => saving.value || toggling.value || networkSaving.value || hostApplying.value || profilesBusy.value,
   discard: () => { cancelEditor(); cancelNetwork(); cancelHostCheck(); profilesEditor.value?.discard() } })
 function invalidateNetworkResults() { invalidateHostResult(); sourceTestGeneration++; sourceChecks.value = {} }
@@ -357,7 +373,7 @@ async function editNetwork(source) {
   if (saving.value || networkSaving.value || profilesLocked.value || hostApplying.value) return
   cancelHostCheck()
   cancelEditor(); const turn = ++networkGeneration
-  networkSource.value = null; networkError.value = ''
+  networkSource.value = null; networkError.value = ''; networkTarget.value = source; networkLoading.value = true
   try {
     const response = await request('/api/online/sources/' + source.id + '/network')
     if (disposed || turn !== networkGeneration) return
@@ -365,8 +381,9 @@ async function editNetwork(source) {
     proxyForm.value = emptyProxyForm()
     savedNetwork.value = networkSnapshot(); networkSource.value = source
   } catch { if (!disposed && turn === networkGeneration) networkError.value = '此来源的网络规则暂不可读取，请重试。' }
+  finally { if (!disposed && turn === networkGeneration) networkLoading.value = false }
 }
-function cancelNetwork() { networkGeneration++; networkSource.value = null; networkChoices.value = {}; savedNetwork.value = ''; proxyForm.value = emptyProxyForm() }
+function cancelNetwork() { networkGeneration++; networkTarget.value = null; networkLoading.value = false; networkError.value = ''; networkSource.value = null; networkChoices.value = {}; savedNetwork.value = ''; proxyForm.value = emptyProxyForm() }
 function changeNetworkMode(mode) {
   if (mode === 'direct') { networkChoices.value.default = 'direct'; proxyForm.value = emptyProxyForm() }
   else if (mode === 'proxy') networkChoices.value.default = proxyProfiles.value[0] ? 'profile:' + proxyProfiles.value[0].id : 'new-proxy'
@@ -415,3 +432,13 @@ watch(() => [route?.query?.sec, route?.query?.source, route?.query?.item, loadin
 onMounted(load)
 onUnmounted(() => { disposed = true; generation++; networkGeneration++; hostGeneration++; controllers.forEach(controller => controller.abort()); controllers.clear() })
 </script>
+
+<style scoped>
+.online-task-heading { margin-block: 20px; }
+.online-task-heading h3 { margin: 16px 0 8px; font-size: var(--jz-font-xl); scroll-margin-top: 88px; }
+.online-task-heading p { margin: 0; overflow-wrap: anywhere; }
+.online-source-task .online-source-editor { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.online-shared-profiles { border-top: 1px solid var(--jz-border); padding-top: 12px; }
+.online-source-help > summary, .online-shared-profiles > summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; font-weight: 600; }
+@media (max-width: 700px) { .online-task-heading { margin-top: 0; } }
+</style>

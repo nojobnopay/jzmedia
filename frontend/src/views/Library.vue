@@ -1,5 +1,5 @@
 <template>
-  <div class="browse-page">
+  <div class="browse-page" :class="{ 'has-selection': selecting }">
   <header class="browse-heading">
     <h1>电影</h1>
     <div v-if="!isChildren" class="browse-actions">
@@ -76,8 +76,9 @@
     <span v-else-if="items.length" class="fhint">已全部加载（{{ items.length }} 部）</span>
   </div>
 
-  <div v-if="selecting" class="floatbar" role="toolbar" aria-label="多选操作">
-    <span class="count">{{ selectedIds.size }}</span>
+  <div v-if="selecting" class="floatbar" role="toolbar" aria-label="多选操作" :aria-busy="batching">
+    <span class="count">已选 {{ selectedIds.size }} 部</span>
+    <div class="batch-desktop-actions" :inert="batching">
     <ContentPolicyButton kind="movie" :ids="[...selectedIds]" compact @saved="onPolicySaved" />
     <JzButton variant="ghost" size="compact" @click="selectAllVisible" :disabled="!items.length" :title="`全选已加载的 ${items.length} 部（不含未加载页）`" type="button">
       <AppIcon name="check-circle" :size="18" />
@@ -103,60 +104,74 @@
       <AppIcon name="delete" :size="18" />
       <span>删除</span>
     </JzButton>
-    <JzButton variant="ghost" size="compact" @click="clearSelection" title="退出多选" type="button">
+    </div>
+    <div class="batch-mobile-actions" :inert="batching">
+      <JzButton variant="ghost" size="compact" :disabled="batching" @click="batchWatched(true)" icon="eye">已看</JzButton>
+      <ActionMenu class="batch-more" label="更多">
+        <ContentPolicyButton kind="movie" :ids="[...selectedIds]" compact @saved="onPolicySaved" />
+        <JzButton variant="ghost" @click="selectAllVisible" :disabled="!items.length" icon="check-circle">全选已加载影片</JzButton>
+        <JzButton variant="ghost" @click="batchWatched(false)" icon="eye-off">标为未看</JzButton>
+        <JzButton variant="ghost" @click="openTagDlg" icon="tag">批量标签</JzButton>
+        <JzButton variant="ghost" @click="openColDlg" icon="collections">加入合集</JzButton>
+        <JzButton variant="ghost" @click="openDelDlg" icon="delete">删除选中影片</JzButton>
+      </ActionMenu>
+    </div>
+    <JzButton class="batch-cancel" variant="ghost" size="compact" :disabled="batching" @click="clearSelection" title="退出多选" type="button">
       <AppIcon name="close" :size="18" />
       <span>取消</span>
     </JzButton>
-    <span v-if="batchMsg || batching" class="fmsg">{{ batching ? '提交中…' : batchMsg }}</span>
+    <span v-if="batchMsg || batching" class="fmsg" role="status">{{ batching ? '提交中…' : batchMsg }}</span>
   </div>
 
-  <div v-if="tagDlg" class="dlg-mask" @click.self="tagDlg = false">
-    <div ref="tagDlgRef" class="dlg" role="dialog" aria-modal="true">
-      <h3>批量标签（{{ selectedIds.size }} 部）</h3>
-      <div class="bar">
+  <JzDialog v-if="tagDlg" :title="`批量标签（${selectedIds.size} 部）`" size="small" :busy="batching" @close="tagDlg = false">
+    <fieldset class="batch-dialog-fields" :disabled="batching">
+      <div class="bar batch-tag-mode">
         <label><input type="radio" value="add" v-model="tagMode" /> 追加</label>
         <label><input type="radio" value="remove" v-model="tagMode" /> 移除</label>
       </div>
+      <label for="batch-new-tag">新标签</label>
       <div class="bar">
-        <input v-model="newTag" placeholder="新标签，回车加入待办" @keyup.enter="onTagEnter" style="flex:1" />
+        <input id="batch-new-tag" v-model="newTag" placeholder="输入标签，回车加入待办" @keyup.enter="onTagEnter" />
         <JzButton @click="queueNewTag" type="button" icon="plus">加入</JzButton>
       </div>
       <div v-if="pendingTags.length" class="bar">待{{ tagMode === 'add' ? '追加' : '移除' }}：<JzButton v-for="t in pendingTags" :key="t" class="chip on" size="compact" :aria-label="'移除待提交标签 ' + t" @click="dropPending(t)">{{ t }}<AppIcon name="close" :size="14" /></JzButton></div>
       <div class="taglist">
         <JzButton v-for="t in facets.tags" :key="t.value" class="chip tag" size="compact" @click="queueExisting(t.value)">{{ t.value }} {{ t.count }}</JzButton>
       </div>
-      <div class="bar"><JzButton @click="confirmBatchTags" :disabled="batching || !pendingTags.length" type="button">{{ batching ? '提交中…' : '确认提交' }}</JzButton><JzButton @click="tagDlg = false" type="button">取消</JzButton><span>{{ batchMsg }}</span></div>
-    </div>
-  </div>
+    </fieldset>
+    <template #footer>
+      <p v-if="batchMsg" class="batch-result" role="status">{{ batchMsg }}</p>
+      <JzButton :disabled="batching" @click="tagDlg = false">取消</JzButton>
+      <JzButton variant="primary" :loading="batching" :disabled="!pendingTags.length" @click="confirmBatchTags">确认提交</JzButton>
+    </template>
+  </JzDialog>
 
-  <div v-if="colDlg" class="dlg-mask" @click.self="colDlg = false">
-    <div ref="colDlgRef" class="dlg" role="dialog" aria-modal="true">
-      <h3>加入合集（{{ selectedIds.size }} 部）</h3>
-      <div class="bar"><input v-model="colQ" placeholder="搜索合集" style="flex:1" /></div>
+  <JzDialog v-if="colDlg" :title="selectedIds.size ? `加入合集（${selectedIds.size} 部）` : '加入合集'" size="small" :busy="batching" @close="colDlg = false">
+    <fieldset class="batch-dialog-fields" :disabled="batching || !selectedIds.size">
+      <label for="batch-collection-search">搜索合集</label>
+      <div class="bar"><input id="batch-collection-search" v-model="colQ" type="search" placeholder="输入合集名称" /></div>
       <ul class="collist">
-        <li v-for="c in filteredCols" :key="c.id"><span>{{ c.name }}（{{ c.member_count }}）</span><JzButton @click="joinCollection(c.id)" :disabled="batching" type="button" icon="plus">加入</JzButton></li>
+        <li v-for="c in filteredCols" :key="c.id"><span>{{ c.name }}（{{ c.member_count }}）</span><JzButton @click="joinCollection(c.id)" type="button" icon="plus">加入</JzButton></li>
       </ul>
-      <div class="bar"><input v-model="newCol" placeholder="新建合集名（含当前选中）" style="flex:1" /><JzButton @click="createAndJoin" :disabled="batching || !newCol.trim()" type="button" icon="plus">创建并加入</JzButton></div>
-      <div class="bar"><JzButton @click="colDlg = false" type="button">关闭</JzButton><span>{{ batchMsg }}</span></div>
-    </div>
-  </div>
+      <label for="batch-new-collection">新建合集</label>
+      <div class="bar"><input id="batch-new-collection" v-model="newCol" placeholder="新建合集名（含当前选中）" /><JzButton @click="createAndJoin" :disabled="!newCol.trim()" type="button" icon="plus">创建并加入</JzButton></div>
+    </fieldset>
+    <template #footer><p v-if="batchMsg" class="batch-result" role="status">{{ batchMsg }}</p><JzButton :disabled="batching" @click="colDlg = false">关闭</JzButton></template>
+  </JzDialog>
 
-  <div v-if="delDlg" class="dlg-mask" @click.self="delDlg = false">
-    <div ref="delDlgRef" class="dlg" role="dialog" aria-modal="true">
-      <h3>删除影片（{{ delSummary.total_movies }} 部）</h3>
-      <p class="del-warn">警告：将永久删除磁盘文件与库记录（海报/镜像缓存保留），不可恢复。每部片的全部版本与附属文件（花絮/字幕/NFO/周边）都会一起删除。</p>
-      <p class="del-sum">{{ delSummary.total_movies }} 部影片 · {{ delSummary.total_versions }} 个正片版本 · {{ delSummary.total_files }} 个文件 · 共 {{ fmtBytes(delSummary.total_bytes) }}</p>
-      <ul class="collist">
-        <li v-for="p in visibleDelPlans" :key="p.id"><span>{{ p.title || '(未命名)' }}<span v-if="p.year"> ({{ p.year }})</span></span><span class="fhint">{{ p.feature_count }} 版本 · {{ p.extra_count }} 附属 · {{ fmtBytes(p.total_size) }}</span></li>
-      </ul>
-      <p v-if="delPlans.length > 20" class="fhint">等共 {{ delPlans.length }} 部<span v-if="!showAllDel">（仅列前 20）</span> <JzButton v-if="!showAllDel" @click="showAllDel = true" type="button">展开全部</JzButton></p>
-      <div class="bar">
-        <JzButton v-if="!delDone" @click="confirmDel" :disabled="batching || !delPlans.length" class="danger-btn" type="button" variant="danger" icon="delete">{{ batching ? '删除中…' : `确认删除 ${delSummary.total_movies} 部影片（${delSummary.total_files} 个文件）` }}</JzButton>
-        <JzButton @click="delDlg = false" type="button">{{ delDone ? '关闭' : '取消' }}</JzButton>
-        <span>{{ batchMsg }}</span>
-      </div>
-    </div>
-  </div>
+  <JzDialog v-if="delDlg" :title="`删除影片（${delSummary.total_movies} 部）`" size="small" :busy="batching" @close="delDlg = false">
+    <p class="del-warn">警告：将永久删除磁盘文件与库记录（海报/镜像缓存保留），不可恢复。每部片的全部版本与附属文件（花絮/字幕/NFO/周边）都会一起删除。</p>
+    <p class="del-sum">{{ delSummary.total_movies }} 部影片 · {{ delSummary.total_versions }} 个正片版本 · {{ delSummary.total_files }} 个文件 · 共 {{ fmtBytes(delSummary.total_bytes) }}</p>
+    <ul class="collist">
+      <li v-for="p in visibleDelPlans" :key="p.id"><span>{{ p.title || '(未命名)' }}<span v-if="p.year"> ({{ p.year }})</span></span><span class="fhint">{{ p.feature_count }} 版本 · {{ p.extra_count }} 附属 · {{ fmtBytes(p.total_size) }}</span></li>
+    </ul>
+    <p v-if="delPlans.length > 20" class="fhint">等共 {{ delPlans.length }} 部<span v-if="!showAllDel">（仅列前 20）</span> <JzButton v-if="!showAllDel" @click="showAllDel = true" type="button">展开全部</JzButton></p>
+    <template #footer>
+      <p v-if="batchMsg" class="batch-result" role="status">{{ batchMsg }}</p>
+      <JzButton :disabled="batching" @click="delDlg = false">{{ delDone ? '关闭' : '取消' }}</JzButton>
+      <JzButton v-if="!delDone" :loading="batching" :disabled="!delPlans.length" @click="confirmDel" variant="danger" icon="delete">确认删除 {{ delSummary.total_movies }} 部影片（{{ delSummary.total_files }} 个文件）</JzButton>
+    </template>
+  </JzDialog>
 
   <PlayerModal v-if="playVid" :key="'movie:' + playVid" ref="playerRef" :versionId="playVid" :title="playTitle"
     kind="movie" @close="closeStream" @watched="onPlayWatched"
@@ -173,6 +188,7 @@ import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 import AppIcon from '../components/AppIcon.vue'
 
 import JzButton from '../components/JzButton.vue'
+import JzDialog from '../components/JzDialog.vue'
 
 import BrowseResultsHeader from '../components/BrowseResultsHeader.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -200,7 +216,6 @@ import PlayerModal from '../components/PlayerModal.vue'
 import { getCaps } from '../caps.js'
 import { fmtBytes, fmtDate } from '../format.js'
 import { hasScore, fmtScore } from '../ratings.js'
-import { useFocusTrap } from '../useFocusTrap.js'
 import { WALL_SORTS, loadWallSort, normalizeWallSort, saveWallSort,
          toggleWallSort, wallSortParams } from '../wallSort.js'
 
@@ -313,9 +328,6 @@ const selectedIds = ref(new Set())
 const selecting = computed(() => selectedIds.value.size > 0)
 const batching = ref(false)
 const batchMsg = ref('')
-const tagDlgRef = ref(null)
-const colDlgRef = ref(null)
-const delDlgRef = ref(null)
 const tagDlg = ref(false)
 const tagMode = ref('add')
 const newTag = ref('')
@@ -652,6 +664,7 @@ async function onPlayWatched() {
 }
 async function onPolicySaved() { clearSelection(); await loadFacets(); await load(); await refreshContinue() }
 function toggleSelect(id) {
+  if (batching.value) return
   const s = new Set(selectedIds.value)
   if (s.has(id)) s.delete(id)
   else s.add(id)
@@ -666,6 +679,7 @@ function clearSelection() {
   selectedIds.value = new Set()
 }
 async function batchCall(ops) {
+  if (batching.value) return
   batching.value = true
   batchMsg.value = ''
   try {
@@ -726,15 +740,13 @@ function openColDlg() {
 }
 // 整片删除：先预览影响（片名+版本/附属/大小），二次确认后执行
 const delDlg = ref(false)
-useFocusTrap(computed(() => tagDlg.value), tagDlgRef)
-useFocusTrap(computed(() => colDlg.value), colDlgRef)
-useFocusTrap(computed(() => delDlg.value), delDlgRef)
 const delPlans = ref([])
 const delSummary = ref({ total_movies: 0, total_versions: 0, total_files: 0, total_bytes: 0 })
 const delDone = ref(false)
 const showAllDel = ref(false)
 const visibleDelPlans = computed(() => showAllDel.value ? delPlans.value : delPlans.value.slice(0, 20))
 async function openDelDlg() {
+  if (batching.value) return
   batchMsg.value = ''
   delDone.value = false
   showAllDel.value = false
@@ -757,6 +769,7 @@ async function openDelDlg() {
   }
 }
 async function confirmDel() {
+  if (batching.value) return
   batching.value = true
   batchMsg.value = ''
   try {
@@ -776,6 +789,7 @@ async function confirmDel() {
     batching.value = false
   }
 }async function joinCollection(cid) {
+  if (batching.value) return
   batching.value = true
   batchMsg.value = ''
   try {
@@ -798,6 +812,7 @@ async function confirmDel() {
   }
 }
 async function createAndJoin() {
+  if (batching.value) return
   const name = newCol.value.trim()
   if (!name) return
   batching.value = true
@@ -935,33 +950,48 @@ watch(() => route.query, () => {
 .sel-circle.on { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); }
 @media (hover: none) { .sel-circle { opacity: 1; } }
 .floatbar {
-  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 40;
+  position: fixed; bottom: max(16px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 40;
   display: flex; gap: 4px; align-items: center;
   background: rgba(28,28,28,.96); border: 1px solid var(--jz-accent); border-radius: 999px;
   padding: 8px 14px; box-shadow: 0 8px 28px rgba(0,0,0,.6);
-  max-width: calc(100vw - 24px); overflow-x: auto;
+  max-width: calc(100vw - 24px);
 }
 .floatbar .count {
-  min-width: 26px; height: 26px; border-radius: 50%;
+  min-width: 26px; min-height: 26px; border-radius: 999px; white-space: nowrap;
   background: var(--jz-accent); color: var(--jz-on-accent); font-weight: bold; font-size: 0.8125rem;
-  display: flex; align-items: center; justify-content: center; padding: 0 6px;
+  display: flex; align-items: center; justify-content: center; padding: 0 10px;
 }
 .floatbar button {
   display: flex; gap: 5px; align-items: center; white-space: nowrap;
 }
 .floatbar button svg { width: 16px; height: 16px; flex-shrink: 0; }
-.floatbar .fmsg { color: var(--jz-green); font-size: 0.75rem; white-space: nowrap; }
+.floatbar .fmsg { color: var(--jz-green); font-size: 0.75rem; overflow-wrap: anywhere; }
+.batch-desktop-actions { display: flex; gap: 4px; align-items: center; }
+.batch-mobile-actions { display: none; }
+.browse-page.has-selection { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+.batch-dialog-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+.batch-dialog-fields > label { display: block; margin: 16px 0 6px; font-size: var(--jz-font-m); }
+.batch-dialog-fields .bar { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 8px 0 16px; }
+.batch-dialog-fields .bar > input { flex: 1; min-width: 0; }
+.batch-tag-mode label { display: inline-flex; align-items: center; min-height: 44px; gap: 8px; padding-right: 16px; }
+.batch-result { flex-basis: 100%; margin: 0; color: var(--jz-text-dim); overflow-wrap: anywhere; }
+@media (max-width: 1000px) {
+  .floatbar { left: 12px; right: 12px; transform: none; width: auto; max-width: none; border-radius: var(--jz-radius-m); padding: 8px; flex-wrap: wrap; }
+  .floatbar .count { margin-right: auto; background: none; padding: 0 4px; font-size: var(--jz-font-m); }
+  .batch-desktop-actions { display: none; }
+  .batch-mobile-actions { display: flex; align-items: center; gap: 4px; }
+  .batch-more :deep(.action-menu-items) { top: auto; bottom: calc(100% + 8px); max-height: calc(100dvh - 150px); overflow-y: auto; overscroll-behavior: contain; }
+  .floatbar .fmsg { flex-basis: 100%; padding: 0 4px; }
+  .collist li { flex-wrap: wrap; }
+}
 
 .unmatched-badge { position: absolute; bottom: 6px; right: 6px; font-size: 0.75rem; padding: 2px 8px;
   border-radius: 999px; background: rgba(224, 166, 60, .92); color: var(--jz-surface); font-weight: bold; }
 .watched-badge { position: absolute; bottom: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: var(--jz-overlay); color: var(--jz-green); }
 
 .warn-text { color: var(--jz-warn); }
-.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.dlg { background: var(--jz-surface); border-radius: 10px; padding: 16px; min-width: 320px; max-width: 560px; max-height: 80vh; overflow: auto; }
-.dlg h3 { margin: 0 0 8px; }
-.taglist { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 12px; max-height: 30vh; overflow: auto; }
-.collist { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 30vh; overflow: auto; }
+.taglist { display: flex; gap: 6px; flex-wrap: wrap; padding: 0; }
+.collist { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .collist li { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: var(--jz-surface-3); border-radius: 8px; padding: 6px 10px; }
 .del-warn { color: var(--jz-danger); font-size: 0.875rem; margin: 0 0 8px; }
 .del-sum { color: var(--jz-warn); font-size: 0.9375rem; margin: 0 0 8px; font-weight: bold; }
