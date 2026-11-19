@@ -128,13 +128,21 @@ def image_info(reference):
     return json.loads(result.stdout)[0]
 
 
-def verify_image(info, version, commit):
+def verify_image(info, version, commit, *, expected=None):
+    if info is None:
+        raise ReleaseError("Docker image is missing")
     labels = info.get("Config", {}).get("Labels") or {}
     if (labels.get("org.opencontainers.image.version") != version
             or labels.get("org.opencontainers.image.revision") != commit):
         raise ReleaseError("Docker image version/commit does not match this release")
-    return {"id": info["Id"], "platform": f"{info['Os']}/{info['Architecture']}",
-            "sizeBytes": info["Size"]}
+    image = {"id": info["Id"], "platform": f"{info['Os']}/{info['Architecture']}",
+             "sizeBytes": info["Size"]}
+    if expected is not None:
+        # The daemon can report a different local size after loading the same archive.
+        for field in ("id", "platform"):
+            if image[field] != expected.get(field):
+                raise ReleaseError(f"Docker image {field} mismatch: expected {expected.get(field)}, got {image[field]}")
+    return image
 
 
 def sha256(path):
@@ -229,8 +237,7 @@ def existing_release(directory, version, code, commit, variant):
     if apk != record.get("android"):
         raise ReleaseError("Existing APK record has changed")
     info = image_info(f"jzmedia:v{version}")
-    if info is None or verify_image(info, version, commit) != record["docker"]["image"]:
-        raise ReleaseError("Existing release image is missing or changed; restore it rather than overwrite the release")
+    verify_image(info, version, commit, expected=record["docker"]["image"])
     return record
 
 

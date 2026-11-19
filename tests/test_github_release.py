@@ -311,7 +311,8 @@ def publisher(bundle, monkeypatch):
     monkeypatch.setattr(github, "find_release", lambda repo, tag: state.existing)
     monkeypatch.setattr(github, "api", lambda path: {"object": {"type": "commit", "sha": COMMIT}})
     monkeypatch.setattr(github.release, "image_info", lambda image: {
-        "Id": expected, "Os": "linux", "Architecture": "amd64", "Size": 123,
+        # Loading identical layers on the publish runner can change the reported size.
+        "Id": expected, "Os": "linux", "Architecture": "amd64", "Size": 123 + 7503,
         "Config": {"Labels": {"org.opencontainers.image.version": VERSION.name,
                                "org.opencontainers.image.revision": COMMIT}}})
 
@@ -376,6 +377,22 @@ def test_publication_persists_all_assets_before_registry_and_publishes_latest_la
 def test_different_remote_version_image_blocks_registry_and_release_mutation(bundle, publisher):
     publisher.remote = {"config": {"digest": "sha256:" + "f" * 64}}
     with pytest.raises(github.release.ReleaseError, match="refusing overwrite"):
+        github.publish(bundle.directory)
+    assert publisher.events == [] and publisher.uploads == []
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("Id", "sha256:" + "f" * 64, "id mismatch"),
+    ("Architecture", "arm64", "platform mismatch"),
+    ("org.opencontainers.image.revision", "d" * 40, "version/commit"),
+    ("org.opencontainers.image.version", "0.0.1", "version/commit"),
+])
+def test_loaded_image_requires_the_recorded_identity(bundle, publisher, monkeypatch, field, value, message):
+    info = github.release.image_info(IMAGE)
+    target = info["Config"]["Labels"] if field.startswith("org.") else info
+    target[field] = value
+    monkeypatch.setattr(github.release, "image_info", lambda image: info)
+    with pytest.raises(github.release.ReleaseError, match=message):
         github.publish(bundle.directory)
     assert publisher.events == [] and publisher.uploads == []
 

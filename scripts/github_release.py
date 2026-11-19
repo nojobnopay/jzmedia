@@ -288,8 +288,7 @@ def publish(directory):
     image = f"ghcr.io/{repo.lower()}:{tag}"
     expected = record["docker"]["image"]["id"]
     release.command(["docker", "load", "--input", directory / archive_name(tag)])
-    if release.verify_image(release.image_info(image), version.name, commit) != record["docker"]["image"]:
-        raise release.ReleaseError("Loaded Docker image differs from the verified build")
+    release.verify_image(release.image_info(image), version.name, commit, expected=record["docker"]["image"])
     token = os.environ.get("GH_TOKEN", "")
     if not token:
         raise release.ReleaseError("GH_TOKEN is required for publication")
