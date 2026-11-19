@@ -2,8 +2,8 @@
   <section class="card-block ai-settings">
     <p v-if="!settings && busy" role="status">正在加载智能辅助配置…</p>
     <fieldset :disabled="busy || !settings">
-      <div class="ai-enable"><div><h3>搜索与匹配建议</h3><p class="hint">理解中文搜索，为难匹配的片名提供候选建议。</p></div><label class="check"><input v-model="form.enabled" type="checkbox" />启用智能辅助</label></div>
-      <p class="ai-privacy">仅在你使用智能功能时调用；发送搜索、片名等文本，不上传视频。</p>
+      <div class="ai-enable"><div><h3>搜索与匹配建议</h3><p class="hint">用自然语言找片，也可核对难匹配的片名。</p></div><label class="check"><input v-model="form.enabled" type="checkbox" />启用智能辅助</label></div>
+      <p class="ai-privacy">提交找片或追问时，模型会收到你的要求和相关候选的片名、简介、主创等资料。观看状态由本地片库判断。</p>
       <div v-if="!form.enabled" class="ai-disabled"><span>当前关闭。可以先配置并测试服务，保存后再启用。</span><JzButton type="button" :aria-expanded="configure" aria-controls="ai-service-fields" @click="configure = !configure">{{ configure ? '收起服务配置' : '配置与测试服务' }}</JzButton></div>
       <div v-if="form.enabled || configure" id="ai-service-fields">
         <div class="ai-fields">
@@ -14,7 +14,7 @@
         </div>
         <p id="ai-key-hint" class="hint">{{ settings?.api_key_set ? '密钥已配置 · ' + sourceText(settings.api_key_source) : '未配置密钥' }} {{ settings?.api_key_masked }}</p>
         <p class="hint">切换服务商后请填写对应密钥；留空沿用当前密钥。</p>
-        <div v-if="form.provider === 'opencode_go'" class="provider-note"><p>OpenCode Go 官方面向编码代理；jzmedia 的影视用途尚未验证是否可用。<a href="https://opencode.ai/docs/go/#where-can-i-use-it" target="_blank" rel="noopener noreferrer">查看官方使用范围 <AppIcon name="external-link" :size="14" /></a></p><p>模型使用 Chat Completions 对应 ID，例如 glm-5.3-flash，不加 opencode-go/ 前缀。</p></div>
+        <div v-if="form.provider === 'opencode_go'" class="provider-note"><p>OpenCode Go 官方面向编码代理。请核对订阅的使用范围及模型权限。<a href="https://opencode.ai/docs/console/go/#where-can-i-use-it" target="_blank" rel="noopener noreferrer">查看官方使用范围 <AppIcon name="external-link" :size="14" /></a></p><p>模型使用 Chat Completions 对应 ID，例如 glm-5.3-flash，不加 opencode-go/ 前缀。</p></div>
         <details ref="advanced" class="ai-advanced"><summary>调用限额、超时与密钥管理</summary>
           <div class="ai-fields">
             <JzField id="ai-timeout" label="单次超时（秒）" :error="fieldErrors.timeout_seconds" v-slot="field"><input :id="field.id" v-model.number="form.timeout_seconds" name="ai-timeout" type="number" inputmode="numeric" min="2" max="60" step="1" :aria-describedby="field.describedby" :aria-invalid="field.invalid || undefined" /></JzField>

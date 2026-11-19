@@ -1,7 +1,7 @@
 <template>
   <div v-if="s" class="tv-page media-detail season-detail">
     <nav class="crumbs" aria-label="当前位置">
-      <router-link to="/tv">剧集</router-link><span class="dim"> / </span>
+      <router-link :to="aiNavigationContext(route.path)?.origin || '/tv'">{{ aiNavigationContext(route.path) ? '返回片单' : '剧集' }}</router-link><span class="dim"> / </span>
       <router-link :to="'/tv/' + s.show_id">{{ s.show_title }}</router-link>
       <span class="dim"> / </span>
       <span>{{ s.name || seasonLabel(s.season) }}</span>
@@ -110,6 +110,7 @@
 </template>
 
 <script setup>
+import { aiNavigationContext } from '../aiDiscoveryNav.js'
 import { isChildren } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
@@ -216,6 +217,7 @@ function seasonUrl (offset) {
 }
 async function load () {
   const generation = ++loadGeneration
+  if (disposed || route.params.epId || !/^[1-9]\d*$/.test(route.params.showId) || !/^\d+$/.test(route.params.season)) return
   if (s.value && (String(s.value.show_id) !== String(route.params.showId) || String(s.value.season) !== String(route.params.season))) { s.value = null; eps.value = [] }
   loading.value = true
   loadError.value = ''

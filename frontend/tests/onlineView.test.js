@@ -2222,3 +2222,36 @@ test('opening local cache while sources are pending does not leave online browsi
   assert.ok(ui.find(node => node.props.id === 'online-source'))
   assert.equal(upstream.filter(path => path.endsWith('/sources')).length, 2)
 })
+
+test('browser Forward to an expired library handoff cannot restore or search its title from the online cache', async t => {
+  const { rememberAiNavigation, aiOnlineTarget, clearAiNavigation } = await import('../src/aiDiscoveryNav.js')
+  const { applyLibs, switchMedia, resetLibState } = await import('../src/libraries.js')
+  const historyDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'history')
+  t.after(() => {
+    clearAiNavigation()
+    resetLibState()
+    if (historyDescriptor) Object.defineProperty(globalThis, 'history', historyDescriptor)
+    else delete globalThis.history
+  })
+  clearOnlineBrowse()
+  applyLibs({ default_id: 11, items: [{ id: 11, media_library_id: 7 }, { id: 12, media_library_id: 8 }] })
+  switchMedia(7)
+  const origin = { path: '/tv', fullPath: '/tv?media=7' }, hit = { key: 'public-tv-1', title: '临时片单中的片名' }
+  rememberAiNavigation(hit, origin)
+  Object.defineProperty(globalThis, 'history', { configurable: true, value: { state: aiOnlineTarget(hit, origin).state } })
+  const calls = [], response = { enabled: true, scope_token: SCOPE,
+    items: [{ ...sources.items[0], configuration_token: 'b'.repeat(64) }] }
+  const request = async path => { calls.push(path); return path.endsWith('/sources') ? response : rows }
+  const first = await setup(t, request)
+  assert.equal(first.ui.find(node => node.props.id === 'online-query').props.value, hit.title)
+  first.ui.app.unmount()
+  const last = onlineBrowseMemory.last(onlineBrowseScope(SCOPE, first.viewing), response.items)
+  assert.equal(last.query, hit.title, 'the normal online cache contains the previously searched title')
+  switchMedia(8)
+  switchMedia(7)
+  calls.length = 0
+  const second = await setup(t, request)
+  assert.equal(second.ui.find(node => node.props.id === 'online-query').props.value, '')
+  assert.equal(calls.some(path => path.includes('/search?')), false)
+  assert.doesNotMatch(second.ui.text(), /返回片单/)
+})

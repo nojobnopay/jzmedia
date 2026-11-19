@@ -1,7 +1,7 @@
 <template>
   <div v-if="ep" class="tv-page media-detail episode-detail">
     <nav class="crumbs" aria-label="当前位置">
-      <router-link to="/tv">剧集</router-link><span class="dim"> / </span>
+      <router-link :to="aiNavigationContext(route.path)?.origin || '/tv'">{{ aiNavigationContext(route.path) ? '返回片单' : '剧集' }}</router-link><span class="dim"> / </span>
       <router-link :to="'/tv/' + ep.show_id">{{ ep.show_title }}</router-link>
       <span class="dim"> / </span>
       <router-link :to="`/tv/${ep.show_id}/s/${ep.season}`">{{ ep.season_name || seasonLabel(ep.season) }}</router-link>
@@ -82,6 +82,7 @@
 </template>
 
 <script setup>
+import { aiNavigationContext } from '../aiDiscoveryNav.js'
 import { isChildren } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
@@ -164,6 +165,7 @@ function goEpisode (target) {
 async function load () {
   const seq = ++loadSeq
   const id = route.params.epId
+  if (disposed || !/^[1-9]\d*$/.test(id)) return
   if (ep.value && String(ep.value.id) !== String(id)) ep.value = null
   loadError.value = ''
   msg.value = ''

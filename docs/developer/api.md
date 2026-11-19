@@ -21,7 +21,7 @@
 | `/api/cast` | DLNA 发现、前台电视 App 接收、播放控制、投屏状态和电视取流 |
 | `/api/metadata` | 外部来源状态及诊断 |
 | `/api/viewing` | 观看模式、内容可见性与儿童筛选资料补全 |
-| `/api/ai` | 智能辅助配置、连接检查、搜索条件与匹配建议 |
+| `/api/ai` | 智能辅助配置、连接检查、找片、筛选建议与匹配建议 |
 | `/api/online/settings`、`/api/online/sources`、`/api/online/network` | 在线功能开关、来源、网络配置及持久身份；当前仅提供管理接口 |
 
 ## 库作用域
@@ -758,6 +758,8 @@ AI 服务默认关闭。所有产生外部调用的入口使用 POST，沿用应
 | `PATCH /api/ai/settings` | 部分更新 `enabled/provider/base_url/model/api_key/timeout_seconds/daily_limit`；完整校验成功才保存，保存后清空 AI 结果缓存 |
 | `POST /api/ai/check` | 使用已保存的有效配置做一次真实 JSON 输出检查；关闭智能辅助时也可显式测试，不使用缓存，计入当日次数 |
 | `POST /api/ai/search` | `{q, kind:"movie"\|"tv", media_library_id?, library_id?}`；`q` 最多 500 字符，返回 `filters/summary/warnings` 供用户核对，不执行本地查询 |
+| `POST /api/ai/search/results` | `{q, kind?, kinds?, media_library_id?, library_id?, source?, session_id?, filters?}`。返回有序作品、范围、逐项依据、资料不足和追问标识。会话标识与设备 Cookie、进入页面、观看身份及库范围配套使用 |
+| `POST /api/ai/search/results/refresh` | 提交上次的 `session_id` 及同一页面与库范围，重新核实可见作品和观看状态，恢复返回位置。此请求不调用模型 |
 | `POST /api/ai/match` | `{kind:"movie"\|"tv", id}`；按该行所属视频库查候选，返回 `query/year/candidates/summary/warnings`，不更改绑定或媒体文件 |
 
 ### 服务商与配置
@@ -776,7 +778,7 @@ AI 服务默认关闭。所有产生外部调用的入口使用 POST，沿用应
 
 ### OpenCode Go 的会话与用途
 
-OpenCode Go 请求使用真实 jzmedia User-Agent 和每次业务操作的 `x-opencode-session`；一次匹配的标题提取与排序共享会话，不同操作独立。会话不含媒体路径或凭据，不进入结果缓存键。官方目前面向编程代理，本接口不伪装编程任务，也不绕过用途限制；影视用途及真实连通性未验证。参见[官方使用范围](https://opencode.ai/docs/go/#where-can-i-use-it)。
+OpenCode Go 请求使用 jzmedia 自己的 User-Agent 和每次业务操作的 `x-opencode-session`。同一搜索中的规划和选片共享会话，不同操作独立。会话标识不含媒体路径或凭据。2026-11-19 已在隔离片库使用 `glm-5.3-flash` 实测智能找片。服务商的客户端要求见[官方使用范围](https://opencode.ai/docs/console/go/#where-can-i-use-it)。
 
 ### 用量与限额
 
@@ -784,9 +786,11 @@ OpenCode Go 请求使用真实 jzmedia User-Agent 和每次业务操作的 `x-op
 
 ### 搜索范围与建议
 
-搜索范围由请求上下文在服务器解析，显式不存在或无对应类型的视频库返回 `empty_scope`，不会扩为全库。允许的输出只有关键词、类型、产地、国家、年份/年代、标签、最低评分与来源、观看状态、排序和剧集连载状态；模型不能返回库 ID、影片 ID、SQL 或额外字段。
+自然语言找片使用 `/search/results`。`kind` 是入口页面类型，`kinds` 可显式指定电影、剧集或两者。`source` 选择 `library` 或 `public`；公开片目使用 TMDB。追问随原作用域一起提交 `session_id`。结果的 `items` 含作品类型、标题、年份、来源、理由、引用依据和可用详情入口；本地路由使用 `detail_path`，库外条目可以使用 `external_url`。结果另含 `intent/status/summary/warnings`；需要辨认对象时返回 `clarification`，片单对照见 `comparison`。会话过期返回 `session_expired`，可以重新发起搜索。
 
-电影关键词搜索仍按相关度，TV 不支持豆瓣评分。当前接口不支持时长、排除类型、年龄适宜性或向量相似搜索，无法表达的要求应列为提示，不能伪造已实现的条件。
+在已有片单上切换资料来源时，可以同时传原 `session_id`、新 `source` 和 `reuse_plan: true`。服务端直接复用已确认的要求、评分口径与数量，并在新范围获取候选。
+
+`/search` 保留旧客户端使用的筛选建议格式。搜索的库范围由服务器解析，儿童模式限制智能搜索。结果缓存与用量遵循已有客户端规则；一次显式提交一般使用一次规划调用，语义选择或比较最多再调用一次。查询上映榜与分集播出日期时使用相应时间字段。公开评分榜采用 TMDB 单一来源，至少 100 票；本地评分不以票数推算。
 
 ### 候选绑定约束
 
@@ -794,4 +798,4 @@ OpenCode Go 请求使用真实 jzmedia User-Agent 和每次业务操作的 `x-op
 
 ### 失败响应与人工确认
 
-连接检查及业务请求遇模型不可用时返回 HTTP 200 与 `{ok:false, code, message}`，包括 `disabled/not_configured/invalid_credentials/rate_limited/timeout/daily_limit/invalid_result` 等；上游 401 不转换成应用令牌提示。条目不存在返回 404，应用自身鉴权失败仍为 401。前端保留普通搜索与手动匹配，只有用户确认建议后才调用原有查询或绑定接口。[架构与验收边界](metadata.md#智能辅助的边界)。
+连接检查及业务请求遇模型不可用时返回 HTTP 200 与 `{ok:false, code, message}`，包括 `disabled/not_configured/invalid_credentials/rate_limited/timeout/daily_limit/invalid_result` 等；上游 401 不转换成应用令牌提示。条目不存在返回 404，应用自身鉴权失败仍为 401。网页保留普通搜索与手动匹配。智能找片直接返回结果，匹配建议经用户确认后才调用绑定接口。[架构与验收边界](metadata.md#智能辅助的边界)。

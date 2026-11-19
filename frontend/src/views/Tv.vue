@@ -7,13 +7,18 @@
       <ActionMenu label="添加剧集"><JzButton @click="scanOpen = !scanOpen" type="button" variant="ghost" icon="scan">扫描新文件</JzButton><JzButton @click="upDlg = true" type="button" variant="ghost" icon="upload">上传文件</JzButton></ActionMenu>
     </div>
   </header>
-  <BrowseToolbar id="tv-browse" v-model="q" label="搜索剧集" placeholder="搜剧名 / 演员"
+  <BrowseToolbar id="tv-browse" v-model="searchInput"
+    :label="!ai.open ? '搜索剧集' : ai.result ? '追问当前片单' : '智能找片'"
+    :placeholder="!ai.open ? '搜剧名 / 演员' : ai.result ? '继续描述要求，例如：只换第 2 部' : '描述想看的作品、记得的情节或想要的片单'"
+    :submit-label="ai.open ? (ai.result ? '提交追问' : '找片') : ''"
+    :suggestions-enabled="!ai.open" :maxlength="ai.open ? 500 : undefined"
+    :loading="ai.open && ai.busy" :search-disabled="ai.open && (ai.expired || !ai.draft.trim())"
     item-heading="剧集" :suggest-open="suggestOpen" :suggest-no-match="suggestNoMatch"
     :suggest-items="suggestItems" :suggest-persons="suggestPersons" :suggest-idx="suggestIdx"
-    v-model:ai-open="aiSearchOpen" :ai-enabled="!isChildren"
-    @input="onQInput" @compositionstart="composing = true" @compositionend="onCompositionEnd"
-    @enter="onSearchEnter" @move="suggestMove" @close="closeSuggest" @blur="onQBlur"
-    @pick-item="pickShow" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="applyAndLoad">
+    :ai-open="ai.open" :ai-enabled="!isChildren" @update:ai-open="setAiOpen"
+    @input="!ai.open && onQInput($event)" @compositionstart="!ai.open && (composing = true)" @compositionend="!ai.open && onCompositionEnd()"
+    @enter="ai.open ? discovery.submit() : onSearchEnter($event)" @move="suggestMove" @close="closeSuggest" @blur="!ai.open && onQBlur()"
+    @pick-item="pickShow" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="ai.open ? discovery.submit() : applyAndLoad()">
     <template #filters>
       <BrowseFilters :model-value="sel" :facets="facets" kind="tv" v-model:open="filtersOpen"
         :scope-label="filterScope" :scope-key="curMediaId" :context-key="route.fullPath"
@@ -21,17 +26,20 @@
         @open="closeSuggest" @apply="applyFilters" />
     </template>
   </BrowseToolbar>
-  <div id="tv-browse-ai"><AiSearchPanel v-if="aiSearchOpen" kind="tv" :query="q" :media-library-id="curMediaId" @apply="applyAiSearch" @close="aiSearchOpen = false" /></div>
+  <div id="tv-browse-ai"><AiSearchPanel v-if="ai.open" :state="ai" kind="tv" :scope-label="filterScope" :chips="selectedChips"
+    @cancel="discovery.cancel" @retry="discovery.retry" @restart="discovery.restart" @ask="discovery.ask"
+    @fill="discovery.fill" @remember="discovery.remember" @public="discovery.searchPublic" /></div>
   <ScanAction v-if="scanOpen" kind="tv" @done="onAdded" />
   <UploadDialog v-if="upDlg" kind="tv" @close="upDlg = false" @done="onAdded" />
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
 
+  <div v-show="!ai.open">
   <BrowseFilterSummary :chips="selectedChips" :query="appliedQuery" fallback-id="tv-browse-input"
     @remove="removeFilter" @clear="clearFilters" @clear-query="clearQuery" />
 
   <ContinueWatchingRow v-if="showContinue" ref="cwRef" kind="tv" :media-library-id="curMediaId"
     @open="openShow" @resume="resume" />
-  <TvUpdatesRow v-if="firstLoaded" ref="updatesRef" :active="showContinue" :media-library-id="curMediaId"
+  <TvUpdatesRow v-if="firstLoaded" ref="updatesRef" :active="showContinue && !ai.open" :media-library-id="curMediaId"
     :mode="updatesMode" :initial-snapshot="updatesSnapshot" />
 
   <BrowseResultsHeader v-if="items.length" :title="q.trim() || activeCount ? '筛选结果' : '全部剧集'"
@@ -48,6 +56,7 @@
     :text="q.trim() || activeCount ? '试试其他剧名，或重置筛选条件。' : '扫描已有文件，或上传剧集开始观看。'">
     <JzButton v-if="q.trim() || activeCount" @click="clearAll" type="button" icon="filter">重置筛选</JzButton>
     <router-link v-else :to="toolsLink"><AppIcon name="organize" :size="18" />扫描与整理<AppIcon name="chevron-right" :size="16" /></router-link>
+    <JzButton v-if="!isChildren && q.trim()" icon="ai" @click="setAiOpen(true)">用智能搜索找片</JzButton>
   </EmptyState>
 
   <div class="grid" :aria-busy="loading">
@@ -74,13 +83,15 @@
     <span v-else-if="items.length" class="fhint">已全部加载（{{ items.length }} 部）</span>
   </div>
 
+  </div>
+
   <PlayerModal v-if="playing" :key="'episode:' + playing.id" :version-id="playing.id" :title="playing.label"
     kind="episode" @close="playing = null" @watched="onWatched" @ended="onWatched" @version-change="playing = $event" />
   </div>
 </template>
 
 <script setup>
-import { isChildren, isPrivate } from '../viewing.js'
+import { isChildren, isPrivate, viewing } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import AppIcon from '../components/AppIcon.vue'
@@ -93,6 +104,7 @@ import BrowseFilters from '../components/BrowseFilters.vue'
 import BrowseFilterSummary from '../components/BrowseFilterSummary.vue'
 import { defaultBrowseFilters, normalizeBrowseFilters, filterChips, countBrowseFilters, removeBrowseFilter } from '../browseFilters.js'
 import AiSearchPanel from '../components/AiSearchPanel.vue'
+import { useAiDiscovery } from '../useAiDiscovery.js'
 import ActionMenu from '../components/ActionMenu.vue'
 import ScanAction from '../components/ScanAction.vue'
 import UploadDialog from '../components/UploadDialog.vue'
@@ -118,17 +130,6 @@ const scanOpen = ref(false)
 const upDlg = ref(false)
 async function onAdded() { await loadFacets(); await load() }
 const filtersOpen = ref(false)
-const aiSearchOpen = ref(false)
-function applyAiSearch(value) {
-  q.value = value.q
-  sel.value = normalizeBrowseFilters(value.sel, 'tv')
-  sort.value = value.sort
-  saveWallSort(localStorage, sort.value)
-  closeSuggest()
-  filtersOpen.value = false
-  aiSearchOpen.value = false
-  applyAndLoad()
-}
 const toolsLink = computed(() => {
   const media = curMediaId.value
   const library = preferredVideoLibId('tv')
@@ -186,6 +187,19 @@ const sel = ref(defaultBrowseFilters('tv'))
 // 海报墙排序：与电影墙同习惯（localStorage 记忆 + URL ?sort=&order= 可分享）
 const sort = ref(loadWallSort(localStorage))
 const curMediaId = ref(currentMediaId())
+const discovery = useAiDiscovery({ kind: 'tv', mediaId: curMediaId, ordinaryQuery: q, selection: sel, route, viewing })
+const ai = discovery.state
+const searchInput = discovery.input
+function setAiOpen(value) {
+  composing = false
+  clearTimeout(suggestTimer)
+  suggestSeq++
+  closeSuggest()
+  filtersOpen.value = false
+  if (value) discovery.open()
+  else discovery.close()
+}
+
 const showContinue = computed(() => !activeCount.value && !q.value.trim())
 const playing = ref(null)
 const cwRef = ref(null)
@@ -306,7 +320,7 @@ async function load() {
   }
 }
 async function loadMore() {
-  if (!hasMore.value || loading.value) return
+  if (ai.open || !hasMore.value || loading.value) return
   const seq = ++loadSeq
   loading.value = true
   loadingMore.value = true
@@ -471,7 +485,7 @@ onBeforeRouteLeave(to => {
   if (!firstLoaded.value) return
   saveBrowse(historyKey(), { path: '/tv', mediaId: currentMediaId(), query: route.query,
     items: items.value, hasMore: hasMore.value, filtersOpen: false,
-    anchor: captureAnchor(), scrollTop: window.scrollY,
+    anchor: ai.open ? null : captureAnchor(), scrollTop: ai.open ? ai.wallTop : window.scrollY,
     updates: to?.path?.startsWith('/tv/') ? updatesRef.value?.snapshot?.() || null : null })
 })
 async function restoreWall() {
@@ -489,8 +503,9 @@ async function restoreWall() {
   if (disposed || route.path !== '/tv') return
   await nextTick()
   await new Promise(resolve => requestAnimationFrame(resolve))
-  restoreBrowsePosition(snapshot)
-  if (snapshot) refreshSnapshot(snapshot)
+  const restoredAi = await discovery.restore()
+  if (!restoredAi && !ai.open) restoreBrowsePosition(snapshot)
+  if (snapshot && !disposed) refreshSnapshot(snapshot)
 }
 
 // Restore immediately, then refresh the same number of pages so edits/deletions
@@ -515,7 +530,7 @@ async function refreshSnapshot(snapshot) {
     hasMore.value = more
     loadError.value = ''
     await nextTick()
-    if (seq === loadSeq) restoreBrowsePosition(position)
+    if (seq === loadSeq && !ai.open) restoreBrowsePosition(position)
   } catch (e) { if (seq === loadSeq) loadError.value = '刷新列表失败：' + e.message }
   finally { if (seq === loadSeq) loading.value = false }
 }

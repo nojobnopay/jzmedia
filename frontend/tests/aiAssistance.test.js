@@ -116,7 +116,6 @@ const overrides = request => ({
 const link = { props: ['to'], setup: (_props, { slots }) => () => Vue.h('a', slots.default?.()) }
 for (const [name, props, expected] of [
   ['AiSettingsPanel', {}, /搜索与匹配建议/],
-  ['AiSearchPanel', { kind: 'movie', mediaLibraryId: 7 }, /解析条件/],
   ['AiMatchSuggestions', { kind: 'tv', itemId: 12 }, /AI 匹配建议/],
 ]) {
   test(name + ' initializes and renders without a cloud request', async () => {
@@ -172,28 +171,7 @@ async function mount(t, name, initialProps, request) {
   const button = text => nodes().find(n => n.type === 'button' && textOf(n) === text)
   return { props, nodes, button, app, text: () => nodes().map(textOf).join(' ') }
 }
-test('search preview must be reviewed, permits edits, and is invalidated by media switch or new text', async t => {
-  const requests = [], applied = []
-  const response = { ok: true, summary: '香港喜剧', warnings: [], filters: { genre: ['喜剧'], country: ['HK'], watched: 0 } }
-  const ui = await mount(t, 'AiSearchPanel', { kind: 'movie', query: '未看的香港喜剧', mediaLibraryId: 7, onApply: v => applied.push(v) }, async (path, opts) => { requests.push({ path, body: JSON.parse(opts.body) }); return response })
-  assert.equal(requests.length, 0)
-  await ui.button('解析条件').props.onClick()
-  await flush()
-  assert.equal(applied.length, 0)
-  assert.deepEqual(requests[0].body, { q: '未看的香港喜剧', kind: 'movie', media_library_id: 7 })
-  const genre = ui.nodes().find(n => n.type === 'input' && n.props['onUpdate:modelValue'] && n.dirs?.[0]?.value === '喜剧')
-  genre.props['onUpdate:modelValue']('喜剧，动作')
-  ui.button('确认应用条件').props.onClick()
-  assert.deepEqual(applied[0].sel.genres, ['喜剧', '动作'])
-  ui.props.mediaLibraryId = 8
-  await flush()
-  assert.equal(ui.button('确认应用条件'), undefined)
-  await ui.button('解析条件').props.onClick()
-  await flush()
-  ui.nodes().find(n => n.type === 'textarea').props['onUpdate:modelValue']('新输入')
-  await flush()
-  assert.equal(ui.button('确认应用条件'), undefined)
-})
+
 test('AI candidate choice needs confirmation and reuses only returned candidates', async t => {
   const requests = [], selected = []
   const candidate = { title: '测试电影', year: 1994, tmdb_id: 44, reason: '标题与年份一致' }
@@ -342,11 +320,11 @@ test('selecting Go fills its official preset without a request, permits edits, a
   assert.ok(fieldByValue(ui, 'https://opencode.ai/zen/go/v1'))
   const model = fieldByValue(ui, 'glm-5.3-flash')
   assert.ok(model)
-  assert.match(ui.text(), /影视用途尚未验证/)
+  assert.match(ui.text(), /订阅的使用范围及模型权限/)
   assert.match(ui.text(), /这里只保存一套配置/)
   assert.match(ui.text(), /留空沿用当前密钥/)
   assert.match(ui.text(), /不加 opencode-go\/ 前缀/)
-  const official = ui.nodes().find(n => n.type === 'a' && n.props?.href === 'https://opencode.ai/docs/go/#where-can-i-use-it')
+  const official = ui.nodes().find(n => n.type === 'a' && n.props?.href === 'https://opencode.ai/docs/console/go/#where-can-i-use-it')
   assert.equal(official.props.target, '_blank')
   assert.equal(official.props.rel, 'noopener noreferrer')
   model.props['onUpdate:modelValue']('glm-5.3')

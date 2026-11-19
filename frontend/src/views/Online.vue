@@ -1,6 +1,6 @@
 <template>
   <div class="browse-page online-page">
-    <header v-show="browseVisible" class="browse-heading online-heading"><h1>在线</h1><div class="online-heading-actions"><JzButton v-if="safeMode" variant="ghost" icon="download" data-online-cache-open @click="showCache()">本地缓存</JzButton><JzButton v-if="safeMode" variant="ghost" icon="history" data-online-records-open @click="showRecords()">我的记录</JzButton><router-link v-if="!isChildren" class="manage-link" to="/settings?sec=sec-online">管理视频源</router-link></div></header>
+    <header v-show="browseVisible" class="browse-heading online-heading"><h1>在线</h1><router-link v-if="aiNavigationContext(route.path)" :to="aiNavigationContext(route.path).origin" class="manage-link">返回片单</router-link><div class="online-heading-actions"><JzButton v-if="safeMode" variant="ghost" icon="download" data-online-cache-open @click="showCache()">本地缓存</JzButton><JzButton v-if="safeMode" variant="ghost" icon="history" data-online-records-open @click="showRecords()">我的记录</JzButton><router-link v-if="!isChildren" class="manage-link" to="/settings?sec=sec-online">管理视频源</router-link></div></header>
     <EmptyState v-if="isChildren" state="empty" title="儿童模式暂不支持在线内容" text="切换观看模式后再浏览。" />
     <template v-else-if="safeMode">
       <p v-if="stateNotice" class="online-state-notice" data-online-state-notice role="status">{{ stateNotice }}</p>
@@ -136,6 +136,7 @@
 </template>
 
 <script setup>
+import { aiNavigationContext } from '../aiDiscoveryNav.js'
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createOnlineCatalogClient, createOnlineRefreshClient, createOnlineHealthClient, onlineHealthLabel, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
@@ -793,6 +794,7 @@ function resetBrowse() {
   searched.value = false; searchError.value = ''; searching.value = false; page.value = pageCount.value = 1; total.value = 0
   loadedAt = 0; browsePosition = null; positionIntent++
 }
+let discoveryTitle = aiNavigationContext(route.path)?.title || ''
 async function loadSources(preferredSourceId = '') {
   cancelAutomaticRefresh()
   closeHostDialog(false)
@@ -818,7 +820,10 @@ async function loadSources(preferredSourceId = '') {
     enabled.value = response.enabled; sources.value = response.items || []
     cacheScope = onlineBrowseScope(response.scope_token, viewing)
     if (!response.enabled || !cacheScope) clearOnlineBrowse()
-    restored = response.enabled ? onlineBrowseMemory.last(cacheScope, sources.value, target?.sourceId || (usePreferred ? preferred : '')) : null
+    // A forward visit after changing libraries must not revive its old title via the general online cache.
+    const expiredHandoff = !usePreferred && globalThis.history?.state?.aiVisit && !aiNavigationContext(route.path)
+    restored = response.enabled && !expiredHandoff
+      ? onlineBrowseMemory.last(cacheScope, sources.value, target?.sourceId || (usePreferred ? preferred : '')) : null
     if (target && sources.value.some(source => source.id === target.sourceId)) sourceId.value = target.sourceId
     else if (usePreferred && sources.value.some(source => source.id === preferred)) sourceId.value = preferred
     else if (!target && restored) sourceId.value = restored.sourceId
@@ -837,6 +842,14 @@ async function loadSources(preferredSourceId = '') {
         else if (target?.externalId && sourceId.value === target.sourceId) void openDetail(target.externalId, { routeSync: true, navigationTicket: navigationGeneration })
         else if (target?.externalId) stateNotice.value = '该来源已停用或不存在，请选择其他来源。'
         else if (pageView.value === 'records') void loadLibrary()
+        else if (discoveryTitle && sourceId.value && aiNavigationContext(route.path)) {
+          categoryId.value = channelId.value = ''
+          searchCategoryScope.value = 'exact'
+          setYear('')
+          query.value = discoveryTitle.slice(0, 100)
+          discoveryTitle = ''
+          void search(1, query.value, { navigationTicket: navigationGeneration })
+        }
         else if (restored?.response) void restoreBrowse()
         else if (restored) void search(restored.page, restored.query, { position: restored.position, navigationTicket: navigationGeneration })
         else if (selectedSource.value?.capabilities?.browse) void search(1, '', { navigationTicket: navigationGeneration })
@@ -887,6 +900,8 @@ function sourceChanged(discover = true, navigationTicket = null) {
   if (!navigationCurrent(navigationTicket ?? navigationGeneration)) return
   if (discover && sourceId.value === lastSourceId) { scheduleAutomaticRefresh(); return }
   if (navigationTicket === null) navigationGeneration++
+  const fromList = aiNavigationContext(route.path)?.title?.slice(0, 100)
+  if (discover && fromList && committedQuery.value === fromList) discoveryTitle = fromList
   closeHostDialog(false)
   cancelAutomaticRefresh()
   clearDetailReturnFocus()

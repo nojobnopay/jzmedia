@@ -1,16 +1,16 @@
 <template>
   <div class="browse-toolbar" :class="{ 'browse-toolbar--embedded': embedded }" role="search" :aria-label="label">
-    <div class="q-wrap">
+    <div class="q-wrap" :class="{ 'q-smart': aiOpen }">
       <input :id="inputId || id + '-input'" name="q" :value="modelValue" :aria-label="label" :placeholder="placeholder" :maxlength="maxlength"
         :disabled="disabled" :aria-busy="loading || undefined"
         :role="suggestionsEnabled ? 'combobox' : undefined" :aria-autocomplete="suggestionsEnabled ? 'list' : undefined"
         :aria-expanded="suggestionsEnabled ? suggestOpen : undefined"
         :aria-controls="suggestionsEnabled ? id + '-suggestions' : undefined" :aria-activedescendant="activeOption" autocomplete="off"
-        @input="onInput" @compositionstart="$emit('compositionstart', $event)"
-        @compositionend="$emit('compositionend', $event)" @keyup.enter="onEnter"
+        @input="onInput" @compositionstart="onComposition(true, $event)" @compositionend="onComposition(false, $event)"
+        @keyup.enter="onEnter"
         @keydown.down="moveSuggestion($event, 1)" @keydown.up="moveSuggestion($event, -1)"
-        @keydown.esc="closeSuggestions" @blur="$emit('blur')" />
-      <JzButton class="search-submit" variant="ghost" icon-only :aria-label="label" :disabled="disabled || searchDisabled" :loading="loading" @click="$emit('search')"><AppIcon v-if="!loading" name="search" :size="19" /></JzButton>
+        @keydown.esc="closeSuggestions" @keydown.enter="markEnter" @blur="$emit('blur')" />
+      <JzButton class="search-submit" :variant="aiOpen ? 'primary' : 'ghost'" :icon-only="!aiOpen" :aria-label="submitLabel || label" :disabled="disabled || searchDisabled" :loading="loading" @click="$emit('search')"><AppIcon v-if="!loading" :name="aiOpen ? 'ai' : 'search'" :size="19" /><span v-if="aiOpen">{{ submitLabel }}</span></JzButton>
       <ul v-if="suggestionsEnabled" v-show="suggestOpen" :id="id + '-suggestions'" class="suggest" role="listbox" :aria-label="label + '建议'">
         <li v-if="suggestNoMatch" class="s-empty" role="presentation">无匹配</li>
         <li v-if="suggestItems.length" class="s-head" role="presentation">{{ itemHeading }}</li>
@@ -28,12 +28,12 @@
         </li>
       </ul>
     </div>
-    <slot name="filters">
+    <slot v-if="!aiOpen" name="filters">
       <JzButton class="browse-tool" :aria-expanded="filtersOpen && !filtersDisabled" :aria-controls="filtersId" :disabled="filtersDisabled" @click="$emit('update:filtersOpen', !filtersOpen)">
         筛选<span v-if="activeCount"> · {{ activeCount }}</span><AppIcon :name="filtersOpen ? 'chevron-up' : 'chevron-down'" :size="16" />
       </JzButton>
     </slot>
-    <JzButton v-if="aiEnabled" icon="ai" class="browse-tool" variant="ghost" :aria-expanded="aiOpen" :aria-controls="id + '-ai'" @click="$emit('update:aiOpen', !aiOpen)">智能搜索</JzButton>
+    <JzButton v-if="aiEnabled" :icon="aiOpen ? 'search' : 'ai'" class="browse-tool" variant="ghost" :aria-expanded="aiOpen" :aria-controls="id + '-ai'" @click="$emit('update:aiOpen', !aiOpen)">{{ aiOpen ? '普通搜索' : '智能搜索' }}</JzButton>
     <slot />
   </div>
 </template>
@@ -48,6 +48,7 @@ const props = defineProps({
   modelValue: { type: String, default: '' },
   label: { type: String, required: true },
   placeholder: { type: String, default: '' },
+  submitLabel: { type: String, default: '' },
   maxlength: { type: Number, default: undefined },
   itemHeading: { type: String, default: '影片' },
   personHeading: { type: String, default: '演员' },
@@ -77,8 +78,17 @@ function onInput(event) {
   emit('update:modelValue', event.target.value)
   emit('input', event)
 }
+let composing = false, composingEnter = false
+function onComposition(active, event) {
+  composing = active
+  emit(active ? 'compositionstart' : 'compositionend', event)
+}
+function markEnter(event) { composingEnter = composing || event.isComposing || event.keyCode === 229 }
 function onEnter(event) {
-  if (!props.disabled && !props.searchDisabled && !props.loading && !event.isComposing) emit('enter', event)
+  // Composition can end between keydown and keyup when Enter accepts a Chinese candidate.
+  const acceptedCandidate = composingEnter || composing || event.keyCode === 229
+  composingEnter = false
+  if (!acceptedCandidate && !props.disabled && !props.searchDisabled && !props.loading && !event.isComposing) emit('enter', event)
 }
 function moveSuggestion(event, direction) {
   if (!props.suggestionsEnabled) return
@@ -96,6 +106,9 @@ function closeSuggestions(event) {
 .q-wrap { position: relative; flex: 1 1 280px; max-width: 520px; min-width: 0; }
 .q-wrap input { width: 100%; box-sizing: border-box; min-height: var(--jz-control-current); padding-right: 50px; background: var(--jz-surface); }
 .search-submit { position: absolute; right: 0; top: 0; min-width: var(--jz-control-current); padding: var(--jz-gap-s); border-radius: 0 var(--jz-radius-s) var(--jz-radius-s) 0; }
+.q-smart { max-width: 760px; }
+.q-smart input { padding-inline-end: 110px; }
+.q-smart .search-submit { padding-inline: var(--jz-gap-m); }
 .browse-tool[aria-expanded="true"] { background: var(--jz-selected); border-color: var(--jz-accent); color: var(--jz-text); }
 .suggest { position: absolute; top: calc(100% + var(--jz-gap-xs)); inset-inline: 0; z-index: 60; list-style: none; margin: 0; padding: var(--jz-gap-xs) 0; max-height: 320px; overflow: auto; background: var(--jz-surface); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-m); }
 .suggest li { padding: var(--jz-gap-s) var(--jz-gap-m); cursor: pointer; display: flex; gap: var(--jz-gap-xs); align-items: baseline; overflow-wrap: anywhere; }

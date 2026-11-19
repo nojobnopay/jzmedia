@@ -7,13 +7,18 @@
       <ActionMenu label="添加影片"><JzButton @click="scanOpen = !scanOpen" type="button" variant="ghost" icon="scan">扫描新文件</JzButton><JzButton @click="upDlg = true" type="button" variant="ghost" icon="upload">上传文件</JzButton></ActionMenu>
     </div>
   </header>
-  <BrowseToolbar id="movie-browse" v-model="q" label="搜索电影" placeholder="搜片名 / 演员 / 标签"
+  <BrowseToolbar id="movie-browse" v-model="searchInput"
+    :label="!ai.open ? '搜索电影' : ai.result ? '追问当前片单' : '智能找片'"
+    :placeholder="!ai.open ? '搜片名 / 演员 / 标签' : ai.result ? '继续描述要求，例如：只换第 2 部' : '描述想看的作品、记得的情节或想要的片单'"
+    :submit-label="ai.open ? (ai.result ? '提交追问' : '找片') : ''"
+    :suggestions-enabled="!ai.open" :maxlength="ai.open ? 500 : undefined"
+    :loading="ai.open && ai.busy" :search-disabled="ai.open && (ai.expired || !ai.draft.trim())"
     item-heading="电影" :suggest-open="suggestOpen" :suggest-no-match="suggestNoMatch"
     :suggest-items="suggestItems" :suggest-persons="suggestPersons" :suggest-idx="suggestIdx"
-    v-model:ai-open="aiSearchOpen" :ai-enabled="!isChildren"
-    @input="onQInput" @compositionstart="composing = true" @compositionend="onCompositionEnd"
-    @enter="onSearchEnter" @move="suggestMove" @close="closeSuggest" @blur="onQBlur"
-    @pick-item="pickMovie" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="applyAndLoad">
+    :ai-open="ai.open" :ai-enabled="!isChildren" @update:ai-open="setAiOpen"
+    @input="!ai.open && onQInput($event)" @compositionstart="!ai.open && (composing = true)" @compositionend="!ai.open && onCompositionEnd()"
+    @enter="ai.open ? discovery.submit() : onSearchEnter($event)" @move="suggestMove" @close="closeSuggest" @blur="!ai.open && onQBlur()"
+    @pick-item="pickMovie" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="ai.open ? discovery.submit() : applyAndLoad()">
     <template #filters>
       <BrowseFilters :model-value="sel" :facets="facets" kind="movie" v-model:open="filtersOpen"
         :scope-label="filterScope" :scope-key="curMediaId" :context-key="route.fullPath"
@@ -21,10 +26,13 @@
         @open="closeSuggest" @apply="applyFilters" />
     </template>
   </BrowseToolbar>
-  <div id="movie-browse-ai"><AiSearchPanel v-if="aiSearchOpen" kind="movie" :query="q" :media-library-id="curMediaId" @apply="applyAiSearch" @close="aiSearchOpen = false" /></div>
+  <div id="movie-browse-ai"><AiSearchPanel v-if="ai.open" :state="ai" kind="movie" :scope-label="filterScope" :chips="selectedChips"
+    @cancel="discovery.cancel" @retry="discovery.retry" @restart="discovery.restart" @ask="discovery.ask"
+    @fill="discovery.fill" @remember="discovery.remember" @public="discovery.searchPublic" /></div>
   <ScanAction v-if="scanOpen" kind="movie" @done="onUpDone" />
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
 
+  <div v-show="!ai.open">
   <BrowseFilterSummary :chips="selectedChips" :query="appliedQuery" fallback-id="movie-browse-input"
     @remove="removeFilter" @clear="clearFilters" @clear-query="clearQuery" />
 
@@ -69,6 +77,7 @@
   </EmptyState>
   <EmptyState v-else-if="firstLoaded && !items.length" state="no-results" title="没有符合条件的影片" text="试试其他片名，或重置筛选条件。">
     <JzButton @click="clearAll" type="button" icon="filter">重置筛选</JzButton>
+    <JzButton v-if="!isChildren && q.trim()" icon="ai" @click="setAiOpen(true)">用智能搜索找片</JzButton>
   </EmptyState>
 
   <div ref="loadSentinel" class="load-more">
@@ -76,7 +85,9 @@
     <span v-else-if="items.length" class="fhint">已全部加载（{{ items.length }} 部）</span>
   </div>
 
-  <div v-if="selecting" class="floatbar" role="toolbar" aria-label="多选操作" :aria-busy="batching">
+  </div>
+
+  <div v-if="selecting && !ai.open" class="floatbar" role="toolbar" aria-label="多选操作" :aria-busy="batching">
     <span class="count">已选 {{ selectedIds.size }} 部</span>
     <div class="batch-desktop-actions" :inert="batching">
     <ContentPolicyButton kind="movie" :ids="[...selectedIds]" compact @saved="onPolicySaved" />
@@ -182,7 +193,7 @@
 </template>
 <script setup>
 import ContentPolicyButton from '../components/ContentPolicyButton.vue'
-import { isChildren, isPrivate } from '../viewing.js'
+import { isChildren, isPrivate, viewing } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import AppIcon from '../components/AppIcon.vue'
@@ -197,6 +208,7 @@ import BrowseFilters from '../components/BrowseFilters.vue'
 import BrowseFilterSummary from '../components/BrowseFilterSummary.vue'
 import { defaultBrowseFilters, normalizeBrowseFilters, filterChips, countBrowseFilters, removeBrowseFilter } from '../browseFilters.js'
 import AiSearchPanel from '../components/AiSearchPanel.vue'
+import { useAiDiscovery } from '../useAiDiscovery.js'
 import { browseKey, saveBrowse, readBrowse, captureAnchor, restoreBrowsePosition } from '../browseHistory.js'
 
 import PlayerIcon from '../components/PlayerIcon.vue'
@@ -220,17 +232,6 @@ import { WALL_SORTS, loadWallSort, normalizeWallSort, saveWallSort,
          toggleWallSort, wallSortParams } from '../wallSort.js'
 
 const filtersOpen = ref(false)
-const aiSearchOpen = ref(false)
-function applyAiSearch(value) {
-  q.value = value.q
-  sel.value = normalizeBrowseFilters(value.sel, 'movie')
-  sort.value = value.sort
-  saveWallSort(localStorage, sort.value)
-  closeSuggest()
-  filtersOpen.value = false
-  aiSearchOpen.value = false
-  applyAndLoad()
-}
 const toolsLink = computed(() => {
   const media = curMediaId.value
   const library = preferredVideoLibId('movie')
@@ -287,6 +288,19 @@ const sel = ref(defaultBrowseFilters())
 // 海报墙排序：默认按入库时间倒序（localStorage 记忆 + URL ?sort=&order= 可分享）
 const sort = ref(loadWallSort(localStorage))
 const curMediaId = ref(currentMediaId())
+const discovery = useAiDiscovery({ kind: 'movie', mediaId: curMediaId, ordinaryQuery: q, selection: sel, route, viewing })
+const ai = discovery.state
+const searchInput = discovery.input
+function setAiOpen(value) {
+  composing = false
+  clearTimeout(suggestTimer)
+  suggestSeq++
+  closeSuggest()
+  filtersOpen.value = false
+  if (value) discovery.open()
+  else discovery.close()
+}
+
 const cwRef = ref(null)
 const showContinue = computed(() =>
   !activeCount.value && !q.value.trim())
@@ -457,7 +471,7 @@ async function load() {
   }
 }
 async function loadMore() {
-  if (!hasMore.value || loading.value) return
+  if (ai.open || !hasMore.value || loading.value) return
   const seq = ++loadSeq
   loading.value = true
   loadingMore.value = true
@@ -846,7 +860,7 @@ onBeforeRouteLeave(() => {
   if (!firstLoaded.value) return
   saveBrowse(historyKey(), { path: '/', mediaId: currentMediaId(), query: route.query,
     items: items.value, hasMore: hasMore.value, filtersOpen: false,
-    anchor: captureAnchor(), scrollTop: window.scrollY })
+    anchor: ai.open ? null : captureAnchor(), scrollTop: ai.open ? ai.wallTop : window.scrollY })
 })
 async function restoreWall() {
   const snapshot = readBrowse(historyKey())
@@ -861,8 +875,9 @@ async function restoreWall() {
   if (disposed || route.path !== '/') return
   await nextTick()
   await new Promise(resolve => requestAnimationFrame(resolve))
-  restoreBrowsePosition(snapshot)
-  if (snapshot) refreshSnapshot(snapshot)
+  const restoredAi = await discovery.restore()
+  if (!restoredAi && !ai.open) restoreBrowsePosition(snapshot)
+  if (snapshot && !disposed) refreshSnapshot(snapshot)
 }
 
 // Restore immediately, then refresh the same number of pages so edits/deletions
@@ -885,7 +900,7 @@ async function refreshSnapshot(snapshot) {
     hasMore.value = more
     loadError.value = ''
     await nextTick()
-    if (seq === loadSeq) restoreBrowsePosition(position)
+    if (seq === loadSeq && !ai.open) restoreBrowsePosition(position)
   } catch (e) { if (seq === loadSeq) loadError.value = '刷新列表失败：' + e.message }
   finally { if (seq === loadSeq) loading.value = false }
 }

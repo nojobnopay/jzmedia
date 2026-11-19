@@ -297,7 +297,7 @@ node scripts/smoke_ai_ui.mjs --demo
 node scripts/smoke_ai_ui.mjs --capture-docs
 ```
 
-拍摄前先运行同一脚本的浏览器冒烟，随后保存 Go 设置与模拟测试提示、可编辑搜索条件、电影确认候选和剧集目录归属限制。Playwright 在 1440×1000 CSS、1x 视口生成原始 PNG，FFmpeg 转为 WebP q86，写入 `docs/assets/screenshots/ai-*.webp`；原图留在命令打印的 `/tmp/jzmedia-ai-ui-*` 供核对。默认不传参数只执行冒烟，不更新教程图片。
+拍摄前先运行同一脚本的浏览器冒烟，随后保存 Go 设置与模拟测试提示、直接找片的推荐结果、电影确认候选和剧集目录归属限制。Playwright 在 1440×1000 CSS、1x 视口生成原始 PNG，FFmpeg 转为 WebP q86，写入 `docs/assets/screenshots/ai-*.webp`；原图留在命令打印的 `/tmp/jzmedia-ai-ui-*` 供核对。仅更新找片及智能配置图片时使用 `--capture-search`。默认不传参数只执行冒烟，不更新教程图片。
 
 截图成功后只更新素材清单内对应 AI 条目，每项分别记录版本、日期、代码基线、视口、哈希及“真实界面 + 模拟 API”的来源；旧批次全局来源和其他素材记录保留。`scripts/capture_docs_manifest.py` 同样保留已有 AI 条目及未变化历史素材的来源。更新后查看实际图片，确保 Go 用途提示、确认按钮和目录锁原因可读，再执行文档构建与检查。
 

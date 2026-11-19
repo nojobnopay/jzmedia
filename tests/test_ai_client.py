@@ -154,6 +154,18 @@ def test_check_can_run_disabled_and_is_never_cached(monkeypatch):
     assert settings.usage()["requests"] == 2
 
 
+def test_long_discovery_list_has_room_for_verified_reasons(monkeypatch):
+    configure()
+    caps = []
+    def handler(request):
+        caps.append(json.loads(request.content)["max_tokens"])
+        return response()
+    fake_network(monkeypatch, handler)
+    for count, available in [(5, 30), (50, 30), (50, 60)]:
+        ai.call_json("discovery_select", {"count": count, "candidates": ["示例"] * available}, "JSON")
+    assert caps == [ai.MAX_OUTPUT_TOKENS, 30 * 96, 50 * 96]
+
+
 def test_missing_key_never_calls_provider(monkeypatch):
     fake_network(monkeypatch, lambda request: pytest.fail("missing key must not call network"))
     result = api.post("/api/ai/check").json()
@@ -339,6 +351,7 @@ def test_operation_session_reuses_nested_context_and_cleans_up_after_errors():
 
 
 def test_opencode_go_routes_group_match_calls_and_separate_operations(monkeypatch):
+    store.init_db()
     configure_go()
     seen = []
     fake_network(monkeypatch, lambda request: (seen.append(request), response())[1])

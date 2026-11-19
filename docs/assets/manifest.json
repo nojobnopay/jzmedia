@@ -2634,9 +2634,9 @@
       "file": "screenshots/ai-settings-go.webp",
       "page": "user-guide/settings.md",
       "scene": "OpenCode Go 预设、用途限制与明确标注的模拟测试响应；密钥是虚构值",
-      "verified_at": "2026-11-10",
+      "verified_at": "2026-11-19",
       "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
+      "source_commit": "e050f82",
       "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
       "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
       "viewport": {
@@ -2644,19 +2644,19 @@
         "height": 1000,
         "device_scale_factor": 1
       },
-      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
+      "recording_script": "scripts/smoke_ai_ui.mjs --capture-search",
       "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
       "format": "WebP q86",
-      "bytes": 62884,
-      "sha256": "22437c5e14e9e67d209a105c68e00a2b521cdcc116832fcfb25cebcf57ab2e5d"
+      "bytes": 64220,
+      "sha256": "b85c22316d4145a74d0af6bd719e7d9b06203931481cf68dca2a81b402d1e572"
     },
     {
       "file": "screenshots/ai-search-preview.webp",
       "page": "user-guide/find-movies.md",
-      "scene": "模拟解析结果可编辑；确认前未应用到当前库",
-      "verified_at": "2026-11-10",
+      "scene": "模拟片单的推荐理由、范围与后续操作",
+      "verified_at": "2026-11-19",
       "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
+      "source_commit": "e050f82",
       "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
       "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
       "viewport": {
@@ -2664,11 +2664,12 @@
         "height": 1000,
         "device_scale_factor": 1
       },
-      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
+      "recording_script": "scripts/smoke_ai_ui.mjs --capture-search",
       "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
       "format": "WebP q86",
-      "bytes": 50544,
-      "sha256": "6a68f72d767a7e9a6027f01a41aab1ab11ac2b2e53f236883eb168b8d7d67ba5"
+      "bytes": 70592,
+      "sha256": "d264d2cb2707d9d1582a9cb45705cb977b71e5eca4f68199d6621a6e6d43eda2"
     },
     {
       "file": "screenshots/ai-match-movie.webp",

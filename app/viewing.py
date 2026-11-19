@@ -460,7 +460,7 @@ def management_path(path, method):
                     re.fullmatch(r"/api/stream/sessions/[^/]+(?:/ping)?", path))
     if path.startswith("/api/cast/"):
         return False
-    if path == "/api/ai/search":
+    if path in {"/api/ai/search", "/api/ai/search/results", "/api/ai/search/results/refresh"}:
         return False
     if path == "/api/persons/ensure" or re.fullmatch(r"/api/persons/\d+/refresh", path):
         return False

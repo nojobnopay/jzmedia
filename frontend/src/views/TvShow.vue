@@ -2,7 +2,7 @@
   <div v-if="show" class="tv-page media-detail show-detail">
     <div class="hero media-hero">
       <MediaBackdrop :src="backdropSrc" />
-      <div class="topbar hero-backbar"><router-link :to="browseReturn('/tv', currentMediaId())" class="back-link"><AppIcon name="back" :size="18" />剧集</router-link></div>
+      <div class="topbar hero-backbar"><router-link :to="aiNavigationContext(route.path)?.origin || browseReturn('/tv', currentMediaId())" class="back-link"><AppIcon name="back" :size="18" />{{ aiNavigationContext(route.path) ? '返回片单' : '剧集' }}</router-link></div>
       <div class="hero-inner">
         <img v-if="show.poster_path" class="hero-poster" :src="posterSrc"
           :alt="show.title" />
@@ -144,6 +144,7 @@
 </template>
 
 <script setup>
+import { aiNavigationContext } from '../aiDiscoveryNav.js'
 import ContentPolicyButton from '../components/ContentPolicyButton.vue'
 import { isChildren, viewing } from '../viewing.js'
 import { canAutomaticallyIngest, useTvIngestFlow } from '../useTvIngestFlow.js'

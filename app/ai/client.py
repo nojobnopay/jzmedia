@@ -66,7 +66,7 @@ def clear_cache() -> None:
         _cache.clear()
 
 
-def _load_config(allow_disabled: bool = False) -> settings.AiConfig:
+def require_config(allow_disabled: bool = False) -> settings.AiConfig:
     try:
         current = settings.effective()
     except (ValueError, sqlite3.Error):
@@ -141,7 +141,7 @@ def _parse(envelope: dict) -> dict:
         raise AiUnavailable("invalid_response", "模型未返回完整的 JSON 对象，请重试或使用普通搜索、手动匹配") from None
 
 
-def _request(current: settings.AiConfig, payload: dict, instruction: str, *, check: bool = False) -> dict:
+def _request(current: settings.AiConfig, payload: dict, instruction: str, *, max_tokens: int = MAX_OUTPUT_TOKENS) -> dict:
     serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     if len(serialized.encode("utf-8")) + len(instruction.encode("utf-8")) > MAX_INPUT_BYTES:
         raise AiUnavailable("input_too_large", "输入内容过长，请缩短搜索描述或减少匹配线索")
@@ -159,7 +159,7 @@ def _request(current: settings.AiConfig, payload: dict, instruction: str, *, che
                 {"role": "user", "content": serialized},
             ],
             "response_format": {"type": "json_object"},
-            "max_tokens": 32 if check else MAX_OUTPUT_TOKENS,
+            "max_tokens": max_tokens,
             "stream": False,
         }
         if current.provider == "deepseek":
@@ -193,7 +193,7 @@ def _cache_key(current: settings.AiConfig, task: str, payload: dict, instruction
 def discard_cached(task: str, payload: dict, instruction: str) -> None:
     """Business validation can reject a JSON object; retry must then reach the provider."""
     try:
-        key = _cache_key(_load_config(), task, payload, instruction)
+        key = _cache_key(require_config(), task, payload, instruction)
     except AiUnavailable:
         return  # A changed/disabled config cannot reuse the prior cache entry.
     with _cache_lock:
@@ -202,7 +202,7 @@ def discard_cached(task: str, payload: dict, instruction: str) -> None:
 
 def call_json(task: str, payload: dict, instruction: str) -> dict:
     """Synchronous API for ordinary FastAPI def routes; validates configuration before cache."""
-    current = _load_config()
+    current = require_config()
     key = _cache_key(current, task, payload, instruction)
     with _cache_lock:
         saved = _cache.get(key)
@@ -211,7 +211,12 @@ def call_json(task: str, payload: dict, instruction: str) -> dict:
             return deepcopy(saved[1])
         _cache.pop(key, None)
     try:
-        result = _request(current, payload, instruction)
+        max_tokens = MAX_OUTPUT_TOKENS
+        if task == "discovery_select":
+            # Every selected work needs its own JSON entry, quotation and explanation.
+            count = min(len(payload.get("candidates", [])), payload.get("count", 0), 50)
+            max_tokens = max(max_tokens, count * 96)
+        result = _request(current, payload, instruction, max_tokens=max_tokens)
     except AiUnavailable as exc:
         logger.warning("AI request unavailable: %s", exc.code)
         raise
@@ -225,8 +230,8 @@ def call_json(task: str, payload: dict, instruction: str) -> dict:
 def check_connection() -> dict:
     """Explicit, uncached check; allowed before enabling AI. It counts toward the daily cap."""
     try:
-        current = _load_config(allow_disabled=True)
-        result = _request(current, {"check": True}, '连接测试：只返回 {"ok": true}。', check=True)
+        current = require_config(allow_disabled=True)
+        result = _request(current, {"check": True}, '连接测试：只返回 {"ok": true}。', max_tokens=32)
         if result.get("ok") is not True:
             raise AiUnavailable("invalid_response", "服务可连接，但未按要求返回 JSON；请检查模型兼容性")
         return {"ok": True, "code": "ok", "message": "模型连接成功，JSON 输出可用", "usage": settings.usage()}

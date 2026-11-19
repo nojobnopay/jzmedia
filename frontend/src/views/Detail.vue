@@ -4,7 +4,7 @@
       <MediaBackdrop :src="m.tmdb_id ? scopedArtworkUrl(`/api/movies/${m.id}/backdrop?tmdb=${m.tmdb_id}`) : ''" />
       <div class="hero-inner">
         <div class="topbar">
-          <router-link :to="browseReturn('/', currentMediaId())" class="back-link"><AppIcon name="back" :size="16" />电影</router-link>
+          <router-link :to="aiNavigationContext(route.path)?.origin || browseReturn('/', currentMediaId())" class="back-link"><AppIcon name="back" :size="16" />{{ aiNavigationContext(route.path) ? '返回片单' : '电影' }}</router-link>
           <span class="top-right">
             <span v-if="savedFlash" class="saved-flash">已保存</span>
             <span v-if="regionNote" class="saved-flash" style="color:var(--jz-warn)">{{ regionNote }}</span>
@@ -35,9 +35,14 @@
                 <JzButton @click="goFiles" type="button" variant="ghost" icon="folder" title="在文件管理中打开所在目录">文件管理</JzButton>
               </ActionMenu>
             </div>
-            <div v-if="(m.versions || []).length > 1 || heroResume" class="play-options">
-              <select v-if="(m.versions || []).length > 1" v-model.number="heroVid" class="ver-sel" aria-label="播放版本" @change="refreshProgress(heroVid)">
-                <option v-for="v in m.versions" :key="v.id" :value="v.id" :disabled="!!verBlocked[v.id]">
+            <p v-if="versionNotice" class="resume-hint" role="status">{{ versionNotice }}
+              <JzButton v-if="!mediaLoading" size="compact" variant="ghost" @click="load()">重新核对版本</JzButton>
+            </p>
+            <div v-if="showVersionSelect || heroResume" class="play-options">
+              <select v-if="showVersionSelect" :value="heroVid ?? ''" class="ver-sel" aria-label="播放版本"
+                :disabled="!!requestedVersion() && mediaLoading" @change="selectHeroVersion($event.target.value)">
+                <option v-if="!heroVid" value="" disabled>选择播放版本</option>
+                <option v-for="v in heroOptions" :key="v.id" :value="v.id" :disabled="!!verBlocked[v.id]">
                   {{ verLabel(v) }}{{ verBlocked[v.id] ? '（无效）' : (verFriendly(v.id) ? ' 浏览器友好' : '') }}
                 </option>
               </select>
@@ -207,6 +212,7 @@
   <EmptyState v-if="!m" :state="loadErr ? 'error' : 'loading'" :title="loadErr ? '影片资料加载失败' : '正在加载影片'" :text="loadErr || '正在读取影片资料…'" :retry="!!loadErr" @retry="load" />
 </template>
 <script setup>
+import { aiNavigationContext } from '../aiDiscoveryNav.js'
 import ContentPolicyButton from '../components/ContentPolicyButton.vue'
 import { isChildren, viewing, ensureManagement } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
@@ -364,6 +370,11 @@ async function loadMedia(context = loadContext()) {
   if (!currentLoad(context)) return
   const generation = ++mediaGeneration
   const current = () => currentLoad(context) && generation === mediaGeneration
+  const requested = requestedVersion()
+  if (requested) {
+    heroVid.value = null
+    versionNotice.value = '正在核对片单中选择的播放版本…'
+  }
   mediaLoading.value = true
   mediaError.value = ''
   // P1：一次取齐全版本（媒体+四档决策+最优版），带客户端实测 caps（打分随能力变化）
@@ -389,6 +400,9 @@ async function loadMedia(context = loadContext()) {
     if (mediaInfo.value && !mediaInfo.value.playable) {
       mediaError.value = mediaInfo.value.probe_error || '无法识别媒体流'
     }
+    verBlocked.value = {}
+    verErr.value = {}
+    verMethod.value = {}
     for (const x of verList.value) {
       if (!x.playable || x.method === 'blocked') {
         verBlocked.value[x.version_id] = true
@@ -396,13 +410,23 @@ async function loadMedia(context = loadContext()) {
       }
       verMethod.value[x.version_id] = x.method
     }
-    // hero 默认选中浏览器最优版（无效时回落当前行）
-    heroVid.value = bestVid.value || Number(context.id)
+    if (requested) {
+      const found = heroOptions.value.some(v => Number(v.id) === requested)
+      heroVid.value = found ? requested : null
+      if (!found) {
+        const otherPlayable = heroOptions.value.some(v => !verBlocked.value[v.id])
+        versionNotice.value = '片单中选择的播放版本已不可用。' + (otherPlayable ? '请选择其他可用版本，或重新核对。' : '请重新核对版本。')
+      } else versionNotice.value = verBlocked.value[requested] ? '选中的版本无法播放：' + verErr.value[requested] : ''
+    } else heroVid.value = bestVid.value || Number(context.id)
   } catch (e) {
     if (!current()) return
     mediaInfo.value = null
     mediaError.value = String(e.message || e)
-    heroVid.value = Number(context.id)
+    heroVid.value = requested ? null : Number(context.id)
+    if (requested) {
+      verList.value = []
+      versionNotice.value = '暂时无法核对片单中选择的播放版本，请重试。'
+    }
   } finally {
     if (current()) mediaLoading.value = false
   }
@@ -422,8 +446,30 @@ const bestVid = ref(null)
 const verFriendly = (id) => ['direct', 'remux', 'audio_transcode'].includes(verMethod.value[id])
 // P4 hero 主播放键：默认当前行，多版本可下拉切换（无效版本禁用）
 const heroVid = ref(null)
-const heroBlocked = computed(() => !!verBlocked.value[heroVid.value])
-const heroBlockTip = computed(() => verErr.value[heroVid.value] || '')
+const versionNotice = ref('')
+const chosenVersion = ref(null)
+function requestedVersion() {
+  const match = aiNavigationContext(route.path)?.version
+  return match ? chosenVersion.value || match : null
+}
+const heroOptions = computed(() => {
+  const rows = m.value?.versions?.length ? m.value.versions : (m.value ? [m.value] : [])
+  if (!requestedVersion()) return rows
+  const ids = new Set(verList.value.map(v => Number(v.version_id)))
+  return rows.filter(v => ids.has(Number(v.id)))
+})
+const showVersionSelect = computed(() => heroOptions.value.length > 1 || !!versionNotice.value && heroOptions.value.length > 0)
+function selectHeroVersion(value) {
+  if (requestedVersion() && mediaLoading.value) return
+  const id = Number(value)
+  if (!heroOptions.value.some(v => Number(v.id) === id) || verBlocked.value[id]) return
+  if (requestedVersion()) chosenVersion.value = id
+  heroVid.value = id
+  versionNotice.value = ''
+  refreshProgress(id)
+}
+const heroBlocked = computed(() => !heroVid.value || !!verBlocked.value[heroVid.value])
+const heroBlockTip = computed(() => versionNotice.value || verErr.value[heroVid.value] || '')
 // 预缓存入口（P1）：remux/audio_transcode 本不需要转码，但远程库读盘慢——整片缓存到服务端
 // 本地后点播零 NAS 读取。direct 无需缓存；本地库读取快也不必（保持旧按钮仅给转码版）。
 const heroRemux = computed(() => ['remux', 'audio_transcode'].includes(verMethod.value[heroVid.value])
@@ -665,7 +711,7 @@ async function load() {
     loadErr.value = '加载失败：' + e.message
     return
   }
-  heroVid.value = Number(context.id)
+  heroVid.value = requestedVersion() ? null : Number(context.id)
   // The visible review notice opens matching on demand; loading metadata must
   // not replace the viewing page with an automatically expanded maintenance form.
   loadMedia(context)
@@ -1032,6 +1078,8 @@ function clearMovieActivity() {
   playVid.value = null
   playTitle.value = ''
   heroVid.value = null
+  chosenVersion.value = null
+  versionNotice.value = ''
   progressInfo.value = null
   similar.value = []
 }

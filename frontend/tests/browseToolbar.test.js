@@ -82,3 +82,18 @@ test('search-only disabling keeps the query editable for sources that require a 
   assert.equal(submissions, 0)
   assert.equal(ui.find(node => node.type === 'button' && node.props['aria-label'] === '搜索在线视频').props.disabled, true)
 })
+
+test('releasing the Enter that committed Chinese text does not submit a smart search', async t => {
+  let submissions = 0
+  const ui = await mount(t, { id: 'movie-browse', label: '智能找片', suggestionsEnabled: false, aiOpen: true,
+    onEnter: () => submissions++ })
+  const input = ui.find(node => node.type === 'input')
+  invoke(input.props.onCompositionstart, {})
+  invoke(input.props.onKeydown, { key: 'Enter', isComposing: true })
+  invoke(input.props.onCompositionend, {})
+  invoke(input.props.onKeyup, { key: 'Enter', isComposing: false })
+  assert.equal(submissions, 0)
+  invoke(input.props.onKeydown, { key: 'Enter', isComposing: false })
+  invoke(input.props.onKeyup, { key: 'Enter', isComposing: false })
+  assert.equal(submissions, 1)
+})

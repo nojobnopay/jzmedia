@@ -73,6 +73,8 @@ async function detailPage(t, options = {}) {
       throw new Error('Unexpected API request: ' + path)
     } },
     '../libraries.js': { currentMediaId: () => 7, isRemoteVideoLib: () => false },
+    '../aiDiscoveryNav.js': { aiNavigationContext: path => options.discoveryVersion && path === '/m/1'
+      ? { origin: '/tv', version: options.discoveryVersion } : null },
     '../caps.js': { getCaps: () => options.caps?.() ?? Promise.resolve({}) },
     '../usePolling.js': { usePolling: tick => {
       const poll = { tick, starts: 0, active: Vue.ref(false), start() { this.starts++; this.active.value = true }, stop() { this.active.value = false } }
@@ -219,8 +221,7 @@ test('progress from another version cannot replace the selected version progress
       : path === '/api/stream/progress?version_id=11' ? selected.promise : undefined,
   })
   const selector = ui.find(node => node.type === 'select' && node.props['aria-label'] === '播放版本')
-  selector.props['onUpdate:modelValue'](11)
-  selector.props.onChange()
+  selector.props.onChange({ target: { value: '11' } })
   selected.resolve({ position: 90, position_text: '当前版本进度', duration: 600 })
   await flush()
   old.resolve({ position: 180, position_text: '旧版本进度', duration: 600 })
@@ -442,4 +443,54 @@ test('an old matching callback cannot request archive hints or reopen a dialog o
   assert.equal(ui.requests.length, count)
   assert.match(ui.text(), /影片2/)
   assert.doesNotMatch(ui.text(), /已匹配成功，可以归档了/)
+})
+
+test('a smart-search version is checked before enabling play and takes precedence over the browser best version', async t => {
+  const probe = deferred()
+  const ui = await detailPage(t, { discoveryVersion: 9, metadata: { versions: [
+    { id: 1, file_path: '默认版.mkv' }, { id: 9, file_path: '粤语版.mkv' },
+  ] }, api: path => path === '/api/stream/versions' ? probe.promise : undefined })
+  assert.equal(button(ui, '播放影片').props.disabled, true)
+  assert.equal(ui.requests.some(r => r.path.startsWith('/api/stream/progress?')), false)
+  probe.resolve({ versions: [{ version_id: 1, playable: true }, { version_id: 9, playable: true }], best_version_id: 1 })
+  await flush()
+  assert.equal(ui.find(n => n.props['aria-label'] === '播放版本').props.value, 9)
+  assert.equal(button(ui, '播放影片').props.disabled, false)
+  assert.ok(ui.requests.some(r => r.path === '/api/stream/progress?version_id=9'))
+  button(ui, '播放影片').props.onClick()
+  await flush()
+  assert.match(ui.text(), /播放器9/)
+})
+
+test('a disappeared match leaves the player disabled until the user explicitly chooses an available version', async t => {
+  const ui = await detailPage(t, { discoveryVersion: 9, metadata: { versions: [
+    { id: 1, file_path: '标准版.mkv' }, { id: 9, file_path: '已删除版本.mkv' },
+  ] }, api: path => path === '/api/stream/versions'
+    ? { versions: [{ version_id: 1, playable: true }], best_version_id: 1 } : undefined })
+  assert.match(ui.text(), /播放版本已不可用/)
+  const play = button(ui, '播放影片')
+  assert.equal(play.props.disabled, true)
+  play.props.onClick()
+  await flush()
+  assert.doesNotMatch(ui.text(), /播放器1/)
+  assert.equal(ui.requests.some(r => r.path.startsWith('/api/stream/progress?')), false)
+  const select = ui.find(n => n.props['aria-label'] === '播放版本')
+  assert.equal(select.props.value, '')
+  assert.equal(select.children.some(n => n.type === 'option' && n.props.value === 9), false)
+  select.props.onChange({ target: { value: '1' } })
+  await flush()
+  assert.doesNotMatch(ui.text(), /播放版本已不可用/)
+  assert.equal(button(ui, '播放影片').props.disabled, false)
+  button(ui, '播放影片').props.onClick()
+  await flush()
+  assert.match(ui.text(), /播放器1/)
+})
+
+test('a failed smart-version probe cannot fall back to the representative movie even transiently', async t => {
+  const ui = await detailPage(t, { discoveryVersion: 9, api: path => path === '/api/stream/versions'
+    ? Promise.reject(new Error('模拟断线')) : undefined })
+  assert.match(ui.text(), /暂时无法核对片单中选择的播放版本/)
+  assert.ok(button(ui, '重新核对版本'))
+  assert.equal(button(ui, '播放影片').props.disabled, true)
+  assert.equal(ui.requests.some(r => r.path.startsWith('/api/stream/progress?')), false)
 })

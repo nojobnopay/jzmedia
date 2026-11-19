@@ -1,4 +1,4 @@
-// Run: node scripts/smoke_ai_ui.mjs [--capture-docs | --demo]
+// Run: node scripts/smoke_ai_ui.mjs [--capture-docs | --capture-search | --demo]
 // Build the real Vue pages into /tmp, serve local static assets and mock every API.
 // --capture-docs also saves documented screenshots; --demo keeps the loopback UI open.
 // No backend, .env, data directory, NAS, or model service is opened. Vite config/env
@@ -13,13 +13,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from '../frontend/node_modules/vite/dist/node/index.js'
 import vue from '../frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs'
+import { art, artworkFingerprint } from './fixtures/uiReviewData.mjs'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
-assert.ok(args.every(arg => ['--capture-docs', '--demo'].includes(arg)), 'Usage: node scripts/smoke_ai_ui.mjs [--capture-docs | --demo]')
+assert.ok(args.every(arg => ['--capture-docs', '--capture-search', '--demo'].includes(arg)), 'Usage: node scripts/smoke_ai_ui.mjs [--capture-docs | --capture-search | --demo]')
 assert.ok(args.length <= 1, 'Choose one mode per run')
-const capture = args.includes('--capture-docs'), demo = args.includes('--demo')
+const searchCapture = args.includes('--capture-search')
+const capture = args.includes('--capture-docs') || searchCapture, demo = args.includes('--demo')
 const simulatedConnection = '模拟响应：未连接 OpenCode Go 或其他模型服务'
 const desktop = { width: 1440, height: 1000 }
 const temporary = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-ai-ui-'))
@@ -46,6 +48,9 @@ const show = { id: 201, title: '模拟剧集', year: 2020, tmdb_id: null,
   library_id: 2, media_library_id: 1, genres: ['剧情'], tags: [], seasons: [],
   episodes: [], cast: [], extras: [], watched_count: 0, episode_count: 0,
   overview: '仅用于浏览器模拟验收。' }
+const episodeQuestion = '找《模拟剧集》第二季第三集的国语版'
+const dubbedEpisode = { id: 307, show_id: show.id, show_title: show.title, season: 2, episode: 3,
+  title: '回到渡口', version: 2, exists: true, watched: 0, cast: [], directors: [] }
 const settings = { enabled: false, provider: 'deepseek', base_url: 'https://api.deepseek.com',
   model: 'simulated-model', timeout_seconds: 12, daily_limit: 100,
   api_key_set: false, api_key_source: 'unset', api_key_masked: '',
@@ -56,12 +61,45 @@ let delayedResolve
 let httpServer, browser, page
 const list = items => ({ items, has_more: false })
 const response = (route, body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
-const paid = () => requests.filter(r => /^\/api\/ai\/(check|search|match)$/.test(r.path))
+const paid = () => requests.filter(r => /^\/api\/ai\/(check|search\/results|match)$/.test(r.path))
 const binds = () => requests.filter(r => r.method === 'POST' && /\/(?:match|bind-external)$/.test(r.path) && !r.path.startsWith('/api/ai/'))
-const proposal = (kind, q = '') => ({ ok: true, query: q, summary: '模拟解析：请核对条件', warnings: [],
-  filters: { q: '', genre: [kind === 'tv' ? '剧情' : '喜剧'], country: ['HK'], decade: [1990],
-    watched: 0, min_rating: 7, rating_source: 'tmdb', sort: 'rating', order: 'desc',
-    ...(kind === 'tv' ? { status: ['ended'] } : {}) } })
+const sampleWorks = [
+  ['远山来信', '一封旧信让返乡的父子重新走过山路，日常相处里的沉默是这部片的重心。', 2014],
+  ['最后一班夜航', '故事跟随航班停飞后的一名夜班工人，在旅客短暂交会的片刻观察城市生活。', 2015],
+  ['沿着海岸慢慢走', '女孩沿海步行重访旧友，几次短暂交谈带出关系的变化，叙事节奏舒缓。', 2016],
+]
+let nextTurn = 0
+const turns = new Map()
+function discovery(body) {
+  const previous = turns.get(body.session_id)
+  const kind = body.kinds?.[0] || body.kind
+  const source = body.source || 'library'
+  const ranking = body.q.includes('最高')
+  const items = sampleWorks.map(([title, reason, year], i) => ({
+    key: source + '-' + kind + '-' + i, kind, id: kind === 'tv' ? 201 + i : 101 + i, title, year, reason,
+    evidence: [], rating: [8.8, 8.3, 7.8][i], rating_source: 'tmdb', poster_path: 'ai-demo-' + i + '.webp',
+    in_library: source === 'library', detail_path: kind === 'tv' ? '/tv/' + (201 + i) : '/m/' + (101 + i),
+    ...(source === 'public' ? { external_url: 'https://www.themoviedb.org/movie/123' } : {}),
+  }))
+  const result = { ok: true, query: body.q, intent: ranking ? 'ranking' : 'recommend', source,
+    status: 'results', warnings: [], items, total: items.length, excluded_unknown: 0,
+    summary: ranking ? '当前媒体库 · TMDB 评分降序' : '从当前媒体库里选出三部以日常生活为主题的作品。',
+    comparison: [], session_id: 'demo-' + ++nextTurn }
+  if (body.q === episodeQuestion) {
+    // The logical episode is 301; the Mandarin track belongs to file version 307.
+    result.items = [{ key: 'library-episode-301', kind: 'episode', id: 301, title: dubbedEpisode.title,
+      show_id: show.id, season: 2, episode: 3, in_library: true, version_id: dubbedEpisode.id,
+      detail_path: '/tv/201/s/2/e/307', reason: '第二季第三集的第二个文件版本包含国语音轨。' }]
+    Object.assign(result, { intent: 'identify', total: 1, summary: '找到指定分集的国语版。' })
+  }
+  if (previous && body.q.includes('比较')) {
+    result.intent = 'compare'
+    result.items = previous.items
+    result.comparison = previous.items.slice(0, 2).map(i => ({ title: i.title, key: i.key, text: i.reason }))
+  }
+  turns.set(result.session_id, result)
+  return result
+}
 
 async function mockApi(route) {
   const request = route.request(), url = new URL(request.url())
@@ -81,10 +119,11 @@ async function mockApi(route) {
     settings.usage.requests++
     return response(route, { ok: true, code: 'ok', message: simulatedConnection, usage: settings.usage })
   }
-  if (key === '/api/ai/search') {
+  if (key === '/api/ai/search/results/refresh') return response(route, turns.get(body.session_id))
+  if (key === '/api/ai/search/results') {
     if (body.q === '旧库晚到' && delayedResolve) { delayedSearch = route; delayedResolve(); return }
     if (searchFailure) return response(route, { ok: false, code: searchFailure, message: '模拟智能搜索不可用' })
-    return response(route, proposal(body.kind, body.q))
+    return response(route, discovery(body))
   }
   if (key === '/api/ai/match') {
     if (matchFailure) return response(route, { ok: false, code: matchFailure, message: '模拟匹配服务超时' })
@@ -124,6 +163,13 @@ async function mockApi(route) {
   if (key === '/api/jobs/tv-ingest/demo-tv-ingest') return response(route, { state: 'done', summary: { preview_id: 'demo-tv-ingest', plans: [], metadata_results: [], auto_prompt: false } })
   if (key === '/api/tv/ingestion-reviews') return response(route, { items: [], count: 0 })
   if (key === '/api/metadata/providers') return response(route, { providers: [] })
+  if (key === '/api/online/catalog/sources') return response(route, { enabled: true,
+    scope_token: 'a'.repeat(64), items: ['1', '2'].map(n => ({ id: 'src_' + n.repeat(32), name: '演示源' + n,
+      config_fingerprint: n.repeat(64), capabilities: { browse: true } })) })
+  if (key === '/api/online/catalog/health') return response(route, { purposes: {} })
+  if (key === '/api/online/state/library') return response(route, { items: [], offset: 0, total: 0, scope_token: 'a'.repeat(64) })
+  if (key === '/api/online/catalog/search' || key === '/api/online/catalog/browse') return response(route,
+    { items: [], page: 1, page_count: 1, total: 0, categories: [] })
   if (key === '/api/health') return response(route, { ffmpeg: true })
   if (key === '/api/facets' || key === '/api/tv/facets') return response(route, facets)
   if (key === '/api/search') return response(route, list([movie]))
@@ -135,6 +181,7 @@ async function mockApi(route) {
   if (key === '/api/search/suggest' || key === '/api/tv/suggest') return response(route, { items: [], persons: [] })
   if (key === '/api/movies/101') return response(route, movie)
   if (key === '/api/tv/shows/201') return response(route, show)
+  if (key === '/api/tv/episodes/307' && method === 'GET') return response(route, dubbedEpisode)
   if (key === '/api/tv/shows/201/collection' && method === 'GET') return response(route, {
     show_id: show.id, tmdb_id: show.tmdb_id, media_library_id: show.media_library_id,
     confirmed: !!show.tmdb_id && !show.needs_review, status: '', status_text: '',
@@ -166,6 +213,12 @@ async function mockApi(route) {
 // HTTP mocks also serve ordinary browsers in --demo. No request is proxied.
 async function serveMock(req, res, base) {
   const pathname = new URL(req.url, base).pathname
+  const demoPoster = /^\/posters\/ai-demo-([0-2])\.webp$/.exec(pathname)
+  if (demoPoster) {
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml' })
+    res.end(art(Number(demoPoster[1])))
+    return true
+  }
   if (pathname.startsWith('/posters/')) {
     res.writeHead(200, { 'Content-Type': 'image/svg+xml' })
     res.end('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="30"/>')
@@ -206,48 +259,18 @@ async function ffmpegBinary() {
   throw new Error('Install FFmpeg or prepare the existing static-ffmpeg app dependency before --capture-docs')
 }
 
-async function checkSearchFieldAlignment() {
-  const output = path.join(project, 'output/playwright/form-alignment-20261110')
-  await mkdir(output, { recursive: true })
-  const originalViewport = page.viewportSize()
-  const originalFont = await page.evaluate(() => document.documentElement.style.fontSize)
-  const panel = page.getByRole('region', { name: '智能搜索', exact: true })
-  const results = []
-  try {
-    for (const width of [1440, 1100, 900, 701, 700, 390, 320]) {
-      await page.setViewportSize({ width, height: 1000 })
-      for (const font of [16, 20]) {
-        await page.evaluate(size => { document.documentElement.style.fontSize = size + 'px' }, font)
-        const layout = await panel.locator('.ai-fields').evaluate(grid => {
-          const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').length
-          const fields = [...grid.children].map(label => {
-            const control = label.querySelector('input,select'), rect = control.getBoundingClientRect()
-            return { label: label.textContent.trim(), labelTop: label.getBoundingClientRect().top,
-              top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }
-          })
-          return { columns, fields, overflow: document.documentElement.scrollWidth > innerWidth + 1 }
-        })
-        assert.equal(layout.overflow, false, `AI fields fit ${width}px at ${font}px text`)
-        for (let i = 0; i < layout.fields.length; i += layout.columns) {
-          const row = layout.fields.slice(i, i + layout.columns)
-          assert.ok(Math.max(...row.map(field => field.labelTop)) - Math.min(...row.map(field => field.labelTop)) <= 1,
-            `AI label tops align across wrapped and single-line labels: ${width}px / ${font}px`)
-          assert.ok(Math.max(...row.map(field => field.top)) - Math.min(...row.map(field => field.top)) <= 1,
-            `AI input tops align when labels wrap: ${width}px / ${font}px / ${JSON.stringify(row)}`)
-          assert.ok(Math.max(...row.map(field => field.bottom)) - Math.min(...row.map(field => field.bottom)) <= 1,
-            `AI input and select bottoms align: ${width}px / ${font}px`)
-          if (width <= 700) assert.ok(row.every(field => field.height >= 44), 'Phone fields keep 44px targets')
-        }
-        results.push({ width, font, ...layout })
-        await panel.screenshot({ path: path.join(output, `after-${width}-${font}.png`), animations: 'disabled' })
-      }
-    }
-    await writeFile(path.join(output, 'after.json'), JSON.stringify(results, null, 2) + '\n')
-  } finally {
-    await page.evaluate(font => { document.documentElement.style.fontSize = font }, originalFont)
-    await page.setViewportSize(originalViewport)
+async function checkDiscoveryLayouts(panel) {
+  for (const width of [320, 390, 701, 1440]) {
+    await page.setViewportSize({ width, height: 844 })
+    const layout = await panel.locator('ol > li').evaluateAll(cards => {
+      const bounds = cards.map(card => card.getBoundingClientRect())
+      return { overflow: document.documentElement.scrollWidth > innerWidth + 1,
+        top: bounds[0].top, firstRow: bounds.filter(r => Math.abs(r.y - bounds[0].y) < 1).length }
+    })
+    assert.equal(layout.overflow, false, 'Discovery fits ' + width)
+    assert.equal(layout.firstRow, width <= 700 ? 1 : 2)
+    assert.ok(layout.top < 844, 'First work is visible on submission')
   }
-  console.log('PASS AI field alignment: 320/390/700/701/900/1100/1440px, 16/20px text, multiline labels and equal input/select edges')
 }
 
 async function captureDocs(go) {
@@ -269,7 +292,9 @@ async function captureDocs(go) {
       app_version: appVersion, source_commit: commit, source_state: '当前工作区 OpenCode Go 与智能辅助界面',
       source: '真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果',
       viewport: { width: desktop.width, height: desktop.height, device_scale_factor: 1 },
-      recording_script: 'scripts/smoke_ai_ui.mjs --capture-docs', fixtures: 'scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应',
+      recording_script: 'scripts/smoke_ai_ui.mjs ' + (searchCapture ? '--capture-search' : '--capture-docs'),
+      fixtures: 'scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应',
+      ...(name === 'ai-search-preview' ? { artwork_sha256: artworkFingerprint } : {}),
       format: 'WebP q86', bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
     console.log('CAPTURE ' + file)
   }
@@ -296,11 +321,11 @@ async function captureDocs(go) {
   await go('/?media=1')
   await page.getByRole('button', { name: '智能搜索', exact: true }).click()
   const search = page.getByRole('region', { name: '智能搜索', exact: true })
-  await search.getByLabel('想看什么').fill('没看过的 90 年代香港喜剧，TMDB 7 分以上')
-  await search.getByRole('button', { name: '解析条件', exact: true }).click()
-  await search.getByRole('button', { name: '确认应用条件' }).waitFor()
-  await screenshot('ai-search-preview', 'user-guide/find-movies.md', '模拟解析结果可编辑；确认前未应用到当前库', search)
-  for (const kind of ['movie', 'tv']) {
+  await page.getByRole('textbox', { name: '智能找片' }).fill('我没看过的文艺片，想看普通人的生活')
+  await page.getByRole('button', { name: '找片', exact: true }).click()
+  await search.getByRole('link', { name: '远山来信' }).waitFor()
+  await screenshot('ai-search-preview', 'user-guide/find-movies.md', '模拟片单的推荐理由、范围与后续操作', search)
+  for (const kind of searchCapture ? [] : ['movie', 'tv']) {
     if (kind === 'tv') show.tmdb_id = 777 // A directory-locked show can only refresh its current TMDB identity.
     await go(kind === 'movie' ? '/m/101' : '/tv/201')
     if (kind === 'tv') {
@@ -318,8 +343,10 @@ async function captureDocs(go) {
   assert.deepEqual(unexpected, [], 'Capture must remain entirely mocked')
   assert.deepEqual(errors, [], 'Capture browser errors')
   // Preserve every historic batch field and asset; new entries carry their own provenance.
-  const captured = new Set(entries.map(entry => entry.file))
-  manifest.assets = [...manifest.assets.filter(entry => !captured.has(entry.file)), ...entries]
+  const replacements = new Map(entries.map(entry => [entry.file, entry]))
+  const previous = new Set(manifest.assets.map(entry => entry.file))
+  manifest.assets = [...manifest.assets.map(entry => replacements.get(entry.file) || entry),
+    ...entries.filter(entry => !previous.has(entry.file))]
   await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + '\n')
   console.log('Updated AI entries only: docs/assets/manifest.json; raw PNGs: ' + temporary)
 }
@@ -343,7 +370,7 @@ try {
       if (/^\/assets\/[\w.-]+$/.test(pathname)) file = path.join(output, pathname)
       else if (['/favicon.svg', '/favicon.ico', '/favicon-16x16.png', '/favicon-32x32.png',
         '/apple-touch-icon.png', '/logo.svg', '/icon-512.png'].includes(pathname)) file = path.join(output, pathname)
-      else if (/^\/(?:settings|tv(?:\/\d+)?|m\/\d+)?\/?$/.test(pathname)) file = path.join(output, 'index.html')
+      else if (/^\/(?:settings|online|tv(?:\/\d+)?|m\/\d+)?\/?$/.test(pathname)) file = path.join(output, 'index.html')
       else { res.writeHead(404); res.end('This isolated demo only serves its UI fixtures'); return }
       const contentType = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
         '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2' }[path.extname(file)] || 'application/octet-stream'
@@ -416,61 +443,120 @@ try {
 
   for (const kind of ['movie', 'tv']) {
     await go(kind === 'movie' ? '/?media=1' : '/tv?media=1')
+    const count = paid().length
     await page.getByRole('button', { name: '智能搜索', exact: true }).click()
     const panel = page.getByRole('region', { name: '智能搜索', exact: true })
-    await panel.getByLabel('想看什么').fill('未看的90年代香港作品，7分以上')
-    const count = paid().length
-    await panel.getByRole('button', { name: '解析条件', exact: true }).click()
-    await panel.getByRole('button', { name: '确认应用条件' }).waitFor()
+    const input = page.getByRole('textbox', { name: '智能找片' })
+    await input.fill('今年评分最高的10部作品')
+    assert.equal(paid().length, count)
+    await input.press('Enter')
+    await panel.getByRole('link', { name: '远山来信' }).waitFor()
     assert.equal(paid().length, count + 1)
-    assert.equal(new URL(page.url()).searchParams.has('min_rating'), false, 'Preview cannot apply filters')
-    await panel.getByLabel('最低评分', { exact: true }).fill('8')
-    const endpoint = kind === 'movie' ? '/api/search' : '/api/tv/shows'
-    const applied = page.waitForRequest(r => {
-      const url = new URL(r.url())
-      return url.pathname === endpoint && url.searchParams.get('min_rating') === '8'
-    })
-    await panel.getByRole('button', { name: '确认应用条件' }).click()
-    const actual = new URL((await applied).url())
-    assert.equal(actual.searchParams.get('media_library'), '1')
-    assert.equal(actual.searchParams.get('country'), 'HK')
-    assert.equal(actual.searchParams.get('watched'), '0')
-    if (kind === 'tv') assert.equal(actual.searchParams.get('status'), 'ended')
-    await panel.waitFor({ state: 'hidden' })
+    assert.equal(paid().at(-1).body.media_library_id, 1)
+    assert.equal(paid().at(-1).body.kind, kind)
+    assert.equal(await panel.getByRole('listitem').count(), 3)
+    await panel.getByRole('button', { name: '比较前两部' }).click()
+    await panel.getByRole('heading', { name: '片单比较' }).waitFor()
+    assert.ok(paid().at(-1).body.session_id)
+    const spend = paid().length
+    await panel.getByRole('link', { name: '远山来信' }).click()
+    await page.getByRole('link', { name: '返回片单' }).click()
+    await panel.getByRole('link', { name: '远山来信' }).waitFor()
+    assert.equal(paid().length, spend, 'Returning to a list never calls the model')
+    await page.getByRole('button', { name: '普通搜索', exact: true }).click()
+    await page.getByRole('combobox', { name: kind === 'movie' ? '搜索电影' : '搜索剧集' }).waitFor()
   }
-  console.log('PASS 电影与剧集搜索先预览、可修改、确认后复用原查询并保留库范围')
+  await go('/?media=1')
+  await page.getByRole('button', { name: '智能搜索', exact: true }).click()
+  const mixed = page.getByRole('region', { name: '智能搜索', exact: true })
+  await mixed.getByLabel('作品类型').selectOption('tv')
+  await page.getByRole('textbox', { name: '智能找片' }).fill('找一部慢节奏的剧')
+  await page.getByRole('button', { name: '找片', exact: true }).click()
+  await mixed.getByRole('link', { name: '远山来信' }).click()
+  await page.waitForURL(url => url.pathname === '/tv/201')
+  await page.getByRole('link', { name: '返回片单' }).click()
+  await page.waitForURL(url => url.pathname === '/' && url.searchParams.get('media') === '1')
+  await mixed.getByRole('link', { name: '远山来信' }).waitFor()
+  assert.deepEqual(requests.filter(r => r.path.endsWith('/results/refresh')).at(-1).body.kinds, ['tv'])
+  console.log('PASS 电影与剧集一次提交出片单、追问、进入详情和免模型返回')
+
+  await go('/tv?media=1')
+  await page.getByRole('button', { name: '智能搜索', exact: true }).click()
+  await page.getByRole('textbox', { name: '智能找片' }).fill(episodeQuestion)
+  await page.getByRole('button', { name: '找片', exact: true }).click()
+  const episodeLink = mixed.getByRole('link', { name: dubbedEpisode.title, exact: true })
+  await episodeLink.waitFor()
+  const episodeSpend = paid().length
+  const beforeEpisode = requests.length
+  await episodeLink.click()
+  await page.waitForURL(url => url.pathname === '/tv/201/s/2/e/307')
+  await page.getByRole('heading', { level: 1, name: dubbedEpisode.title, exact: true }).waitFor()
+  await page.getByRole('navigation', { name: '当前位置' }).getByText('S02E03', { exact: true }).waitFor()
+  const [refreshedEpisode] = await Promise.all([
+    page.waitForRequest(r => new URL(r.url()).pathname === '/api/ai/search/results/refresh'),
+    page.getByRole('link', { name: '返回片单' }).click(),
+  ])
+  await page.waitForURL(url => url.pathname === '/tv' && url.searchParams.get('media') === '1')
+  assert.equal(turns.get(refreshedEpisode.postDataJSON().session_id)?.query, episodeQuestion)
+  await mixed.getByText(episodeQuestion, { exact: true }).waitFor()
+  await episodeLink.waitFor()
+  assert.equal(await episodeLink.getAttribute('href'), '/tv/201/s/2/e/307')
+  assert.deepEqual(requests.slice(beforeEpisode).filter(r => r.path.startsWith('/api/tv/episodes/')).map(r => r.path),
+    ['/api/tv/episodes/307'], 'Only load the matched file version, including while returning to the list')
+  assert.equal(paid().length, episodeSpend, 'Opening a matched episode version and returning never calls the model')
+  console.log('PASS 指定分集打开匹配的文件版本，返回原媒体库与片单')
 
   await go('/?media=1')
   await page.getByRole('button', { name: '智能搜索', exact: true }).click()
   const panel = page.getByRole('region', { name: '智能搜索', exact: true })
-  await panel.getByLabel('想看什么').fill('旧库晚到')
+  const input = page.getByRole('textbox', { name: '智能找片' })
+  await input.fill('旧库晚到')
   const delayedSeen = new Promise(resolve => { delayedResolve = resolve })
-  await panel.getByRole('button', { name: '解析条件', exact: true }).click()
+  await input.press('Enter')
   await delayedSeen
   await page.getByRole('combobox', { name: '切换媒体库' }).selectOption('2')
   await page.waitForURL(url => url.searchParams.get('media') === '2')
-  await response(delayedSearch, { ...proposal('movie'), summary: '过期建议不应出现' })
+  await response(delayedSearch, discovery({ kind: 'movie', q: '旧库晚到' }))
   delayedSearch = null
-  await page.waitForFunction(() => document.querySelector('[aria-label="切换媒体库"]')?.value === '2')
-  assert.equal(await page.getByText('过期建议不应出现', { exact: true }).count(), 0)
-  assert.equal(await page.getByRole('button', { name: '确认应用条件' }).count(), 0)
-  await panel.getByLabel('想看什么').fill('新库搜索')
-  await panel.getByRole('button', { name: '解析条件', exact: true }).click()
-  await panel.getByRole('button', { name: '确认应用条件' }).waitFor()
+  assert.equal(await page.getByRole('link', { name: '远山来信' }).count(), 0)
+  if (!await input.count()) await page.getByRole('button', { name: '智能搜索', exact: true }).click()
+  await input.fill('新库搜索')
+  await input.press('Enter')
+  await panel.getByRole('link', { name: '远山来信' }).waitFor()
   assert.equal(paid().at(-1).body.media_library_id, 2)
-  console.log('PASS 切库取消旧解析，晚到建议不能覆盖新范围')
-
   searchFailure = 'disabled'
-  await panel.getByLabel('想看什么').fill('停用后的请求')
-  await panel.getByRole('button', { name: '解析条件', exact: true }).click()
+  await page.getByRole('textbox', { name: '追问当前片单' }).fill('调整要求')
+  await page.getByRole('button', { name: '提交追问' }).click()
   await panel.getByText(/模拟智能搜索不可用/).waitFor()
-  assert.equal(await panel.getByRole('button', { name: '确认应用条件' }).count(), 0)
+  await panel.getByRole('link', { name: '远山来信' }).waitFor()
+  await page.getByRole('button', { name: '普通搜索', exact: true }).click()
   const localSearch = page.waitForRequest(r => new URL(r.url()).pathname === '/api/search' && new URL(r.url()).searchParams.get('q') === '普通查找')
   await page.getByRole('combobox', { name: '搜索电影', exact: true }).fill('普通查找')
   await page.getByRole('button', { name: '搜索电影', exact: true }).click()
   await localSearch
   searchFailure = null
-  console.log('PASS 智能搜索停用或失败时原搜索仍可用')
+  console.log('PASS 切库隔离与追问失败保留片单、普通搜索')
+
+  await go('/?media=1')
+  await page.getByRole('button', { name: '智能搜索', exact: true }).click()
+  await panel.getByLabel('搜索范围').selectOption('public')
+  await input.fill('想看普通人之间的故事')
+  await input.press('Enter')
+  const handoff = () => page.waitForRequest(r => {
+    const url = new URL(r.url())
+    return url.pathname === '/api/online/catalog/search' && url.searchParams.get('q') === '远山来信'
+  })
+  const handedOff = handoff()
+  await panel.getByRole('link', { name: '去在线搜索' }).first().click()
+  await handedOff
+  assert.equal(await page.locator('#online-query').inputValue(), '远山来信')
+  assert.equal(new URL(page.url()).searchParams.has('q'), false, 'The private handoff stays out of the URL')
+  const otherSource = handoff()
+  await page.locator('#online-source').selectOption('src_' + '2'.repeat(32))
+  await otherSource
+  await page.getByRole('link', { name: '返回片单' }).click()
+  await panel.getByRole('link', { name: '去在线搜索' }).first().waitFor()
+  console.log('PASS 库外作品带片名查在线来源、换源重查并返回原片单')
 
   for (const kind of ['movie', 'tv']) {
     await go(kind === 'movie' ? '/m/101' : '/tv/201')
@@ -544,11 +630,10 @@ try {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Settings directory and task header must fit the viewport')
   await go('/?media=1')
   await page.getByRole('button', { name: '智能搜索', exact: true }).click()
-  await page.getByRole('region', { name: '智能搜索', exact: true }).getByLabel('想看什么').fill('手机搜索')
-  await page.getByRole('button', { name: '解析条件', exact: true }).click()
-  await page.getByRole('button', { name: '确认应用条件' }).waitFor()
-  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'AI search overflow on a 390px viewport')
-  await checkSearchFieldAlignment()
+  await page.getByRole('textbox', { name: '智能找片' }).fill('手机搜索')
+  await page.getByRole('button', { name: '找片', exact: true }).click()
+  await panel.getByRole('link', { name: '远山来信' }).waitFor()
+  await checkDiscoveryLayouts(panel)
   assert.deepEqual(unexpected, [], 'All requests must remain in explicitly mocked APIs and local frontend assets')
   assert.deepEqual(errors, [], 'Browser runtime or console errors')
   assert.equal(requests.some(r => r.method !== 'GET' && /organize|scan|delete/.test(r.path)), false)

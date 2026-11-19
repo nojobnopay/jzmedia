@@ -219,9 +219,9 @@ API 基础地址填写到接口根目录，不包含 `/chat/completions`；例�
 
 OpenCode Go 的模型 ID 直接填写 `glm-5.3-flash` 这类名称，不加 `opencode-go/` 前缀。只选择官方列为 `/chat/completions` 的模型；本版不支持 Go 的 `/messages` 或 `/responses` 模型。模型清单会变化，以[官方接口表](https://opencode.ai/docs/go/#endpoints)为准。
 
-2026-10-03 核对时，Go 官方仍要求客户端发送典型的编程代理请求；jzmedia 的影视搜索与匹配用途尚未完成真实服务验证，不能保证订阅和 Key 可用于此场景。详见[官方使用范围](https://opencode.ai/docs/go/#where-can-i-use-it)。被拒绝时检查凭据、订阅及服务商的用途要求，仍可改用 DeepSeek 或其他兼容服务。
+OpenCode Go 面向编码代理。2026-11-19，jzmedia 使用一个测试账户的 `glm-5.3-flash` 在隔离片库完成了智能搜索实测。实际账户可用性取决于订阅、模型权限和服务商的用途要求。[官方使用范围](https://opencode.ai/docs/console/go/#where-can-i-use-it)。
 
-<DocFigure src="../assets/screenshots/ai-settings-go.webp" alt="智能辅助设置中选择 OpenCode Go，显示预填地址、模型和用途提示" caption="v0.19.0，2026-10-03：真实设置界面配合模拟 API，无真实 Key。图中测试结果仅演示交互，不代表 OpenCode Go 已连通。" />
+<DocFigure src="../assets/screenshots/ai-settings-go.webp" alt="智能辅助设置中选择 OpenCode Go，显示预填地址、模型和用途提示" caption="v0.40.3，2026-11-19。图中使用模拟接口和虚构密钥演示配置与连接测试。" />
 
 ### Step 2：保存并测试连接
 
@@ -231,9 +231,9 @@ OpenCode Go 的模型 ID 直接填写 `glm-5.3-flash` 这类名称，不加 `ope
 
 ### Step 3：确认发送内容并启用
 
-智能搜索会把输入文字和当前库的可用筛选项发给所选服务；匹配辅助会发送用于辨认作品的名称与真实候选资料，不上传视频。确认服务地址与发送内容后，勾选“启用智能辅助”并保存。
+智能搜索会向所选模型发送提问、相关条件，以及本次候选的片名、简介、主创等文字。追问时会带上上一轮要求与片单。是否看过由本地记录判断，视频文件和播放断点不发送给模型。公开片目查询另使用已配置的 TMDB 资料服务。匹配辅助发送用于辨认作品的名称与候选资料。确认服务地址与发送内容后，勾选“启用智能辅助”并保存。
 
-使用步骤见[智能搜索](find-movies.md#智能搜索)和[辅助核对匹配](metadata.md#辅助核对匹配)。智能辅助不会接管普通扫描，建议仍需核对后应用。
+使用步骤见[智能搜索](find-movies.md#智能搜索)和[辅助核对匹配](metadata.md#辅助核对匹配)。找片会直接展示结果。匹配建议仍须核对并确认后才能绑定资料。
 
 ### 密钥、限额与停用
 

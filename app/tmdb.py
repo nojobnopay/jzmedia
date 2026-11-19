@@ -245,3 +245,16 @@ def check_connection() -> dict:
         logger.warning("TMDB connection check failed: %s", code)
     return {"ok": code == "ok", "code": code, "message": message,
             "elapsed_ms": round((time.monotonic() - started) * 1000)}
+
+
+def catalog_page(client, path: str, params: dict, deadline: float) -> dict:
+    """A single read in the interactive search's shared wall-clock budget."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError
+    response = client.get(path, params=_params(**params), timeout=min(remaining, 5))
+    _raise_for_status(response)
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("无效片目响应")
+    return data

@@ -87,6 +87,14 @@ export function isRemoteVideoLib (libId) {
 
 export function currentLib () { return _current }
 
+// Navigation handoffs must expire even after switching away and back to the same ID.
+let mediaRevision = 0
+export function mediaSelectionRevision () { return mediaRevision }
+function selectCurrentMedia (media) {
+  if (Number(_current?.id ?? -1) !== Number(media?.id ?? -1)) mediaRevision++
+  _current = media
+}
+
 export function currentMediaId () {
   return _current ? Number(_current.id) : null
 }
@@ -144,7 +152,7 @@ export function applyLibs (data) {
     const def = _libs.find((l) => Number(l.id) === Number(_defaultId))
     if (def) fallback = def.media_library_id
   }
-  _current = pickMedia(_mediaLibs, getStoredMediaId(), fallback)
+  selectCurrentMedia(pickMedia(_mediaLibs, getStoredMediaId(), fallback))
   if (_current) setStoredMediaId(_current.id)
   try {
     if (typeof window !== 'undefined') {
@@ -171,7 +179,7 @@ export async function loadLibs (apiFn, { force = false, maxAge = 30000 } = {}) {
 export function switchMedia (id) {
   const media = _mediaLibs.find((m) => Number(m.id) === Number(id))
   if (!media) return null
-  _current = media
+  selectCurrentMedia(media)
   setStoredMediaId(media.id)
   // 工具页跟随：记住该媒体库下首个视频库
   const first = media.video_libraries[0]
@@ -193,7 +201,7 @@ export function resetLibState () {
   _mediaLibs = []
   _defaultId = null
   _loadedAt = 0
-  _current = null
+  selectCurrentMedia(null)
   _loading = null
   _listeners.clear()
 }
