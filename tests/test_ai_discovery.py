@@ -130,6 +130,48 @@ def test_followups_replace_more_compare_and_device_scope(web, monkeypatch):
     assert len(calls) == 5
 
 
+def test_compare_renders_local_candidate_names_in_reasons_and_summary(web, monkeypatch):
+    movie("深夜c1列车", tmdb_rating=8.84, overview="午夜出发。")
+    movie("桥", tmdb_rating=8.6)
+    movie("渡口", tmdb_rating=8.41, overview="停在C9站。")
+    provider(monkeypatch, {"intent": "ranking", "limit": 3},
+             {"intent": "ranking", "action": "compare", "positions": [1, 3]},
+             {"entries": [{"key": "c0", "fields": ["overview"], "reason": "《深夜c1列车》在午夜出发。"},
+                          {"key": "c1", "evidence": ["停在C9站"], "reason": "剧情内容与c0几乎一致，停在C9站。"}],
+              "conclusion": "两部作品，c0 (8.84) 略高于c1 (8.41)。"})
+    initial = run(web, "按评分排三部")
+    compared = run(web, "对比第一部和第三部", session_id=initial["session_id"])
+    assert compared["summary"] == "两部作品，深夜c1列车 (8.84) 略高于渡口 (8.41)。"
+    assert [row["text"] for row in compared["comparison"]] == [
+        "《深夜c1列车》在午夜出发。", "剧情内容与深夜c1列车几乎一致，停在C9站。"]
+    assert [row["evidence"] for row in compared["comparison"]] == [["午夜出发。"], ["停在C9站"]]
+
+
+@pytest.mark.parametrize("bad_summary", [False, True])
+def test_compare_unknown_reference_uses_catalogue_facts(web, monkeypatch, bad_summary):
+    movie("码头", tmdb_rating=8, overview="港口夜景")
+    movie("山城", tmdb_rating=7, overview="雪山归途")
+    bad = "比c92更适合，无法核实的比较。"
+    provider(monkeypatch, {"intent": "ranking", "limit": 2},
+             {"intent": "ranking", "action": "compare", "positions": [1, 2]},
+             {"entries": [{"key": "c0", "fields": ["overview"], "reason": "港口夜景" if bad_summary else bad},
+                          {"key": "c1", "fields": ["overview"], "reason": "雪山归途"}],
+              "conclusion": bad if bad_summary else "选择第一部。"})
+    initial = run(web, "按评分选两部")
+    compared = run(web, "比较前两部", session_id=initial["session_id"])
+    assert compared["status"] == "comparison" and compared["summary"] == "按片库现有资料比较"
+    assert "c92" not in str(compared["comparison"])
+    assert [row["text"] for row in compared["comparison"]] == ["TMDB 8 分 · 港口夜景", "TMDB 7 分 · 雪山归途"]
+    assert compared["warnings"]
+
+
+def test_comparison_reference_that_is_itself_a_real_title_needs_context():
+    names = {"c0": "渡口", "c1": "c0"}
+    assert discovery._comparison_text("《c0》", names, {"c0"}) == "《c0》"
+    with pytest.raises(ValueError, match="ambiguous"):
+        discovery._comparison_text("c0更高", names, {"c0"})
+
+
 def test_wall_conditions_and_kind_cannot_be_broadened(web, monkeypatch, tmp_path):
     movie("高分", genres=["喜剧"], tmdb_rating=9)
     movie("低分", genres=["喜剧"], tmdb_rating=6)
@@ -141,6 +183,34 @@ def test_wall_conditions_and_kind_cannot_be_broadened(web, monkeypatch, tmp_path
     provider(monkeypatch, {"intent": "ranking", "kinds": ["tv", "movie"], "constraints": {"min_rating": 4}})
     result = run(web, "排一下", filters={"genre": ["喜剧"], "min_rating": 8}, kinds=["movie"])
     assert [r["title"] for r in result["items"]] == ["高分"]
+
+
+def test_tv_results_and_refresh_identify_the_actual_episode_and_movie_files(web, monkeypatch, tmp_path):
+    for name in ("movies", "shows"):
+        (tmp_path / name).mkdir()
+    alt = store.create_library(name="电影二", path=str(tmp_path / "movies"), kind="movie")["id"]
+    library = store.create_library(name="电视剧", path=str(tmp_path / "shows"), kind="tv")["id"]
+    first = movie("双版本", tmdb_id=15)
+    second = store.upsert_movie_by_path("second.mkv", library_id=alt)
+    store.update_movie_meta(second, title="双版本", tmdb_id=15)
+    show = store.upsert_show(library, "双版本剧", 2020)
+    first_ep = store.upsert_episode(show, library, "a.mkv", 1, 3)
+    second_ep = store.upsert_episode(show, library, "b.mkv", 1, 3)
+    for item, kind in ((second, "movie"), (second_ep, "episode")):
+        store.upsert_media_info(item, {"playable": True, "duration": 5400, "audio": [{"lang": "cmn"}]}, kind=kind)
+    calls = provider(monkeypatch, {"intent": "search", "kinds": ["movie", "tv", "season", "episode"],
+                                   "constraints": {"audio_languages": ["cmn"]}})
+    scope = {"kind": "movie", "kinds": ["movie", "tv"]}
+    result = run(web, "找国语音轨", source="library", allow_query_source=False, **scope)
+    refreshed = web.post(URL + "/refresh", json={"session_id": result["session_id"], **scope}).json()
+    for response in (result, refreshed):
+        items = {row["kind"]: row for row in response["items"]}
+        assert items["movie"]["id"] == first and items["movie"]["matched_version_id"] == second
+        assert items["movie"]["detail_path"] == f"/m/{second}"
+        assert items["episode"]["id"] == first_ep and items["episode"]["matched_version_id"] == second_ep
+        assert items["tv"]["matched_episode_id"] == items["season"]["matched_episode_id"] == second_ep
+        assert all(items[k]["detail_path"] == f"/tv/{show}/s/1/e/{second_ep}" for k in ("tv", "season", "episode"))
+    assert len(calls) == 1
 
 
 def test_untrusted_rank_falls_back_only_to_actual_matches(web, monkeypatch):
@@ -167,12 +237,14 @@ def test_public_results_need_local_identity_and_watch_evidence(web, monkeypatch)
         return {"items": public, "total": 3, "excluded_unknown": 0}
     monkeypatch.setattr(discovery_public, "discover_public", remote)
     provider(monkeypatch, {"intent": "ranking", "source": "library", "constraints": {"watch_state": "unseen"}},
-             {"intent": "ranking", "source": "public"})
+             {"intent": "ranking", "source": "public"}, {"intent": "ranking", "source": "public"})
     result = run(web, "评分排名，只看没看过的", source="public")
     assert [r["id"] for r in result["items"]] == [local] and result["excluded_unknown"] == 1
     assert result["items"][0]["in_library"] and result["source"] == "public"
     local_result = run(web, "今年评分最高的", source="library")
     assert local_result["source"] == "library" and len(sources) == 1
+    tv_result = run(web, "找一部讲公开审判的电影", source="library", allow_query_source=False)
+    assert tv_result["source"] == "library" and len(sources) == 1
     # A source switch keeps the entire prior plan without a new interpretation.
     monkeypatch.setenv("AI_ENABLED", "true")
     monkeypatch.setenv("AI_API_KEY", "isolated-provider-fixture")

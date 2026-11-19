@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -77,8 +78,10 @@ private data class HomePart(val rows: List<JSONObject> = emptyList(), val loadin
 private fun continuingKey(row: JSONObject): String =
     "continue:${row.text("kind", "movie")}:${row.optJSONObject("progress")?.optLong("version_id", row.optLong("id")) ?: row.optLong("id")}"
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, navigate: (TvRoute) -> Unit, play: (PlaybackRequest) -> Unit) {
+fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, navigate: (TvRoute) -> Unit,
+               play: (PlaybackRequest) -> Unit, onDiscoveryFocus: (FocusRequester?) -> Unit) {
     val paths = listOf("/api/movies/recent-played", "/api/tv/recent-played", "/api/movies", "/api/tv/shows")
     val labels = listOf("电影续播", "剧集续播", "最近加入的电影", "最近加入的电视剧")
     var parts by remember(api, library) { mutableStateOf(List(4) { HomePart() }) }
@@ -182,8 +185,20 @@ fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, nav
     }
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "heading") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("今晚看什么", style = MaterialTheme.typography.headlineMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("今晚看什么", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.align(Alignment.CenterVertically))
+                    if (api.canFindWithAi) {
+                        val focus = remember { FocusRequester() }
+                        DisposableEffect(focus) {
+                            onDiscoveryFocus(focus)
+                            onDispose { onDiscoveryFocus(null) }
+                        }
+                        TvAction("智能找片", { navigate(discoveryRoute()) },
+                            Modifier.align(Alignment.CenterVertically).focusMemory(memory, "home-discovery", focus), icon = "ai")
+                    }
+                }
                 TvAction("刷新", { attempts = attempts.map { it + 1 } }, Modifier.focusMemory(memory, "home-refresh", refreshFocus), icon = "refresh")
             }
         }

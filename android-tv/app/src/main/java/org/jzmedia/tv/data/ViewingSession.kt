@@ -49,6 +49,7 @@ fun viewingErrorMessage(code: String): String? = when (code) {
     "protection_rate_limited" -> "密码尝试过多，请 5 分钟后重试"
     "invalid_password" -> "保护密码应为 6–128 个字符"
     "viewing_locked" -> "观看模式已锁定，请重新进入"
+    "children_restricted" -> "儿童模式下此功能不可用"
     "management_required" -> "请先输入保护密码解锁内容保护设置"
     else -> null
 }

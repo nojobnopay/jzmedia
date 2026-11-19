@@ -200,6 +200,8 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                     }
                 }, Modifier.focusMemory(memory, "mode:$value"), selected = mode == value)
             }
+            if (api.canFindWithAi) TvAction("智能找片", { navigate(discoveryRoute(kind)) },
+                Modifier.focusMemory(memory, "search-discovery"), icon = "ai")
         }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val keyboardWidth = (maxWidth * .3f).coerceIn(264.dp, 328.dp)

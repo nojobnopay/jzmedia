@@ -4,6 +4,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TvRouteTest {
+    @Test fun discoveryScopesPreserveTheSelectedMovieOrTvWall() {
+        assertEquals("movie", discoveryRoute("movie").title)
+        assertEquals("tv", discoveryRoute("show").title)
+        assertEquals("all", discoveryRoute("collection").title)
+        assertEquals("all", discoveryRoute().title)
+    }
+
+    @Test fun matchedMovieEditionSurvivesNavigationAndCannotSilentlyFallBack() {
+        val route = TvRoute("movie", id = 42, versionId = 91)
+        assertEquals(route, TvRoute.decode(route.encode()))
+        assertEquals(91L, detailMovieVersion(route, listOf(42L, 91L), 91L))
+        assertNull(detailMovieVersion(route, listOf(42L), 91L))
+        assertNull(detailMovieVersion(route, emptyList(), 91L))
+        val usual = TvRoute("movie", id = 42)
+        assertEquals(42L, detailMovieVersion(usual, listOf(42L, 91L), 0L))
+        assertEquals(42L, detailMovieVersion(usual, emptyList(), 0L))
+    }
+
     @Test fun privateNavigationNeverPersistsTitlesActorsOrMediaIdentifiers() {
         val routes = listOf(TvRoute("search", title = "Private query"),
             TvRoute("actor-works", title = "Private actor", actorKey = "tmdb:99"),

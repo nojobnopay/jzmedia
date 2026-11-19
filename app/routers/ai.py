@@ -85,6 +85,7 @@ class ResultsRequest(ResultsScope):
     session_id: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9_-]{32}$")
     filters: WallFilters | None = None
     reuse_plan: bool = False
+    allow_query_source: bool = True
 
 
 class RefreshRequest(ResultsScope):

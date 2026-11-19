@@ -18,9 +18,10 @@ import org.jzmedia.tv.data.OnlineCacheDetail
 import org.jzmedia.tv.data.OnlineCacheLibrary
 
 /** Content stays in memory for this server/viewing identity, never SavedState or preferences. */
-class OnlineScreenState {
+class OnlineScreenState(initialSearchTitle: String = "") {
     var section by mutableStateOf("search")
-    var query by mutableStateOf("")
+    private var pendingSearchTitle = onlineSearchInput(initialSearchTitle).trim().takeIf { it.isNotEmpty() }
+    var query by mutableStateOf(pendingSearchTitle.orEmpty())
     var sourceId by mutableStateOf("")
     var sources by mutableStateOf<OnlineSources?>(null)
     var sourcesLoading by mutableStateOf(true)
@@ -97,6 +98,16 @@ class OnlineScreenState {
         searching = false
     }
 
+    internal fun cancelPendingTitle() { pendingSearchTitle = null }
+
+    internal fun takeTitleSearch(): OnlineCatalogSelection? {
+        val title = pendingSearchTitle ?: return null
+        if (sourcesLoading || sourcesError.isNotBlank() || sources?.enabled != true ||
+            sources?.items?.none { it.enabled && it.id == sourceId } != false) return null
+        pendingSearchTitle = null
+        return OnlineCatalogSelection(sourceId, title)
+    }
+
     /** Recheck bindings after returning from playback or explicitly refreshing sources. */
     internal fun acceptSources(value: OnlineSources): Boolean {
         val old = sources
@@ -113,7 +124,7 @@ class OnlineScreenState {
         sourceId = selected?.id.orEmpty()
         if (invalidated) {
             results = null; searchSession = null; categories = emptyList(); categoryId = ""; categoryRoot = ""; channelSelections = emptyMap()
-            year = ""; yearInput = ""; query = ""; loadedQuery = ""
+            year = ""; yearInput = ""; query = pendingSearchTitle.orEmpty(); loadedQuery = ""
             loadedSelection = null; searchPage = 1; searching = false; searchError = ""; cataloguePending = true
             val preserveCache = cacheDetail != null && value.enabled && old?.scopeToken == value.scopeToken
             if (!preserveCache) {

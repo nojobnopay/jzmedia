@@ -27,6 +27,28 @@ class OnlineScreenStateTest {
         if (complete) "complete" else "partial", items, emptyList(), 100, found,
         if (complete) found else null, !complete, !complete, "", 1000)
 
+    @Test fun confirmedDiscoveryTitleWaitsForAnEnabledSourceAndSubmitsOnlyOnce() {
+        val page = OnlineScreenState("  少林足球 ")
+        assertNull(page.takeTitleSearch())
+        page.sourcesLoading = false
+        page.acceptSources(OnlineSources(false, listOf(source)))
+        assertEquals("少林足球", page.query)
+        assertNull(page.takeTitleSearch())
+        page.acceptSources(OnlineSources(true, listOf(source)))
+        assertEquals(OnlineCatalogSelection(source.id, "少林足球"), page.takeTitleSearch())
+        assertNull(page.takeTitleSearch())
+        page.acceptSources(OnlineSources(true, listOf(source)))
+        assertNull(page.takeTitleSearch())
+    }
+
+    @Test fun editingWhileSourcesLoadCancelsTheDiscoveryHandoff() {
+        val page = OnlineScreenState("原片名")
+        page.cancelPendingTitle()
+        page.acceptSources(OnlineSources(true, listOf(source)))
+        page.sourcesLoading = false
+        assertNull(page.takeTitleSearch())
+    }
+
     @Test fun changingSearchFiltersUsesTheSubmittedWordAndPreservesUnsubmittedDrafts() {
         val page = OnlineScreenState().apply {
             sourceId = source.id; query = "还没有搜索的新词"; categoryId = "13"; year = "2026"

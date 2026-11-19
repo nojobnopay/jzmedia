@@ -344,6 +344,31 @@ def _comparison(items):
     return result
 
 
+_COMPARISON_REF = re.compile(r"\bc[0-9]+\b", re.ASCII | re.I)
+
+
+def _comparison_text(text, names, literals):
+    """Render candidate references once, keeping quoted catalogue titles and evidence verbatim."""
+    spans = [match.span() for literal in literals if _COMPARISON_REF.search(literal)
+             for match in re.finditer(re.escape(literal), text)]
+
+    def resolve(match):
+        title = names.get(match[0].lower())
+        if any(start <= match.start() and match.end() <= end for start, end in spans):
+            # A bare title can itself be another film's candidate key. Only an
+            # explicit title quotation identifies which work the model meant.
+            if match.span() in spans and title and title != match[0]:
+                surrounding = text[max(0, match.start() - 1):match.start()] + text[match.end():match.end() + 1]
+                if surrounding not in {"《》", "“”", '""'}:
+                    raise ValueError("ambiguous comparison reference")
+            return match[0]
+        if not title:
+            raise ValueError("unknown comparison reference")
+        return title
+
+    return _COMPARISON_REF.sub(resolve, text)
+
+
 def _compare(items, query, warnings):
     candidates = []
     for i, row in enumerate(items):
@@ -358,13 +383,17 @@ def _compare(items, query, warnings):
         choices = {entry.key: entry for entry in analysis.entries}
         if len(choices) != len(analysis.entries) or set(choices) != {c["key"] for c in candidates}:
             raise ValueError("invalid comparison")
+        names = {facts["key"]: item["title"] for item, facts in zip(items, candidates)}
+        literals = {row[field] for row in items for field in ("title", "original_title") if row.get(field)}
+        proofs = {facts["key"]: _cited(choices[facts["key"]], facts) for facts in candidates}
+        literals.update(quote for evidence in proofs.values() for quote in evidence)
         entries = []
         for item, facts in zip(items, candidates):
             choice = choices[facts["key"]]
-            evidence = _cited(choice, facts)
-            entries.append({"key": item["key"], "title": item["title"], "text": choice.reason or
-                            "；".join(evidence), "evidence": evidence})
-        return entries, analysis.conclusion or "按指定维度比较"
+            evidence = proofs[facts["key"]]
+            text = _comparison_text(choice.reason, names, literals) if choice.reason else "；".join(evidence)
+            entries.append({"key": item["key"], "title": item["title"], "text": text, "evidence": evidence})
+        return entries, _comparison_text(analysis.conclusion, names, literals) or "按指定维度比较"
     except ValueError:
         discard_cached("discovery_compare", payload, COMPARE_INSTRUCTION)
         warnings.append("模型的比较依据未能核实，以下列出现有资料。")
@@ -473,7 +502,7 @@ def run(body, access):
     if body.kinds:
         requested_kinds = [k for k in plan.kinds if ("tv" if k in ("season", "episode") else k) in body.kinds]
         plan.kinds = requested_kinds or list(body.kinds)
-    public_requested = body.source == "public" or (plan.source == "public" and re.search(
+    public_requested = body.source == "public" or (body.allow_query_source and plan.source == "public" and re.search(
         r"公开|全网|全站|全世界|全球|库外|不[只限].*片库|public|worldwide|global", body.q, re.I))
     source = "public" if public_requested else (body.source or (old["source"] if old else "library"))
     # Switching from public results back to library is a fresh result set.

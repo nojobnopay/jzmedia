@@ -19,6 +19,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -43,7 +45,7 @@ private val ChannelItems = listOf(
 
 @Composable
 internal fun TvNavigation(section: String, libraryName: String, memory: FocusMemory, viewingLabel: String? = null,
-                          showOnline: Boolean = false, open: (String) -> Unit) {
+                          showOnline: Boolean = false, homeDown: FocusRequester? = null, open: (String) -> Unit) {
     val channels = if (showOnline) ChannelItems + NavigationItem("online", "在线") else ChannelItems
     val tools = listOf(NavigationItem("libraries", libraryName)) +
         listOfNotNull(viewingLabel?.let { NavigationItem("viewing", it) }) + NavigationItem("settings", "设置")
@@ -80,7 +82,8 @@ internal fun TvNavigation(section: String, libraryName: String, memory: FocusMem
         LazyRow(state = state, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(channels, key = { it.kind }) { item ->
-                NavigationButton(item, widths.getValue(item.kind), labelStyle, section == item.kind, memory) { open(item.kind) }
+                NavigationButton(item, widths.getValue(item.kind), labelStyle, section == item.kind, memory,
+                    downTarget = homeDown.takeIf { item.kind == "home" }) { open(item.kind) }
             }
             item(key = "tools-space") { Spacer(Modifier.width(spacerWidth)) }
             items(tools, key = { it.kind }) { item ->
@@ -96,9 +99,10 @@ internal fun TvNavigation(section: String, libraryName: String, memory: FocusMem
 
 @Composable
 private fun NavigationButton(item: NavigationItem, width: Dp, labelStyle: TextStyle, isSelected: Boolean,
-                             memory: FocusMemory, click: () -> Unit) {
+                             memory: FocusMemory, downTarget: FocusRequester? = null, click: () -> Unit) {
     Button(click, Modifier.width(width).height(40.dp)
         .tvSelected(isSelected)
+        .focusProperties { if (downTarget != null) down = downTarget }
         .focusMemory(memory, "nav:${item.kind}"),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
         scale = tvButtonScale(), shape = tvButtonShape(),

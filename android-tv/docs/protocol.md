@@ -35,6 +35,8 @@ APK 当前使用 `X-Api-Token`，仅发往保存的服务器 origin 和路径范
 
 `tv_search`（片名）与 `tv_actor_search`（演员）是独立的可选能力，不提高播放协议版本。缺少接口时仅对应搜索功能提示升级，浏览和播放继续可用。参数、演员身份和资料范围见[搜索接口](search-design.md#服务端与兼容)。
 
+从 0.41.0 起，`ai_discovery` 声明服务器支持电视智能找片。电视将确认后的整句提交到 `POST /api/ai/search/results`，沿用当前媒体库和观看会话。后续追问携带上一轮的 `session_id` 和服务器签发的设备 Cookie。详情返回使用同路径下的 `/refresh` 复核可见条目，复用已有片单。公开片目需要用户选择扩大范围，在线点播另行检查 `online_vod` 和观看模式。
+
 `online_vod` 是独立的可选能力。APK 完成 `client-info/client-check` 后保存该能力，接受 `features` 数组中的成员或对象中显式的 `online_vod:true`；缺失、错误类型或 `false` 不启用。连接克隆及观看模式切换沿用握手结果，不按版本号猜测支持情况；旧服务器仍走原本地媒体流程。
 
 ### 观看模式与保护会话

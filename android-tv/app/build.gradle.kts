@@ -167,6 +167,7 @@ dependencies {
     testImplementation("org.json:json:20250517")
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.test)
+    androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.test.runner)
     debugImplementation(libs.androidx.compose.test.manifest)
 }

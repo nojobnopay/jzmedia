@@ -237,6 +237,7 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
     fun changeQuery(value: String) {
         val query = onlineSearchInput(value)
         if (query == state.query) return
+        state.cancelPendingTitle()
         state.query = query
         state.pendingFocus = null
         // Completed results still name their submitted loadedQuery until an
@@ -250,6 +251,7 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
         val query = request.query
         if (source != state.sourceId || !selected.enabled || state.sources?.enabled != true || state.sourcesLoading || state.sourcesError.isNotBlank() ||
             query.isBlank() && !selected.browseSupported && selected.provider != "open_catalog") return
+        state.cancelPendingTitle()
         val progressive = query.isNotBlank() && selected.searchFiltersSupported
         val retainResults = progressive && state.loadedSelection == request && state.searchSession != null
         val remembered = state.searchSession?.takeIf { it.query == query && it.source.id == source &&
@@ -566,6 +568,10 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
     LaunchedEffect(state.sourceId, state.sourcesLoading, state.cataloguePending, state.section, state.showingDetail) {
         if (!state.sourcesLoading && state.cataloguePending && state.section == "search" && !state.showingDetail && state.sourcesError.isBlank()) {
             state.cataloguePending = false
+            state.takeTitleSearch()?.let {
+                search(selection = it)
+                return@LaunchedEffect
+            }
             val source = state.sources?.items?.firstOrNull { it.id == state.sourceId && it.enabled }
             if (state.searchSession?.let { it.configurationToken == source?.configurationToken &&
                     it.query == state.loadedSelection?.query } == true && state.results != null)

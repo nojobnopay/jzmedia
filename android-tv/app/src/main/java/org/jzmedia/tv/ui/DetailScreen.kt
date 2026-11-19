@@ -73,7 +73,7 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
     var actionBusy by remember { mutableStateOf(false) }
     var attempt by remember { mutableStateOf(0) }
     var page by rememberSaveable { mutableStateOf(0) }
-    var selectedVersion by rememberSaveable { mutableStateOf(0L) }
+    var selectedVersion by rememberSaveable { mutableStateOf(route.versionId ?: 0L) }
     var seasonVersion by rememberSaveable { mutableStateOf("") }
     var focusedEpisodeId by rememberSaveable { mutableStateOf(0L) }
     var focusAfterLoad by remember { mutableStateOf<String?>(null) }
@@ -116,8 +116,10 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                 "episode" -> "/api/tv/episodes/${route.id}"
                 else -> "/api/collections/${route.id}"
             })
-            if (route.kind == "movie" && data!!.rows("versions").none { it.optLong("id") == selectedVersion }) {
-                selectedVersion = data!!.rows("versions").firstOrNull()?.optLong("id") ?: route.id
+            if (route.kind == "movie") {
+                val version = detailMovieVersion(route, data!!.rows("versions").map { it.optLong("id") }, selectedVersion)
+                if (version == null) error = "匹配的电影版本已不可用，请返回片单重新选择。"
+                else selectedVersion = version
             }
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { error = e.message ?: "详情读取失败" }
@@ -433,6 +435,13 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
 /** Only explicit server knowledge blocks playback; omitted legacy fields remain compatible. */
 internal fun knownOffline(row: JSONObject?): Boolean = row != null &&
     (!row.optBoolean("exists", true) || row.optInt("missing") == 1)
+
+/** A matched edition must still belong to this movie when its detail opens or refreshes. */
+internal fun detailMovieVersion(route: TvRoute, versions: List<Long>, selected: Long): Long? = when {
+    selected in versions -> selected
+    route.versionId != null -> null
+    else -> versions.firstOrNull() ?: route.id
+}
 
 internal fun detailFallbackPoster(row: JSONObject): String =
     posterPath(JSONObject().put("poster_path", row.text("show_poster")))

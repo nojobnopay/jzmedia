@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.KeyboardType
@@ -89,10 +90,19 @@ import org.jzmedia.tv.playback.TvOnlinePlayer
 import org.json.JSONObject
 import java.util.UUID
 
-data class TvRoute(val kind: String, val id: Long = 0, val season: Int = 0, val title: String = "", val key: String = UUID.randomUUID().toString(), val actorKey: String = "") {
-    fun encode(): String = JSONObject().put("kind", kind).put("id", id).put("season", season).put("title", title).put("key", key).put("actor_key", actorKey).toString()
+data class TvRoute(
+    val kind: String, val id: Long = 0, val season: Int = 0, val title: String = "",
+    val key: String = UUID.randomUUID().toString(), val actorKey: String = "", val versionId: Long? = null,
+) {
+    fun encode(): String = JSONObject()
+        .put("kind", kind).put("id", id).put("season", season).put("title", title)
+        .put("key", key).put("actor_key", actorKey).put("version_id", versionId).toString()
+
     companion object {
-        fun decode(value: String): TvRoute = JSONObject(value).let { TvRoute(it.getString("kind"), it.optLong("id"), it.optInt("season"), it.text("title"), it.getString("key"), it.text("actor_key")) }
+        fun decode(value: String): TvRoute = with(JSONObject(value)) {
+            TvRoute(getString("kind"), optLong("id"), optInt("season"), text("title"),
+                getString("key"), text("actor_key"), optLong("version_id").takeIf { it > 0 })
+        }
     }
 }
 
@@ -116,6 +126,8 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     var onlinePlayback by remember { mutableStateOf<OnlinePlaybackRequest?>(null) }
     var onlineController by remember { mutableStateOf<OnlinePlaybackController?>(null) }
     var onlineState by remember(api) { mutableStateOf(OnlineScreenState()) }
+    val discoveryPages = remember(api, library) { mutableMapOf<String, AiDiscoveryScreenState>() }
+    val discoveryOnlinePages = remember(api, library) { mutableMapOf<String, OnlineScreenState>() }
     var playing by remember { mutableStateOf(false) }
     var viewingDialog by remember { mutableStateOf<ViewingDialogRequest?>(null) }
     var managementRequest by remember { mutableStateOf<Pair<JzApi, (Boolean) -> Unit>?>(null) }
@@ -161,6 +173,8 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         completeManagement(false)
         closeOnlinePlayback()
         onlineState = OnlineScreenState()
+        discoveryPages.clear()
+        discoveryOnlinePages.clear()
         remoteSessionId = null; remoteSnapshot = TvCastSnapshot(); playbackController = null
         playback = null; playing = false; viewingDialog = null
         savedPageKeys.forEach(holder::removeState); savedPageKeys = emptyList()
@@ -422,6 +436,9 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     val pagePrefix = "${server.baseUrl}:$library:${server.viewing?.mode ?: "normal"}:${server.viewing?.generation ?: 0}:"
     val pageKey = pagePrefix + routes.last().key
     LaunchedEffect(pagePrefix, routes) {
+        val routeKeys = routes.mapTo(mutableSetOf()) { it.key }
+        discoveryPages.keys.retainAll(routeKeys)
+        discoveryOnlinePages.keys.retainAll(routeKeys)
         val active = routes.map { pagePrefix + it.key }.toSet()
         val obsolete = savedPageKeys.filter { it !in active && !it.startsWith(pagePrefix + "root:") }
         obsolete.forEach(holder::removeState)
@@ -460,25 +477,33 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     BackHandler { back() }
     fun navigate(next: TvRoute) { routes = routes + next }
     val pageContent: @Composable () -> Unit = {
+        var homeDiscoveryFocus by remember { mutableStateOf<FocusRequester?>(null) }
         val memory = rememberFocusMemory(when (route.kind) {
             "search" -> "key:A"
+            "discovery" -> "discovery:input"
             "home", "movies", "shows", "collections", "online" -> "nav:${route.kind}"
             "movie", "show", "season", "episode", "collection" -> "detail:primary"
             "libraries" -> "library:0"
             "settings" -> if (server.viewing != null) "settings:viewing" else "settings:connection"
             else -> "nav:home"
         })
-        fun open(next: TvRoute) { memory.leaving = true; navigate(next) }
+        fun open(next: TvRoute) {
+            if (next.kind == "discovery") discoveryPages[next.key] = AiDiscoveryScreenState()
+            memory.leaving = true
+            navigate(next)
+        }
         fun play(request: PlaybackRequest) {
             memory.leaving = true
             closeOnlinePlayback()
             remoteSessionId = null; remoteSnapshot = TvCastSnapshot()
             playback = request
         }
-        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 40.dp, vertical = 20.dp),
+        val discoveryEnter = remember(route.key) { DiscoveryEnterPress() }
+        val pageKeys = if (route.kind == "discovery") Modifier.onPreviewKeyEvent(discoveryEnter::intercept) else Modifier
+        Column(pageKeys.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 40.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             TvNavigation(navigationSection(routes), libraryName, memory, server.viewing?.label,
-                showOnline = server.supportsOnlineVod && server.viewing?.mode != "children") { kind ->
+                showOnline = server.supportsOnlineVod && server.viewing?.mode != "children", homeDown = homeDiscoveryFocus) { kind ->
                 when (kind) {
                     "viewing" -> viewingDialog = ViewingDialogRequest()
                     "search", "libraries", "settings" -> if (route.kind != kind) open(TvRoute(kind))
@@ -495,11 +520,31 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
             }
             // 屏幕返回键已取消：遥控器返回由上面的全局 BackHandler 兜底。
             when (route.kind) {
-                "home" -> HomeScreen(server, library, refresh, memory, ::open, ::play)
+                "home" -> HomeScreen(server, library, refresh, memory, ::open, ::play) { homeDiscoveryFocus = it }
                 "movies", "shows", "collections" -> BrowseScreen(server, route.kind, library, refresh, memory, ::open)
                 "search" -> SearchScreen(server, library, route.title, memory, ::open, ::back)
+                "discovery" -> if (server.canFindWithAi) {
+                    val state = discoveryPages.getOrPut(route.key) { AiDiscoveryScreenState(launchInput = false) }
+                    fun current() = foreground && !viewingBlocked && api === server &&
+                        routes.lastOrNull()?.key == route.key && discoveryPages[route.key] === state &&
+                        playback == null && onlinePlayback == null && viewingDialog == null
+                    key(state) {
+                        AiDiscoveryScreen(server, library, route.title, state, memory, discoveryEnter, onDetail = { target ->
+                            if (current()) open(TvRoute(target.kind, target.id, target.season, versionId = target.versionId))
+                        }, onOnlineSearch = { title ->
+                            if (current() && server.supportsOnlineVod && title.isNotBlank()) {
+                                val next = TvRoute("online")
+                                discoveryOnlinePages[next.key] = OnlineScreenState(title).also { it.sourceId = onlineState.sourceId }
+                                open(next)
+                            }
+                        }, isCurrent = ::current)
+                    }
+                } else {
+                    Status(if (server.viewing?.mode == "children") "儿童模式暂不提供智能找片" else "此服务器尚未支持智能找片")
+                    TvAction("返回", ::back)
+                }
                 "online" -> if (server.supportsOnlineVod && server.viewing?.mode != "children") {
-                    OnlineScreen(server, memory, refresh, onlineState, onPlay = { request ->
+                    OnlineScreen(server, memory, refresh, discoveryOnlinePages[route.key] ?: onlineState, onPlay = { request ->
                         if (foreground && !viewingBlocked && api === server) {
                             memory.leaving = true
                             playbackController?.close(); playbackController = null
