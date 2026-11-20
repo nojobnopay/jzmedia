@@ -2,15 +2,12 @@
   <div ref="frame" class="assistant-launcher-frame">
     <div v-if="open && modal" class="assistant-chat-backdrop" aria-hidden="true" @click.self="!busy && emit('toggle')"></div>
     <JzButton ref="button" class="assistant-launcher" variant="ghost" icon-only
-      :class="{ 'is-dragging': dragging }" :style="style" aria-label="问设置助手" :aria-expanded="open"
+      :data-motion="phase" :data-paused="pageHidden || undefined" :style="style" aria-label="问设置助手" :aria-expanded="open"
       :aria-controls="open ? 'settings-assistant-panel' : undefined" aria-describedby="assistant-position-help"
       :title="open ? '收起设置助手' : '问设置助手'" :disabled="busy"
       @pointerdown="start" @pointermove="move" @pointerup="finish" @pointercancel="cancel" @lostpointercapture="cancel"
       @keydown="positionKey" @click="activate">
-      <picture>
-        <source media="(prefers-reduced-motion: reduce)" :srcset="projectorArtwork.idle" />
-        <img :src="dragging ? projectorArtwork.drag : speaking ? projectorArtwork.talk : projectorArtwork.idle" alt="" draggable="false" />
-      </picture>
+      <SettingsAssistantProjector :phase="phase" :paused="pageHidden" :style="{ '--projector-lean': lean + 'deg' }" />
     </JzButton>
     <div v-if="open && placement" class="assistant-chat-window" :data-edge="placement.edge" :style="windowStyle">
       <slot />
@@ -22,10 +19,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import JzButton from './JzButton.vue'
-import { projectorArtwork } from '../assistantArtwork.js'
+import SettingsAssistantProjector from './SettingsAssistantProjector.vue'
 import { placeAssistant } from '../settingsAssistantPlacement.js'
 
-const props = defineProps({ open: Boolean, modal: Boolean, speaking: Boolean, busy: Boolean, section: String })
+const props = defineProps({ open: Boolean, modal: Boolean, motion: { type: String, default: 'idle' }, busy: Boolean, section: String })
 const emit = defineEmits(['toggle', 'position'])
 const key = 'jz.settings-assistant.position'
 const defaults = { side: 'right', height: 0 }
@@ -38,9 +35,12 @@ function loadPosition() {
 }
 const saved = ref(loadPosition()), frame = ref(null), button = ref(null)
 const dragging = ref(false), point = ref(null)
+const settling = ref(false), lean = ref(0), pageHidden = ref(false)
+const phase = computed(() => dragging.value ? 'drag' : settling.value ? 'settle' : props.motion)
 const style = computed(() => point.value ? { left: point.value.x + 'px', top: point.value.y + 'px' } : {})
 const clamp = (value, min, max) => Math.max(min, Math.min(value, max))
 let gesture, blockedClick = false, animation = 0, observer, resizeObserver, viewport
+let settleTimer, ownerDocument
 let bounds = null, obstacles = []
 const placement = computed(() => props.open && point.value && placeAssistant(point.value, bounds))
 const windowStyle = computed(() => {
@@ -112,6 +112,8 @@ function start(event) {
   if (event.button !== 0 || !event.isPrimary || props.busy) return
   measure()
   if (!bounds) return
+  stopSettling()
+  lean.value = 0
   blockedClick = false
   gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, origin: point.value }
   event.currentTarget.setPointerCapture(event.pointerId)
@@ -121,7 +123,10 @@ function move(event) {
   const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y
   if (!dragging.value && Math.hypot(dx, dy) <= 8) return
   dragging.value = true
-  point.value = { x: clamp(gesture.origin.x + dx, bounds.left, bounds.right),
+  const x = clamp(gesture.origin.x + dx, bounds.left, bounds.right)
+  const step = x - point.value.x
+  if (Math.abs(step) >= 1) lean.value = clamp(step, -8, 8)
+  point.value = { x,
     y: clamp(gesture.origin.y + dy, bounds.top, bounds.bottom) }
 }
 function finish(event) {
@@ -136,11 +141,31 @@ function finish(event) {
 }
 function cancel(event) {
   if (gesture?.id !== event.pointerId) return
-  blockedClick = dragging.value || event.type === 'pointercancel'
+  if (dragging.value && event.type === 'pointerup') {
+    settling.value = true
+    settleTimer = setTimeout(stopSettling, 340)
+  }
+  releaseGesture(dragging.value || event.type === 'pointercancel')
+}
+function stopSettling() {
+  clearTimeout(settleTimer)
+  settling.value = false
+}
+function releaseGesture(suppressClick) {
+  const id = gesture.id
+  blockedClick = suppressClick
   gesture = null
   dragging.value = false
-  if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  const el = button.value?.el
+  if (el?.hasPointerCapture?.(id)) el.releasePointerCapture(id)
   park()
+}
+function syncVisibility() {
+  pageHidden.value = ownerDocument.hidden
+  if (pageHidden.value) {
+    stopSettling()
+    if (gesture) releaseGesture(true)
+  }
 }
 function activate(event) {
   if (!(blockedClick && event.detail > 0) && !props.busy) emit('toggle')
@@ -172,6 +197,9 @@ onMounted(() => {
   if (!frame.value?.getBoundingClientRect) return
   const layout = frame.value.parentElement
   viewport = window.visualViewport
+  ownerDocument = frame.value.ownerDocument
+  syncVisibility()
+  ownerDocument.addEventListener('visibilitychange', syncVisibility)
   window.addEventListener('resize', schedule)
   window.addEventListener('scroll', schedule, { passive: true, capture: true })
   viewport?.addEventListener('resize', schedule)
@@ -188,6 +216,8 @@ onMounted(() => {
 })
 watch(() => [props.section, props.open, props.modal], () => { if (bounds) schedule() }, { flush: 'post' })
 onBeforeUnmount(() => {
+  stopSettling()
+  ownerDocument?.removeEventListener('visibilitychange', syncVisibility)
   observer?.disconnect()
   resizeObserver?.disconnect()
   window.removeEventListener('resize', schedule)
@@ -215,9 +245,8 @@ onBeforeUnmount(() => {
 .assistant-chat-window[data-edge="bottom"]::before { bottom: 0; left: var(--assistant-pointer); transform: translate(-50%, 50%) rotate(225deg); }
 .assistant-launcher.jz-button { position: fixed; z-index: 2; top: 80px; right: max(12px, env(safe-area-inset-right)); width: 56px; height: 56px; padding: 0; border: 0; border-radius: 50%; background: transparent; pointer-events: auto; touch-action: none; user-select: none; }
 .assistant-launcher.jz-button:hover:not(:disabled) { background: var(--jz-surface-2); }
-.assistant-launcher picture, .assistant-launcher img { display: block; width: 100%; height: 100%; pointer-events: none; }
-.assistant-launcher img { object-fit: contain; filter: drop-shadow(0 2px 3px rgb(0 0 0 / 32%)); }
-.assistant-launcher.is-dragging { cursor: grabbing; }
+.assistant-launcher[data-motion="drag"] { cursor: grabbing; }
+.assistant-launcher :deep(.projector-character) { width: 100%; height: 100%; filter: drop-shadow(0 2px 3px rgb(0 0 0 / 32%)); }
 .launcher-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 700px) { .assistant-launcher.jz-button { width: 48px; height: 48px; } }
 </style>

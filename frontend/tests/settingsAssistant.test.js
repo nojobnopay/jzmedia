@@ -54,18 +54,19 @@ test('settings check failure offers a retry and manual; refreshing saved configu
 })
 
 test('section change keeps completed chat, discards a stale reply, and permits a new request immediately', async t => {
-  const pending = deferred(), sent = []
+  const pending = deferred(), sent = [], motions = []
   const ui = await mount(t, async (path, options) => {
     if (path === '/api/ai/settings') return { enabled: true, provider: 'deepseek', api_key_set: true }
     sent.push(options)
     if (sent.length === 2) return pending.promise
     return { answer: sent.length === 1 ? '已完成的说明' : '新分区的说明', topics: [], mode: 'ai' }
-  })
+  }, { onMotion: motion => motions.push(motion) })
   await ui.ask('最初的提问')
   const late = ui.ask('还没返回的提问')
   ui.props.section = 'sec-display'
   await flush()
   assert.equal(sent[1].signal.aborted, true)
+  assert.equal(motions.at(-1), 'idle')
   await ui.ask('新分区的问题')
   pending.resolve({ answer: '上一分区的过期答复', topics: [], mode: 'ai',
     suggestion: { kind: 'display', field: 'fontSize', value: 18 } })
@@ -75,6 +76,7 @@ test('section change keeps completed chat, discards a stale reply, and permits a
   assert.match(ui.text(), /新分区的说明/)
   assert.doesNotMatch(ui.text(), /上一分区的过期答复|确认应用/)
   assert.deepEqual(JSON.parse(sent[2].body).history, [{ question: '最初的提问', answer: '已完成的说明' }])
+  assert.equal(motions.filter(motion => motion === 'reply').length, 2)
 })
 
 test('changing the active target or saving a new model invalidates an actionable suggestion', async t => {
@@ -142,26 +144,90 @@ test('example chips prefill an editable draft; a composition Enter does not subm
 })
 
 test('a question appears while waiting and can be resubmitted after a failed reply', async t => {
-  const response = deferred(), requests = []
+  const response = deferred(), requests = [], motions = []
   const ui = await mount(t, async (path, options) => {
     if (path === '/api/ai/settings') return { enabled: true, provider: 'compatible' }
     requests.push(JSON.parse(options.body))
     if (requests.length === 1) return response.promise
     return { answer: '当前的配置方法', topics: [], mode: 'ai' }
-  })
+  }, { onMotion: motion => motions.push(motion) })
   const text = '如何设置字幕？'
   const waiting = ui.ask(text)
   await flush()
   assert.match(ui.text(), /如何设置字幕？/)
-  assert.match(ui.text(), /正在查找配置方法/)
+  assert.match(ui.text(), /小映正在回复/)
   response.reject(new Error('服务暂时不可用'))
   await waiting
   await flush()
   assert.match(ui.text(), /提问失败，可重新发送/)
+  assert.deepEqual(motions, ['thinking', 'idle'])
   await ui.find(el => el.type === 'form').props.onSubmit({ preventDefault() {} })
   await flush()
   assert.deepEqual(requests.map(row => row.question), [text, text])
   assert.deepEqual(requests[1].history, [])
   assert.match(ui.text(), /当前的配置方法/)
-  assert.doesNotMatch(ui.text(), /提问失败|正在查找配置方法/)
+  assert.doesNotMatch(ui.text(), /提问失败|小映正在回复/)
+  assert.equal(motions.at(-1), 'reply')
+})
+
+test('a previous arrival cannot end the current request animation or animate an old bubble', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const motions = [], next = deferred()
+  let count = 0
+  const answer = { answer: '配置方法', topics: [], mode: 'ai' }
+  const ui = await mount(t, async path => {
+    if (path === '/api/ai/settings') return { enabled: true, provider: 'compatible' }
+    return ++count === 1 ? answer : next.promise
+  }, { onMotion: motion => motions.push(motion) })
+  const arrivingReplies = () => ui.all().filter(el => el.props.class?.includes('assistant-reply-arriving'))
+  await ui.ask('第一个问题')
+  assert.equal(arrivingReplies().length, 1)
+  t.mock.timers.tick(800)
+  const followup = ui.ask('再问一个问题')
+  await flush()
+  t.mock.timers.tick(800)
+  await flush()
+  assert.equal(motions.at(-1), 'thinking')
+  assert.equal(arrivingReplies().length, 0)
+  next.resolve(answer)
+  await followup
+  await flush()
+  assert.equal(motions.at(-1), 'reply')
+  assert.equal(arrivingReplies().length, 1)
+  t.mock.timers.tick(1500)
+  await flush()
+  assert.equal(motions.at(-1), 'idle')
+  assert.equal(arrivingReplies().length, 0)
+})
+
+test('social replies animate only the latest response and cannot introduce settings links or writes', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const motions = [], requests = []
+  let reaction = 'dance'
+  const ui = await mount(t, async (path, options) => {
+    if (path === '/api/ai/settings') return { enabled: true, provider: 'compatible' }
+    requests.push(JSON.parse(options.body))
+    return { mode: 'social', answer: '我来跳两步！', reaction,
+      topics: [{ id: 'display', section: 'sec-display', title: '不相关的教程' }],
+      suggestion: { kind: 'display', field: 'fontSize', value: 18 } }
+  }, { onMotion: motion => motions.push(motion) })
+  assert.match(ui.text(), /我是小映/)
+  const poses = pose => ui.all().filter(el => el.props['data-pose'] === pose)
+  await ui.ask('跳个舞')
+  assert.equal(poses('dance').length, 1)
+  assert.equal(motions.at(-1), 'dance')
+  assert.doesNotMatch(ui.text(), /不相关的教程|确认应用|回答来自本版手册/)
+  reaction = 'cry'
+  await ui.ask('给我哭一个')
+  assert.equal(poses('dance').length, 0)
+  assert.equal(poses('cry').length, 1)
+  assert.deepEqual(requests[1].history, [{ question: '跳个舞', answer: '我来跳两步！' }])
+  t.mock.timers.tick(2100)
+  await flush()
+  assert.equal(poses('cry').length, 0)
+  assert.equal(motions.at(-1), 'idle')
+  reaction = 'drag'
+  await ui.ask('再来一次')
+  assert.equal(motions.at(-1), 'reply', 'unknown social reactions use the ordinary reply pose')
+  assert.equal(poses('drag').length, 0)
 })

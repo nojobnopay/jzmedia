@@ -2,10 +2,10 @@
   "schema_version": 1,
   "product_illustrations": [
     {
-      "source": "frontend/src/components/SettingsAssistantLauncher.vue",
-      "expression": "dragging ? projectorArtwork.drag : speaking ? projectorArtwork.talk : projectorArtwork.idle",
+      "source": "frontend/src/components/SettingsAssistantProjector.vue",
+      "expression": "artwork",
       "assets": ["projector-idle", "projector-drag", "projector-talk"],
-      "purpose": "小放映机以待机、拖动和回答表情提示设置助手状态"
+      "purpose": "设置入口和最新回复中的放映机小映呈现拖动、等待、答复与互动表情"
     }
   ],
   "dynamic_icons": [

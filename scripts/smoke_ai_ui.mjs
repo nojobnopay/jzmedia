@@ -60,10 +60,20 @@ const requests = [], unexpected = [], errors = []
 const assistantTopics = JSON.parse(await readFile(path.join(project, 'docs/settings-assistant-topics.json'), 'utf8'))
 const assistantEndpoint = '/api/ai/settings-assistant'
 const ruleWrites = () => requests.filter(r => r.method === 'PUT' && r.path.endsWith('/matching-rules'))
-let beforeMatchingWrite, expectedConflictPath
+let beforeMatchingWrite, expectedConflictPath, beforeAssistantReply
+const socialExamples = [
+  { question: '你叫什么名字？', answer: '我叫小映，是 jzmedia 的小放映机。', reaction: 'wave' },
+  { question: '你好啊', answer: '你好呀，我是小映！', reaction: 'wave' },
+  { question: '给我笑一笑', answer: '嘿嘿，给你一个大大的笑容！', reaction: 'smile' },
+  { question: '给我哭一个', answer: '呜，放映机的小泪珠掉下来了。', reaction: 'cry' },
+  { question: '跳个舞', answer: '来啦，左摇一下，右摆一下！', reaction: 'dance' },
+  { question: '我有点难过', answer: '我在这儿。你想跟我说说发生了什么吗？', reaction: null },
+]
 
 function assistantReply(body) {
   assert.deepEqual(Object.keys(body).sort(), ['history', 'question', 'section'])
+  const social = socialExamples.find(example => example.question === body.question)
+  if (social) return { mode: 'social', answer: social.answer, reaction: social.reaction, topics: [], suggestion: null }
   const font = body.question.includes('字体')
   const protection = body.question.includes('密码')
   const local = !settings.enabled
@@ -131,7 +141,10 @@ async function mockApi(route) {
   const method = request.method(), body = request.postData() ? request.postDataJSON() : undefined
   const key = url.pathname
   requests.push({ path: key, method, body, query: Object.fromEntries(url.searchParams) })
-  if (key === assistantEndpoint && method === 'POST') return response(route, assistantReply(body))
+  if (key === assistantEndpoint && method === 'POST') {
+    await beforeAssistantReply?.()
+    return response(route, assistantReply(body))
+  }
   if (/^\/api\/libraries\/\d+\/matching-rules$/.test(key) && method === 'PUT') {
     const library = libraries.find(item => item.id === Number(key.split('/').at(-2)))
     assert.ok(library, 'A matching rule requires a known fixture library')
@@ -329,6 +342,27 @@ async function checkSettingsAssistant(go) {
     await page.screenshot({ path: path.join(directory, name + '.png'), animations: 'disabled' })
   }
   const open = async () => { if (!await dialog.isVisible()) await launcher.click() }
+  const motion = state => page.locator('.assistant-launcher[data-motion="' + state + '"]')
+  const holdReply = async action => {
+    let release
+    const gate = new Promise(resolve => { release = resolve })
+    beforeAssistantReply = () => gate
+    try { await action(page.waitForRequest('**' + assistantEndpoint)) }
+    finally { beforeAssistantReply = undefined; release() }
+  }
+  // Read the active artwork, including the OS preference's <picture> selection.
+  const checkReducedMotion = async (expectIdleArt = true) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    try {
+      await page.waitForFunction(expectIdle => {
+        const button = document.querySelector('.assistant-launcher')
+        const panel = document.querySelector('#settings-assistant-panel')
+        return (!expectIdle || button.querySelector('img').currentSrc.includes('projector-idle')) &&
+          [button, panel].filter(Boolean).every(root =>
+            !root.getAnimations({ subtree: true }).some(animation => animation instanceof CSSAnimation))
+      }, expectIdleArt)
+    } finally { await page.emulateMedia({ reducedMotion: 'no-preference' }) }
+  }
   const ask = async text => {
     await dialog.getByRole('textbox').fill(text)
     await dialog.getByRole('button', { name: '发送' }).click()
@@ -379,6 +413,15 @@ async function checkSettingsAssistant(go) {
   await page.locator('#sec-status .settings-shortcuts').waitFor()
   await page.locator('#sec-status .overview-clear').waitFor()
   const overviewBoxes = await settingsBoxes()
+  await motion('idle').waitFor()
+  const restingBox = await launcher.boundingBox()
+  const movingOnlyArtwork = await launcher.evaluate(node => {
+    const animations = node.getAnimations({ subtree: true }).filter(a => a instanceof CSSAnimation)
+    return animations.length > 0 && animations.every(a => a.effect.target !== node && node.contains(a.effect.target))
+  })
+  assert.ok(movingOnlyArtwork, 'Idle motion is confined to the artwork within the button')
+  await checkReducedMotion()
+  assert.deepEqual(await launcher.boundingBox(), restingBox, 'Motion preferences preserve the launcher hit area')
   await open()
   await dialog.getByRole('textbox').waitFor()
   await checkAttached('opening on the overview', 'right')
@@ -409,8 +452,13 @@ async function checkSettingsAssistant(go) {
   await page.mouse.down()
   await page.mouse.move(610, 460, { steps: 12 })
   await launcher.locator('img[src*="projector-drag"]').waitFor()
+  await motion('drag').waitFor()
   const traversing = await checkAttached('drag in progress')
+  const heldBox = await launcher.boundingBox()
+  await checkReducedMotion()
+  assert.deepEqual(await launcher.boundingBox(), heldBox, 'Drag feedback does not shift the hit area')
   await page.mouse.up()
+  await motion('settle').waitFor()
   const snapped = await checkAttached('custom left height', 'left')
   assert.ok(Math.abs(snapped.left - traversing.left) > 100, 'Releasing moves the open chat to its docked position')
   assert.deepEqual(await settingsBoxes(), overviewBoxes)
@@ -443,22 +491,25 @@ async function checkSettingsAssistant(go) {
   assert.equal(await floating.getAttribute('aria-modal'), null)
   assert.equal(requests.filter(r => r.path === assistantEndpoint).length, 2, 'Reopening does not start a new model request')
   const firstQuestion = '怎么让电影库优先用 TMDB？'
-  let releaseReply
-  const replyGate = new Promise(resolve => { releaseReply = resolve })
-  const delayReply = async route => { await replyGate; await route.continue() }
-  await page.route('**' + assistantEndpoint, delayReply)
-  try {
+  await holdReply(async started => {
     await dialog.getByRole('textbox').fill(firstQuestion)
     await dialog.getByRole('button', { name: '发送' }).click()
+    await started
     const pending = dialog.locator('.assistant-pending')
     await pending.getByText(firstQuestion, { exact: true }).waitFor()
     await pending.getByRole('status').waitFor()
+    const thinking = motion('thinking')
+    await thinking.waitFor()
+    assert.ok(await thinking.locator('.projector-reel').evaluateAll(reels => reels.length === 2 &&
+      reels.every(reel => reel.getAnimations().some(a => a instanceof CSSAnimation))),
+    'Both film reels turn while the model request is pending')
+    await checkReducedMotion()
     assert.equal(await proposal.count(), 0)
-  } finally {
-    releaseReply()
-  }
+  })
+  await motion('reply').waitFor()
+  await dialog.locator('.assistant-reply-arriving .assistant-bubble').waitFor()
   await dialog.getByRole('heading', { name: firstQuestion, exact: true }).waitFor()
-  await page.unroute('**' + assistantEndpoint, delayReply)
+  await motion('idle').waitFor()
   await checkLinks('matching', '匹配规则')
   const turn = dialog.locator('.assistant-turn').last()
   const outgoing = await turn.locator('.assistant-question').boundingBox()
@@ -655,10 +706,52 @@ async function checkSettingsAssistant(go) {
   await page.keyboard.press('Escape')
   await dialog.waitFor({ state: 'hidden' })
   assert.equal(await launcher.evaluate(el => document.activeElement === el), true)
+  await open()
+  await holdReply(async started => {
+    await dialog.getByRole('textbox').fill('打开字体设置的方法是什么？')
+    await dialog.getByRole('button', { name: '发送' }).click()
+    await started
+    await motion('thinking').waitFor()
+    const aborted = page.waitForEvent('requestfailed', req => new URL(req.url()).pathname === assistantEndpoint)
+    await dialog.getByRole('button', { name: '关闭设置助手' }).click()
+    await aborted
+    await motion('idle').waitFor()
+  })
+  await open()
+  await dialog.getByRole('textbox').waitFor()
+  assert.equal(await dialog.locator('.assistant-turn').count(), 0, 'Closing a pending request leaves a fresh chat on reopen')
+  await dialog.getByRole('heading', { name: '小映', exact: true }).waitFor()
+  const writesBeforeChat = requests.filter(r => r.method === 'PUT').length
+  for (const { question, answer, reaction } of socialExamples) {
+    await ask(question)
+    const newest = dialog.locator('.assistant-turn').last()
+    await newest.getByText(answer, { exact: true }).waitFor()
+    assert.equal(await newest.getByRole('link').count(), 0, 'Small talk has no tutorial or settings links')
+    assert.equal(await newest.locator('.assistant-source').count(), 0)
+    assert.equal(await proposal.count(), 0)
+    if (reaction) {
+      const performing = motion(reaction)
+      await performing.waitFor()
+      const posing = dialog.locator('.assistant-reply .projector-character[data-pose="' + reaction + '"]')
+      await newest.locator('.projector-character[data-pose="' + reaction + '"]').waitFor()
+      assert.equal(await posing.count(), 1, 'Only the newest reply performs')
+      assert.ok(await performing.evaluate(node => node.getAnimations({ subtree: true })
+        .some(a => a instanceof CSSAnimation && a.playState === 'running')), 'Performs ' + reaction)
+      if (reaction === 'dance') await checkReducedMotion(false)
+    } else await motion('reply').waitFor()
+  }
+  await motion('idle').waitFor()
+  assert.equal(requests.filter(r => r.method === 'PUT').length, writesBeforeChat)
+  await ask('小映你好，怎么调整字体大小？')
+  await checkLinks('display', '界面显示')
+  assert.equal(await proposal.count(), 0, 'Asking about a setting after chatting remains read-only')
+  await dialog.getByRole('button', { name: '关闭设置助手' }).click()
   Object.assign(settings, { enabled: false, provider: 'deepseek', api_key_set: false })
   await page.evaluate(() => localStorage.removeItem('jz.prefs'))
   await page.setViewportSize(desktop)
   console.log('PASS 半透明浮窗与设置布局、四角停靠及拖动跟随、双向气泡和等待状态、320/390px 手机确认及模型引导')
+  console.log('PASS 放映机待机、拖动与回稳、等待与应答、关闭取消和减少动态效果')
+  console.log('PASS 小映的自我介绍、问候、笑哭舞动作及减弱动效，闲聊后可以继续查设置教程')
 }
 
 async function captureDocs(go) {

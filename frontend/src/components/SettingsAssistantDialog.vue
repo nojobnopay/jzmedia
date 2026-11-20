@@ -5,12 +5,12 @@
     <template #header="{ titleId }">
       <div class="assistant-heading">
         <div class="assistant-title">
-          <h2 :id="titleId">设置助手</h2>
-          <span v-if="pages.get(section)" :title="pages.get(section)">{{ pages.get(section) }}</span>
+          <h2>小映</h2>
+          <div class="assistant-context"><span :id="titleId">设置助手</span><template v-if="pages.get(section)"> · {{ pages.get(section) }}</template></div>
         </div>
         <details ref="privacy" class="assistant-privacy" @keydown.esc="dismissPrivacy" @focusout="leavePrivacy">
           <summary title="对话隐私" aria-label="对话隐私"><AppIcon name="info" :size="17" /></summary>
-          <p id="settings-question-privacy">提问会将问题、近期对话、当前分区和相关手册摘录发送给已配置的模型。密钥、令牌和媒体路径请在原设置表单填写。</p>
+          <p id="settings-question-privacy">常见问候和表演由小映在本地回应。需要模型回答时，会发送问题、近期对话、当前分区和相关手册摘录。密钥、令牌和媒体路径请在原设置表单填写。</p>
         </details>
         <label class="assistant-dock" title="停靠位置">
           <AppIcon name="grid" :size="17" />
@@ -25,7 +25,7 @@
     <div ref="thread" class="assistant-thread" aria-label="聊天记录">
       <div v-if="!turns.length && !transient && readiness === 'ready'" class="assistant-welcome">
         <SettingsAssistantReply>
-          <p class="assistant-answer">想设置什么？我可以帮你找步骤，也可以一起调整设置。</p>
+          <p class="assistant-answer">你好，我是小映，片场的小放映机。设置遇到难题可以问我，也可以喊我跳支舞。</p>
         </SettingsAssistantReply>
         <div class="assistant-starters" role="group" aria-label="填入示例问题">
           <JzButton v-for="example in examples" :key="example" size="compact" @click="prefill(example)">
@@ -37,10 +37,10 @@
         :class="{ 'assistant-pending': turn === transient && asking }">
         <component :is="turn === transient ? 'p' : 'h3'" :ref="el => keepLatest(el, i)"
           class="assistant-question" tabindex="-1">{{ turn.question }}</component>
-        <SettingsAssistantReply>
+        <SettingsAssistantReply :arriving="turn.id === arrivingId" :reaction="turn.id === arrivingId ? turn.reaction : null">
           <div v-if="turn === transient && asking" class="assistant-typing" role="status">
             <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
-            <span class="assistant-sr">正在查找配置方法…</span>
+            <span class="assistant-sr">小映正在回复…</span>
           </div>
           <div v-else-if="turn.error" role="alert" class="assistant-failure">
             <p>{{ turn.error }}</p><HelpLink page="user-guide/settings" label="打开设置手册" />
@@ -109,11 +109,12 @@ const props = defineProps({
   docked: Boolean, corner: { type: String, default: 'bottom-right' },
   contextKey: { type: String, default: '' }, settingsVersion: { type: Number, default: 0 },
 })
-const emit = defineEmits(['close', 'rules-saved', 'display-saved', 'configure', 'speaking', 'busy', 'update:corner'])
+const emit = defineEmits(['close', 'rules-saved', 'display-saved', 'configure', 'motion', 'busy', 'update:corner'])
 const pages = new Map([...SETTINGS_PAGES, ...SETTINGS_TASK_PAGES].map(page => [page.id, page.label]))
 const target = sec => ({ path: '/settings', query: { sec } })
 const question = ref(''), turns = ref([]), latest = ref(null), input = ref(null), panel = ref(null)
 const examples = ['怎么调整匹配优先级？', '帮我把字体调大一点']
+const reactions = new Set(['wave', 'smile', 'cry', 'dance'])
 const setupAction = ref(null), privacy = ref(null), thread = ref(null)
 const transient = ref(null)
 const conversation = computed(() => transient.value ? [...turns.value, transient.value] : turns.value)
@@ -141,17 +142,20 @@ function dismissPrivacy(event) {
   }
 }
 const asking = ref(false), applying = ref(false)
+const arrivingId = ref(null)
+watch(() => arrivingId.value !== null ? (turns.value.at(-1)?.reaction || 'reply') : asking.value ? 'thinking' : 'idle',
+  motion => emit('motion', motion))
 const readiness = ref('loading'), configError = ref('')
 const setupNotice = computed(() => ({
   disabled: '智能辅助尚未启用。请在智能辅助设置中启用服务并保存，即可对话。',
   missing: '当前模型服务还缺少 API Key。请在智能辅助设置中填写密钥并保存。',
   invalid: '已保存的模型配置无效，请核对智能辅助设置。',
 }[readiness.value]))
-let controller, statusController, speechTimer, turnId = 0, discardAfterApply = false
+let controller, statusController, arrivalTimer, turnId = 0, discardAfterApply = false
 
-function stopSpeaking() {
-  clearTimeout(speechTimer)
-  emit('speaking', false)
+function endArrival() {
+  clearTimeout(arrivalTimer)
+  arrivingId.value = null
 }
 function discardSuggestion() {
   if (turns.value.length) turns.value.at(-1).suggestion = null
@@ -161,7 +165,7 @@ function invalidate() {
   asking.value = false
   if (transient.value && !question.value) question.value = transient.value.question
   transient.value = null
-  stopSpeaking()
+  endArrival()
   if (applying.value) discardAfterApply = true
   else discardSuggestion()
 }
@@ -172,7 +176,8 @@ onScopeDispose(() => {
   clearTimeout(compositionEnterTimer)
   controller?.abort()
   statusController?.abort()
-  stopSpeaking()
+  clearTimeout(arrivalTimer)
+  emit('motion', 'idle')
 })
 async function loadStatus(focusOnOpen = false) {
   statusController?.abort()
@@ -220,8 +225,7 @@ async function ask() {
   question.value = ''
   const request = controller = new AbortController()
   discardSuggestion()
-  clearTimeout(speechTimer)
-  emit('speaking', true)
+  endArrival()
   try {
     nextTick(() => {
       const body = thread.value?.parentElement
@@ -233,9 +237,15 @@ async function ask() {
       body: JSON.stringify({ question: text, section: props.section, history }),
     })
     if (request.signal.aborted) return
-    turns.value.push({ id: transient.value.id, question: text, answer: result.answer, mode: result.mode,
-      topics: result.topics.filter(topic => pages.has(topic.section)),
+    if (typeof result?.answer !== 'string' || !result.answer.trim() || !Array.isArray(result.topics))
+      throw new Error('未收到有效的设置说明。')
+    const social = result.mode === 'social'
+    const reaction = social && reactions.has(result.reaction) ? result.reaction : null
+    turns.value.push({ id: transient.value.id, question: text, answer: result.answer, mode: result.mode, reaction,
+      topics: social ? [] : result.topics.filter(topic => pages.has(topic.section)),
       suggestion: result.mode === 'ai' ? result.suggestion : null })
+    arrivingId.value = transient.value.id
+    arrivalTimer = setTimeout(endArrival, reaction ? 2000 : 1200)
     transient.value = null
     await nextTick()
     if (!request.signal.aborted && panel.value?.canFocus() && (document.activeElement === document.body ||
@@ -256,10 +266,7 @@ async function ask() {
       question.value = text
     }
   } finally {
-    if (!request.signal.aborted) {
-      asking.value = false
-      speechTimer = setTimeout(stopSpeaking, 1200)
-    }
+    if (!request.signal.aborted) asking.value = false
   }
 }
 </script>
@@ -279,6 +286,10 @@ async function ask() {
 @supports ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
   #settings-assistant-panel { background: rgb(41 40 46 / 60%); -webkit-backdrop-filter: blur(7px) saturate(115%); backdrop-filter: blur(7px) saturate(115%); }
 }
+@media (prefers-reduced-motion: no-preference) {
+  #settings-assistant-panel { animation: assistant-panel-open 130ms ease-out; }
+  @keyframes assistant-panel-open { from { opacity: .65; } }
+}
 #settings-assistant-panel .jz-dialog-header { position: relative; align-items: center; gap: 0; padding: 8px 12px 8px 17px; border-color: var(--chat-line); }
 #settings-assistant-panel .jz-dialog-heading { min-width: 0; }
 #settings-assistant-panel .jz-dialog-heading h2 { margin: 0; color: var(--jz-text); font-size: 1rem; font-weight: 650; line-height: 1.3; }
@@ -297,7 +308,7 @@ async function ask() {
 <style scoped>
 .assistant-heading { display: flex; align-items: center; min-width: 0; }
 .assistant-title { flex: 1; min-width: 0; }
-.assistant-title span { display: block; margin-top: 2px; color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-context { margin-top: 2px; color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .assistant-privacy summary, .assistant-dock { display: grid; place-items: center; position: relative; width: 34px; height: 34px; border-radius: 50%; color: var(--jz-text-dim); cursor: pointer; }
 .assistant-privacy summary::-webkit-details-marker { display: none; }
 .assistant-privacy summary:hover, .assistant-privacy[open] summary, .assistant-dock:hover { color: var(--jz-text); background: var(--chat-line); }
@@ -326,6 +337,8 @@ async function ask() {
 .assistant-typing { display: flex; align-items: center; gap: 4px; min-height: 20px; }
 .assistant-typing > span[aria-hidden] { width: 5px; height: 5px; border-radius: 50%; background: var(--jz-text-dim); }
 @media (prefers-reduced-motion: no-preference) {
+  .assistant-pending .assistant-question { animation: assistant-question-in 150ms ease-out; }
+  @keyframes assistant-question-in { from { opacity: .5; transform: translateY(3px); } }
   .assistant-typing > span[aria-hidden] { animation: assistant-typing 1.2s ease-in-out infinite; }
   .assistant-typing > span:nth-child(2) { animation-delay: .14s; }
   .assistant-typing > span:nth-child(3) { animation-delay: .28s; }

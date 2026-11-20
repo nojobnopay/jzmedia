@@ -84,6 +84,9 @@ def test_configured_client_and_daily_quota_use_the_same_local_manual(client, mon
     question = "怎么调整匹配规则？"
     first = ask(client, question).json()
     assert first["mode"] == "ai" and first["suggestion"] is None
+    system = calls[0]["messages"][0]
+    assert system["role"] == "system" and system["content"].startswith(assistant._INSTRUCTION)
+    assert "小映" in system["content"] and "仅返回一个 JSON 对象" in system["content"]
     history = [{"question": "说" * 500, "answer": "答" * 1600}] * 3
     history.append({"question": question, "answer": first["answer"]})
     next_turn = ask(client, "帮我优先用 TMDB", history=history).json()
@@ -93,6 +96,7 @@ def test_configured_client_and_daily_quota_use_the_same_local_manual(client, mon
     assert followup["history"][-1] == history[-1] and len(followup["manual"]) == len(assistant._manual())
     limited = ask(client, "如何调整海报大小？").json()
     assert limited["mode"] == "local" and "已达上限" in limited["answer"] and limited["topics"]
+    assert ask(client, "给我笑一笑").json()["reaction"] == "smile"
     assert len(calls) == settings.usage()["requests"] == 2
     assert "test-deepseek-key" not in json.dumps(calls)
 
@@ -171,6 +175,95 @@ def test_private_question_or_history_never_calls_provider(client, monkeypatch, p
     for result in (ask(client, private), ask(client, "还有呢？", history=[{"question": private, "answer": "好的"}])):
         assert result.json()["mode"] == "local"
         assert "本地手册" in result.json()["answer"] and private not in result.text
+
+
+@pytest.mark.parametrize("question,reaction,keyword", [
+    ("你叫什么名字？", "wave", "小映"), ("小映，你好啊！", "wave", "你好"),
+    ("给我笑一笑", "smile", "笑"), ("给我哭一个", "cry", "眼泪"),
+    ("跳个舞", "dance", "舞"), ("请给我跳一支舞好吗？", "dance", "舞"),
+    ("跳支舞", "dance", "舞"), ("跳段舞", "dance", "舞"), ("请你给我跳支舞吧", "dance", "舞"),
+    ("小映小映，你叫什么名字呀？", "wave", "小映"),
+    ("谢谢你", "smile", "不客气"), ("我有点难过", None, "我在"),
+])
+def test_whole_social_cues_reply_without_model_or_side_effects(client, monkeypatch, question, reaction, keyword):
+    monkeypatch.setattr(assistant, "call_json", lambda *a: pytest.fail("unexpected model call"))
+    before = store.get_library(store.DEFAULT_LIBRARY_ID)
+    result = ask(client, question, section="sec-display",
+                 history=[{"question": "把字体调大", "answer": "核对后确认。"}]).json()
+    assert keyword in result["answer"]
+    assert result == {"answer": result["answer"], "mode": "social", "reaction": reaction,
+                      "topics": [], "suggestion": None}
+    assert store.get_library(store.DEFAULT_LIBRARY_ID) == before and settings.usage()["requests"] == 0
+
+
+def test_repeat_performance_uses_only_immediately_preceding_turn(client, monkeypatch):
+    sent = mock_model(monkeypatch, "display")
+    history = []
+    for question in ["跳个舞", "再来一次", "再跳一次", "再来一段吧"]:
+        result = ask(client, question, history=history).json()
+        assert result["reaction"] == "dance" and result["mode"] == "social"
+        if history:
+            assert result["answer"] != history[-1]["answer"]
+        history.append({"question": question, "answer": result["answer"]})
+    assert not sent
+    history = [history[-1], {"question": "请帮我调大字体", "answer": "请核对显示设置。"}]
+    assert ask(client, "再来一次", history=history).json()["mode"] == "ai"
+    assert len(sent) == 1
+    monkeypatch.setattr(assistant, "call_json", lambda *a: {"mode": "social", "answer": "再跳一段！", "reaction": "dance"})
+    ambiguous = ask(client, "再来一次", history=history).json()
+    assert ambiguous["reaction"] is None and ambiguous["suggestion"] is None and "哪个动作" in ambiguous["answer"]
+
+
+def test_social_and_manual_guards_apply_to_model_responses(client, monkeypatch):
+    social = {"mode": "social", "answer": "小映在。这场电影有什么地方让你舍不得？", "reaction": None}
+    calls = []
+
+    def send(task, data, prompt):
+        calls.append(prompt)
+        return social
+
+    monkeypatch.setattr(assistant, "call_json", send)
+    result = ask(client, "看完散场时总有点舍不得，你呢？").json()
+    assert result == {**social, "topics": [], "suggestion": None}
+    assert len(calls) == 1 and "小映" in calls[0] and "确认" in calls[0]
+    for question in ("你好啊，帮我把字体调大一点", "怎么关闭跳舞动画？", "你好，怎么连接媒体库？"):
+        rejected = ask(client, question).json()
+        assert rejected["mode"] == "local" and rejected["topics"] and rejected["suggestion"] is None
+    assert len(calls) == 4
+    sent = mock_model(monkeypatch, "display", {"kind": "display", "field": "fontSize", "delta": 1})
+    configured = ask(client, "你好啊，帮我把字体调大一点").json()
+    assert configured["mode"] == "ai" and configured["suggestion"]["delta"] == 1 and len(sent) == 1
+
+
+def test_setting_proposal_does_not_require_built_in_change_phrasing(client, monkeypatch):
+    matching = {"kind": "matching", "operation": "prioritize", "providers": ["tmdb"]}
+    mock_model(monkeypatch, "matching", matching)
+    for question in ("帮我把 TMDB 放前面", "把本地索引挪到最后"):
+        assert ask(client, question).json()["suggestion"] == matching
+    mock_model(monkeypatch, "display", {"kind": "display", "field": "fontSize", "delta": 2})
+    assert ask(client, "字体放大两号").json()["suggestion"]["delta"] == 2
+    history = [{"question": "怎么调字号？", "answer": "字体大小可以按像素调整。"}]
+    assert ask(client, "按刚才说的来", history=history).json()["suggestion"]["delta"] == 2
+    assert ask(client, "讲个故事吧").json()["suggestion"] is None
+
+
+@pytest.mark.parametrize("invalid", [
+    {"reaction": "delete"}, {"topics": ["display"]}, {"url": "/api/settings"},
+    {"suggestion": {"kind": "display", "field": "fontSize", "value": 20}},
+    {"answer": "点击 https://example.invalid 就能看到我跳舞"},
+])
+def test_model_small_talk_cannot_smuggle_actions_or_references(client, monkeypatch, invalid):
+    monkeypatch.setattr(assistant, "call_json", lambda *a: {"mode": "social", "answer": "在呢。", **invalid})
+    result = ask(client, "给我表演个拿手绝活").json()
+    assert result["mode"] == "local" and result["suggestion"] is None and "reaction" not in result
+
+
+def test_private_history_and_management_protect_social_requests(client, monkeypatch):
+    monkeypatch.setattr(assistant, "call_json", lambda *a: pytest.fail("unexpected model call"))
+    private = ask(client, "给我笑一笑", history=[{"question": "密码：fake-secret", "answer": "收到。"}]).json()
+    assert private["mode"] == "local" and "fake-secret" not in str(private) and "reaction" not in private
+    assert client.post("/api/viewing/password", json={"new_password": "123456"}).status_code == 200
+    assert ask(client, "给我笑一笑").status_code == 403
 
 
 def test_locked_management_and_write_token_also_protect_questions(client, monkeypatch):

@@ -759,7 +759,7 @@ AI 服务默认关闭。所有产生外部调用的入口使用 POST，沿用应
 | `GET /api/ai/settings` | 返回启用状态、服务商、地址、模型、超时、每日上限、`api_key_set/api_key_masked/api_key_source` 和当日 `usage`，不返回完整 Key |
 | `PATCH /api/ai/settings` | 部分更新 `enabled/provider/base_url/model/api_key/timeout_seconds/daily_limit`；完整校验成功才保存，保存后清空 AI 结果缓存 |
 | `POST /api/ai/check` | 使用已保存的有效配置做一次真实 JSON 输出检查；关闭智能辅助时也可显式测试，不使用缓存，计入当日次数 |
-| `POST /api/ai/settings-assistant` | 提交 `{question, section?, history?}`，返回 `{answer, topics, mode, suggestion}`。教程引用由服务端按本版手册生成。模型关闭、不可用或建议校验失败时返回本地手册说明。接口只生成答复与建议，用户在网页确认后应用更改 |
+| `POST /api/ai/settings-assistant` | 提交 `{question, section?, history?}`。设置答复返回 `answer`、`topics`、`mode` 和可选建议 `suggestion`。教程引用来自本版手册，配置更改须由用户在网页确认。日常互动返回 `mode: "social"`、空 `topics`、`suggestion: null` 和表演动作 `reaction`（`wave`、`smile`、`cry`、`dance` 或 `null`）。设置问题在模型不可用或答复校验失败时返回本地手册说明 |
 | `POST /api/ai/search` | `{q, kind:"movie"\|"tv", media_library_id?, library_id?}`；`q` 最多 500 字符，返回 `filters/summary/warnings` 供用户核对，不执行本地查询 |
 | `POST /api/ai/search/results` | `{q, kind?, kinds?, media_library_id?, library_id?, source?, session_id?, filters?}`。返回有序作品、范围、逐项依据、资料不足和追问标识。会话标识与设备 Cookie、进入页面、观看身份及库范围配套使用 |
 | `POST /api/ai/search/results/refresh` | 提交上次的 `session_id` 及同一页面与库范围，重新核实可见作品和观看状态，恢复返回位置。此请求不调用模型 |

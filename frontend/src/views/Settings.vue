@@ -8,11 +8,11 @@
       <HelpLink page="user-guide/settings" label="帮助" icon="help" aria-label="设置帮助（在新标签页打开）" />
     </header>
     <SettingsAssistantLauncher ref="launcher" :open="assistantOpen" :modal="isPhone"
-      :speaking="assistantSpeaking" :busy="assistantBusy" :section="active" @toggle="toggleAssistant" @position="assistantCorner = $event">
+      :motion="assistantMotion" :busy="assistantBusy" :section="active" @toggle="toggleAssistant" @position="assistantCorner = $event">
       <SettingsAssistantDialog v-if="assistantOpen" :section="active" :libraries="libList" :libraries-ready="ready" :docked="!isPhone"
         :corner="assistantCorner" :context-key="assistantContext" :settings-version="assistantSettingsVersion"
         :libraries-error="librariesError" :refresh-libraries="refreshAssistantLibraries" :dirty-libraries="chainDirtyLibraries" :rules-busy="savingChain"
-        @speaking="assistantSpeaking = $event" @busy="assistantBusy = $event" @update:corner="launcher?.moveToCorner($event)"
+        @motion="assistantMotion = $event" @busy="assistantBusy = $event" @update:corner="launcher?.moveToCorner($event)"
         @configure="configureAssistant" @close="closeAssistant" @rules-saved="reflectSavedRules" @display-saved="prefs = $event" />
     </SettingsAssistantLauncher>
     <aside class="side-nav" aria-label="设置导航">
@@ -242,13 +242,13 @@ import '../styles/settings.css'
 const route = useRoute()
 const router = useRouter()
 const assistantOpen = ref(false)
-const assistantSpeaking = ref(false), assistantBusy = ref(false)
+const assistantMotion = ref('idle'), assistantBusy = ref(false)
 const assistantCorner = ref('top-right'), launcher = ref(null)
 const openServiceRequest = ref(0), assistantSettingsVersion = ref(0)
 function closeAssistant() {
   if (assistantBusy.value) return
   assistantOpen.value = false
-  assistantSpeaking.value = false
+  assistantMotion.value = 'idle'
   nextTick(() => launcher.value?.focus())
 }
 function toggleAssistant() {

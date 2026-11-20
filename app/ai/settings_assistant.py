@@ -1,4 +1,4 @@
-"""Read-only settings guidance grounded in the manual shipped with this release."""
+"""Small talk with 小映 and read-only guidance grounded in the bundled manual."""
 from functools import lru_cache
 import json
 from pathlib import Path
@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from ..metadata.chain import KNOWN_PROVIDERS
+from .assistant_persona import ENCORE_QUESTION, ENCORES, Reaction, social_intent, stage_cue
 from .client import MAX_INPUT_BYTES, AiUnavailable, call_json, discard_cached
 
 
@@ -66,15 +67,31 @@ class DisplaySuggestion(StrictModel):
 
 
 class Guidance(StrictModel):
+    mode: Literal["settings"] = "settings"
     answer: Answer
     topics: list[str] = Field(min_length=1, max_length=3)
     suggestion: MatchingSuggestion | DisplaySuggestion | None = None
 
 
+class SocialReply(StrictModel):
+    mode: Literal["social"]
+    answer: Answer
+    reaction: Reaction | None = None
+    topics: list[str] = Field(default_factory=list, max_length=0)
+    suggestion: None = None
+
+
 _INDEX = Path(__file__).resolve().parents[2] / "docs" / "settings-assistant-topics.json"
 _PUBLIC = ("id", "title", "page", "anchor", "section")
-_INSTRUCTION = """你是 jzmedia 设置助手。只依据给出的本版本手册摘录，用中文回答当前问题。
-输出 {"answer":"分步的纯文本说明","topics":["引用的主题 id"],"suggestion":null}。
+_INSTRUCTION = """你叫“小映”，是 jzmedia 设置页上的小放映机。用自然的中文对话。你亲切、有点俏皮，
+偶尔用一句放映室的小比喻；遇到设置问题就直截了当，说明步骤和影响。结合提供的最近对话回答，
+不要编造以前的交情、用户资料或在屏幕外做过的事。
+根据本轮实际意图选择一种回复；寒暄和设置问题出现在同一句时，简短回应后优先解答设置。
+仅聊天、问名字、道谢、聊心情或邀请表演时，用一两句话接住对方，不引用手册，不主动推销设置。
+若对方难过，先倾听；只有对方想看表演时才哭或跳舞。动作限于小放映机的视觉表演，
+用 {"mode":"social","answer":"纯文本回复","reaction":"wave","topics":[],"suggestion":null}；
+reaction 可为 wave（招手）、smile（笑）、cry（哭）、dance（跳舞）或 null。没有合适动作时用 null。
+设置问题只依据给出的本版本手册摘录；输出 {"mode":"settings","answer":"分步的纯文本说明","topics":["引用的主题 id"],"suggestion":null}。
 引用 1 至 3 个提供的主题 id。链接和设置入口由程序生成，正文不写 URL、Markdown 链接或命令。
 资料不足时说明手册未覆盖或提出一个澄清问题。不能声称已经修改配置，不要询问凭据。
 只有用户明确要求帮忙修改时才生成一项 suggestion；询问方法、原因、效果时只回答。
@@ -105,6 +122,11 @@ _LINK = re.compile(r"(?:https?|javascript|data|file|smb):|\]\s*\(|</?[a-z][^>]*>
 _GUIDE_ONLY = re.compile(
     r"怎么|怎样|如何|在哪[里儿]?|哪里|教程|步骤|为什么|有何|想(?:问|了解|知道)|只要(?:问|了解|知道)|"
     r"(?:不要|别|不用)(?:帮我)?(?:修改|改|设置|调整|保存|动)|\b(?:how|why)\b", re.I,
+)
+_CHANGE = re.compile(
+    r"修改|改(?:成|为|到|一下)|设置|配置|设(?:成|为)|调整|调[大小到]|[大小]一[点号]|"
+    r"启用|停用|禁用|开启|打开|关闭|关掉|切换|连接|添加|移除|优先|排(?:在)?(?:第|最)|放(?:在|到)?第|帮我改",
+    re.I,
 )
 
 
@@ -159,9 +181,16 @@ def _local(topics, reason, *, identified, setup=False):
 
 
 def reply(body: SettingsQuestion):
+    private = _PRIVATE.search(body.question) or any(
+        _PRIVATE.search(turn.question) or _PRIVATE.search(turn.answer) for turn in body.history)
+    intent = social_intent(body.question)
+    if not private:
+        cue = stage_cue(intent, body.history[-1].answer if body.history else "")
+        if cue:
+            answer, reaction = cue
+            return SocialReply(mode="social", answer=answer, reaction=reaction).model_dump()
     topics, identified = _candidates(body)
-    if _PRIVATE.search(body.question) or any(
-            _PRIVATE.search(turn.question) or _PRIVATE.search(turn.answer) for turn in body.history):
+    if private:
         return _local(topics, "对话可能含凭据、地址或路径，本次仅查询本地手册。请在对应设置表单填写具体值。",
                       identified=identified)
     # Even a question with no literal keyword can refer to any setting.
@@ -180,7 +209,20 @@ def reply(body: SettingsQuestion):
         payload["history"].pop(0)
     task = "settings_assistant"
     try:
-        result = Guidance.model_validate(call_json(task, payload, _INSTRUCTION))
+        raw = call_json(task, payload, _INSTRUCTION)
+        if isinstance(raw, dict) and raw.get("mode") == "social":
+            social = SocialReply.model_validate(raw)
+            if _LINK.search(social.answer):
+                raise ValueError("unverified reference")
+            if _CHANGE.search(body.question) and (_GUIDE_ONLY.search(body.question) or any(
+                    t["id"] not in {"assistant", "overview"} for t in _rank(body.question.casefold()))):
+                raise ValueError("invalid social response to this question")
+            # A previous performance may still be in history several turns
+            # later. Only the immediate, identified cue can be replayed.
+            if intent in ENCORES:
+                return SocialReply(mode="social", answer=ENCORE_QUESTION).model_dump()
+            return social.model_dump()
+        result = Guidance.model_validate(raw)
         if any(key not in candidates for key in result.topics) or _LINK.search(result.answer):
             raise ValueError("unverified reference")
         suggestion = result.suggestion
@@ -195,7 +237,7 @@ def reply(body: SettingsQuestion):
     except ValueError:
         discard_cached(task, payload, _INSTRUCTION)
         return _local(topics, "模型答复未通过设置校验，以下为本版本手册说明。", identified=identified)
-    if _GUIDE_ONLY.search(body.question):
+    if _GUIDE_ONLY.search(body.question) or (not identified and not _CHANGE.search(body.question)):
         suggestion = None
     return _response(result.answer, [candidates[key] for key in dict.fromkeys(result.topics)],
                      suggestion.model_dump(exclude_none=True) if suggestion else None, "ai")

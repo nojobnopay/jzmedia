@@ -43582,7 +43582,7 @@
       "source_excerpt": "<AppIcon :name=\"source === 'custom' ? 'heart-filled' : 'star-filled'\" :size=\"12\" />"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:summary:8",
+      "id": "frontend/src/components/SettingsAssistantDialog.vue:summary:10",
       "source": "frontend/src/components/SettingsAssistantDialog.vue",
       "line": 12,
       "platforms": [
@@ -43621,7 +43621,7 @@
       "source_excerpt": "<summary title=\"对话隐私\" aria-label=\"对话隐私\">"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:9",
+      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:11",
       "source": "frontend/src/components/SettingsAssistantDialog.vue",
       "line": 12,
       "platforms": [
@@ -43658,7 +43658,7 @@
       "source_excerpt": "<AppIcon name=\"info\" :size=\"17\" />"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:12",
+      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:14",
       "source": "frontend/src/components/SettingsAssistantDialog.vue",
       "line": 16,
       "platforms": [
@@ -43695,7 +43695,7 @@
       "source_excerpt": "<AppIcon name=\"grid\" :size=\"17\" />"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:select:13",
+      "id": "frontend/src/components/SettingsAssistantDialog.vue:select:15",
       "source": "frontend/src/components/SettingsAssistantDialog.vue",
       "line": 17,
       "platforms": [
@@ -43734,7 +43734,7 @@
       "source_excerpt": "<select aria-label=\"停靠位置\" :value=\"corner\" @change=\"emit('update:corner', $event.target.value)\">"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:24",
+      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:26",
       "source": "frontend/src/components/SettingsAssistantDialog.vue",
       "line": 31,
       "platforms": [
@@ -43773,7 +43773,7 @@
       "source_excerpt": "<JzButton v-for=\"example in examples\" :key=\"example\" size=\"compact\" @click=\"prefill(example)\">"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:25",
+      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:27",
       "source": "frontend/src/components/SettingsAssistantDialog.vue",
       "line": 32,
       "platforms": [
@@ -43810,7 +43810,7 @@
       "source_excerpt": "<AppIcon name=\"arrow-right\" :size=\"14\" />"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:44",
+      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:46",
       "source": "frontend/src/components/SettingsAssistantDialog.vue",
       "line": 55,
       "platforms": [
@@ -43847,7 +43847,7 @@
       "source_excerpt": "<AppIcon name=\"chevron-right\" :size=\"13\" />"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:52",
+      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:54",
       "source": "frontend/src/components/SettingsAssistantDialog.vue",
       "line": 73,
       "platforms": [
@@ -43886,7 +43886,7 @@
       "source_excerpt": "<JzButton v-if=\"readiness === 'unavailable'\" ref=\"setupAction\" @click=\"loadStatus()\">"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:53",
+      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:55",
       "source": "frontend/src/components/SettingsAssistantDialog.vue",
       "line": 74,
       "platforms": [
@@ -43925,7 +43925,7 @@
       "source_excerpt": "<JzButton v-else ref=\"setupAction\" variant=\"primary\" @click=\"emit('configure')\">"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:input:58",
+      "id": "frontend/src/components/SettingsAssistantDialog.vue:input:60",
       "source": "frontend/src/components/SettingsAssistantDialog.vue",
       "line": 83,
       "platforms": [
@@ -43965,7 +43965,7 @@
       "source_excerpt": "<input id=\"settings-question\" ref=\"input\" v-model=\"question\" type=\"text\" autocomplete=\"off\" maxlength=\"500\" :aria-label=\"turns.length ? '继续追问' : '设置问题'\" :placeholder=\"asking ? '等待助"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:59",
+      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:61",
       "source": "frontend/src/components/SettingsAssistantDialog.vue",
       "line": 86,
       "platforms": [
@@ -44032,7 +44032,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/SettingsAssistantLauncher.vue",
-            "line": 215,
+            "line": 245,
             "selector": ".assistant-launcher.jz-button",
             "values": {
               "width": "56px",
@@ -44042,8 +44042,8 @@
           },
           {
             "source": "frontend/src/components/SettingsAssistantLauncher.vue",
-            "line": 217,
-            "selector": ".assistant-launcher picture, .assistant-launcher img",
+            "line": 248,
+            "selector": ".assistant-launcher :deep(.projector-character)",
             "values": {
               "width": "100%",
               "height": "100%"
@@ -44051,7 +44051,7 @@
           },
           {
             "source": "frontend/src/components/SettingsAssistantLauncher.vue",
-            "line": 222,
+            "line": 251,
             "selector": ".assistant-launcher.jz-button",
             "values": {
               "width": "48px",
@@ -44069,51 +44069,11 @@
         "normal",
         "focus",
         "disabled",
-        "busy",
-        "selected"
+        "busy"
       ],
       "accessible_name_owner": "问设置助手",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton ref=\"button\" class=\"assistant-launcher\" variant=\"ghost\" icon-only :class=\"{ 'is-dragging': dragging }\" :style=\"style\" aria-label=\"问设置助手\" :aria-expanded=\"open\" :aria-contr"
-    },
-    {
-      "id": "frontend/src/components/SettingsAssistantLauncher.vue:img:6",
-      "source": "frontend/src/components/SettingsAssistantLauncher.vue",
-      "line": 12,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "设置与引导",
-      "element": "img",
-      "purpose": "小放映机以待机、拖动和回答表情提示设置助手状态",
-      "assets": [
-        "projector-idle",
-        "projector-drag",
-        "projector-talk"
-      ],
-      "dynamic_expression": "dragging ? projectorArtwork.drag : speaking ? projectorArtwork.talk : projectorArtwork.idle",
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-specialized",
-        "specification": "保留菜单/海报/选择/播放器专用几何；具体CSS规则记录在overrides；触摸目标规范44px需浏览器测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/player.css",
-          "design/contracts.json"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "product illustration",
-      "source_excerpt": "<img :src=\"dragging ? projectorArtwork.drag : speaking ? projectorArtwork.talk : projectorArtwork.idle\" alt=\"\" draggable=\"false\" />"
+      "source_excerpt": "<JzButton ref=\"button\" class=\"assistant-launcher\" variant=\"ghost\" icon-only :data-motion=\"phase\" :data-paused=\"pageHidden || undefined\" :style=\"style\" aria-label=\"问设置助手\" :aria-expa"
     },
     {
       "id": "frontend/src/components/SettingsAssistantLink.vue:RouterLink:1",
@@ -44186,19 +44146,23 @@
       "source_excerpt": "<a :href=\"href\" @click=\"follow($event, navigate, route.fullPath)\">"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantReply.vue:img:2",
-      "source": "frontend/src/components/SettingsAssistantReply.vue",
-      "line": 3,
+      "id": "frontend/src/components/SettingsAssistantProjector.vue:img:4",
+      "source": "frontend/src/components/SettingsAssistantProjector.vue",
+      "line": 5,
       "platforms": [
         "web",
         "mobile-web"
       ],
-      "category": "media-content",
+      "category": "asset",
       "feature": "设置与引导",
       "element": "img",
-      "purpose": "img",
-      "assets": [],
-      "dynamic_expression": null,
+      "purpose": "设置入口和最新回复中的放映机小映呈现拖动、等待、答复与互动表情",
+      "assets": [
+        "projector-idle",
+        "projector-drag",
+        "projector-talk"
+      ],
+      "dynamic_expression": "artwork",
       "display_size": {
         "unit": "CSS px",
         "profile": "web-specialized",
@@ -44216,9 +44180,9 @@
       "states": [
         "normal"
       ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "media payload",
-      "source_excerpt": "<img :src=\"projectorArtwork.idle\" width=\"27\" height=\"27\" alt=\"\" draggable=\"false\" />"
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "product illustration",
+      "source_excerpt": "<img :src=\"artwork\" alt=\"\" draggable=\"false\" />"
     },
     {
       "id": "frontend/src/components/SettingsAssistantSuggestion.vue:AppIcon:4",
@@ -68060,14 +68024,14 @@
     "schema_version": 1,
     "product_illustrations": [
       {
-        "source": "frontend/src/components/SettingsAssistantLauncher.vue",
-        "expression": "dragging ? projectorArtwork.drag : speaking ? projectorArtwork.talk : projectorArtwork.idle",
+        "source": "frontend/src/components/SettingsAssistantProjector.vue",
+        "expression": "artwork",
         "assets": [
           "projector-idle",
           "projector-drag",
           "projector-talk"
         ],
-        "purpose": "小放映机以待机、拖动和回答表情提示设置助手状态"
+        "purpose": "设置入口和最新回复中的放映机小映呈现拖动、等待、答复与互动表情"
       }
     ],
     "dynamic_icons": [
