@@ -535,6 +535,7 @@ def inventory(manifest, registry, contracts):
     profiles = read_json('platform-profiles.json')['profiles']
     geometry_rules = css_geometry_index()
     contract_map = {(c['source'], c['expression']): c for c in contracts['dynamic_icons']}
+    illustrations = {(entry['source'], entry['expression']): entry for entry in contracts.get('product_illustrations', [])}
     native_map = {c['source']: c for c in contracts['specialized_controls']}
     native_status = {source: c for c in contracts.get('native_exceptions', [])
                      if c['kind'] == 'status' for source in c.get('sources', [])}
@@ -555,6 +556,7 @@ def inventory(manifest, registry, contracts):
                 attrs = {re.sub(r'^v-bind:', ':', m[0]): html.unescape(m[1] or m[2]) for m in ATTR_RE.findall(match['attrs'])}
                 line = template[:match.start()].count('\n')+1
                 markup = match.group(0)
+                illustration = illustrations.get((rel, attrs.get(':src'))) if tag == 'img' else None
                 end = template.find(f'</{raw_tag}>',match.end())
                 inner = template[match.end():end] if end>=0 else ''
                 if len(inner)>1600: inner=''
@@ -596,12 +598,18 @@ def inventory(manifest, registry, contracts):
                         if contract:asset_ids=[canonical(n,manifest) for n in contract['assets']]
                         elif literals is not None:asset_ids=[canonical(n,manifest) for n in literals if n]
                         else:errors.append(f'{rel}:{line}: register dynamic button icon {dynamic!r}')
+                elif illustration:
+                    dynamic = attrs[':src']
+                    purpose = illustration['purpose']
+                    asset_ids = illustration['assets']
                 elif tag=='img' and any('favicon' in a or 'logo.svg' in a for a in attrs.values()): asset_ids=['brand-wordmark' if any('logo.svg' in a for a in attrs.values()) else 'brand-favicon-16']
                 if tag=='svg' and path.name not in ('AppIcon.vue','PlayerIcon.vue'):
                     errors.append(f'{rel}:{line}: inline business SVG must use a registered master')
                 if tag in ('AppIcon','PlayerIcon','Spinner','ArtworkPlaceholder') and purpose == tag:
                     purpose = ' / '.join(a['name'] for a in manifest['assets'] if a['id'] in asset_ids) or '共享图标渲染器'
                 for name in asset_ids:
+                    if illustration and (DESIGN / 'illustrations/assistant' / (name + '.webp')).is_file():
+                        continue
                     if name not in registry and not (tag == 'img' and name in ('brand-favicon-16','brand-wordmark')):
                         errors.append(f'{rel}:{line}: unknown icon {name}')
                 if tag=='button' and not any(selector in markup for selector in native_map.get(rel,{}).get('selectors',[])):
@@ -622,6 +630,8 @@ def inventory(manifest, registry, contracts):
                 for override in contracts.get('purpose_overrides',[]):
                     if override['source']==rel and set(asset_ids)&set(override['assets']):purpose=override['purpose']
                 result.append({'id':f'{rel}:{tag}:{order}','source':rel,'line':line,'platforms':['web','mobile-web'],'category':category,'feature':source_family(path),'element':tag,'purpose':purpose,'assets':asset_ids,'dynamic_expression':dynamic,'display_size':web_geometry(tag, attrs, markup, rel, geometry_rules, profiles),'target':{'policy_touch_min_css_px':44,'measurement_status':'not inferred from source'} if category in ('control','native-form') else None,'states':states,'accessible_name_owner':owner,'classification':native_map.get(rel,{}).get('reason') if tag=='button' else 'media payload' if category=='media-content' else native_status.get(rel,{}).get('reason') if category=='native-status' else 'native control' if category=='native-form' else 'shared design component' if tag in ('AppIcon','PlayerIcon','JzButton','Spinner','ArtworkPlaceholder') else 'semantic link','source_excerpt':compact(markup)})
+                if illustration:
+                    result[-1]['classification'] = 'product illustration'
                 if adapter:
                     result[-1]['purpose']=contract['reason']
                     result[-1]['category']='adapter'
@@ -686,6 +696,49 @@ def inventory(manifest, registry, contracts):
     return result, sorted(set(errors))
 
 
+def assistant_artwork_outputs():
+    """Publish the three registered transparent projector illustrations verbatim."""
+    folder = DESIGN / 'illustrations/assistant'
+    manifest = read_json('illustrations/assistant/manifest.json')
+    states = ('idle', 'drag', 'talk')
+    if manifest['dimensions'] != [256, 256]:
+        raise ValueError('assistant artwork requires a 256×256 canvas')
+    if set(manifest['assets']) != set(states):
+        raise ValueError('assistant artwork requires idle, drag and talk illustrations')
+    outputs = {}
+    exports = []
+    for state in states:
+        name = f'projector-{state}.webp'
+        data = (folder / name).read_bytes()
+        if hashlib.sha256(data).hexdigest() != manifest['assets'][state]['sha256']:
+            raise ValueError(f'{name}: artwork differs from its source record')
+        if (len(data) < 30 or data[:4] != b'RIFF' or data[8:12] != b'WEBP'
+                or int.from_bytes(data[4:8], 'little') != len(data) - 8):
+            raise ValueError(f'{name}: expected a complete WebP file')
+        if data[12:16] == b'VP8X':
+            width = 1 + int.from_bytes(data[24:27], 'little')
+            height = 1 + int.from_bytes(data[27:30], 'little')
+            alpha = data[20] & 0x10 and not data[20] & 0x02
+        elif data[12:16] == b'VP8L' and data[20] == 0x2f:
+            header = int.from_bytes(data[21:25], 'little')
+            width = 1 + (header & 0x3fff)
+            height = 1 + ((header >> 14) & 0x3fff)
+            alpha = header & (1 << 28)
+        else:
+            raise ValueError(f'{name}: expected WebP with an alpha channel')
+        if [width, height] != manifest['dimensions'] or not alpha:
+            raise ValueError(f'{name}: expected a single transparent 256×256 frame')
+        target = f'frontend/src/assets/assistant/{name}'
+        outputs[target] = data
+        exports.append({
+            'path': target, 'asset': f'projector-{state}', 'format': 'webp', 'units': 'px',
+            'dimensions': [width, height], 'transparent': True, 'platform': 'web',
+            'source': f'design/illustrations/assistant/{name}',
+            'sha256': manifest['assets'][state]['sha256'], 'generator_version': GENERATOR_VERSION,
+        })
+    return outputs, exports
+
+
 def demo_artwork_outputs():
     """Publish the documentation-only raster catalog; never bundle it in the app."""
     source = read_json('demo-artwork/manifest.json')
@@ -733,6 +786,8 @@ def main():
         ('android-tv/app/src/main/java/org/jzmedia/tv/ui/generated/DesignIcons.kt','compose-imagevector','dp','android-tv'),
     ]:
         exports.append({'path':path,'assets':list(registry),'format':fmt,'dimensions':[24,24],'units':'viewBox','display_units':units,'density':'vector; scales with platform density','transparent':True,'safe_area':'24-unit viewBox; per-master optical spacing','platform':platform,'generator_version':GENERATOR_VERSION,'master_revision':{a['id']:a['revision'] for a in manifest['assets'] if a['category']!='brand'}})
+    assistant_artwork, assistant_exports = assistant_artwork_outputs()
+    exports.extend(assistant_exports)
     css,kt=token_outputs(tokens)
     outputs={
         'frontend/src/generated/design-icons.js':web_icons(registry,manifest),
@@ -744,6 +799,7 @@ def main():
         'design/catalog.json':json_text({'schema_version':1,'assets':manifest['assets'],'aliases':manifest['aliases'],'requirements':requirements,'exports':exports,'platform_rules':tokens['platform_rules'],'platform_profiles':read_json('platform-profiles.json')['profiles'],'contracts':contracts}),
     }
     outputs.update(brand_vector_outputs(exports,manifest))
+    outputs.update(assistant_artwork)
     outputs.update(demo_artwork_outputs())
     # Keep help illustrations and their precise, editable annotations in one pipeline.
     outputs.update(runpy.run_path(str(Path(__file__).with_name('design_doc_storyboards.py')))['outputs'](ROOT))

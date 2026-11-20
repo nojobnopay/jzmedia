@@ -69,6 +69,12 @@ python -m venv /tmp/jzmedia-design-env
 
 提交母版和生成物；禁止手工修改 `frontend/src/generated/`、Android `ui/generated/` 或导出的品牌资源。Web、帮助站、APK 的普通构建消费已提交产物，互不依赖。品牌资源统一使用 `scripts/build_design.py --render-brand` 维护。
 
+## 网页助手插画
+
+`illustrations/assistant/` 保存小放映机的三张透明 WebP 母版。`projector-idle.webp`、`projector-drag.webp`、`projector-talk.webp` 分别用于待机、拖动和交谈。三张图采用同一 256×256 画布、主体比例与基线，保留透明边缘供网页叠放在不同背景上。按钮的可访问名称由页面提供。
+
+更新插画时在同目录的 `manifest.json` 记录来源、表情及各文件的 SHA-256。运行 `python3 scripts/build_design.py` 生成 `frontend/src/assets/assistant/`，再运行 `python3 scripts/build_design.py --check` 核对尺寸、透明标记及导出内容。组件导入这些本地 WebP，Vite 在应用构建时生成带内容哈希的访问地址。常规素材生成和校验仅需 Python 标准库。
+
 ## 文档演示海报与人物
 
 `demo-artwork/` 保存内置生图工具制作的原创电影与剧集海报、横幅剧照和虚构人物肖像，仅供隔离演示及文档拍摄使用。影片名与人物均为虚构；生成提示词、日期、尺寸和文件摘要保存在 `demo-artwork/manifest.json`。生成原图经 FFmpeg 等比缩放并编码为 WebP 母版；保留海报中的片名，不用矢量占位图替代。

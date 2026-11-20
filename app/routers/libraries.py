@@ -84,6 +84,26 @@ def create_library(body: LibraryCreate):
     return _payload(lib)
 
 
+class MatchingRulesUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    expected: list[str]
+    providers: list[str]
+
+
+@router.put("/{library_id}/matching-rules")
+def update_matching_rules(library_id: int, body: MatchingRulesUpdate):
+    try:
+        providers = store.update_matching_rules(library_id, body.expected, body.providers)
+    except store.MatchingRulesConflict:
+        raise HTTPException(409, "此视频库的匹配规则已变更，请重新核对后确认") from None
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    if providers is None:
+        raise HTTPException(404, "视频库不存在")
+    return {"providers": providers}
+
+
 class LibraryUpdate(BaseModel):
     model_config = {"extra": "forbid"}
 

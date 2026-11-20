@@ -8,6 +8,7 @@ import { assertPublicOutput, collectScriptHashes } from './artifacts.mjs'
 import { attr, elements, textContent } from './html.mjs'
 import { defaultDist } from './server.mjs'
 import { site, normalizeBase } from './site-config.mjs'
+import { checkAssistantTopics } from './settings-assistant.mjs'
 
 export function checkOutput(root = defaultDist, base = site.base) {
   base = normalizeBase(base)
@@ -61,10 +62,16 @@ export function checkAppHelpLinks(root = docsRoot, dist = defaultDist) {
   const errors = []
   for (const file of walkFiles(frontend).filter(file => /\.(?:vue|js)$/.test(file))) {
     const source = readFileSync(path.join(frontend, file), 'utf8')
-    for (const match of source.matchAll(/<HelpLink\b[^>]*?\bpage=["']([^"']+)["']/g)) {
-      const slug = match[1].replace(/^\/?help\//, '').replace(/^\//, '').split('#')[0]
-      const target = slug ? (slug.endsWith('.html') ? slug : `${slug}.html`) : 'index.html'
-      if (!existsSync(path.join(dist, target))) errors.push(`frontend/src/${file}: 帮助入口不存在 ${match[1]}`)
+    for (const [tag] of source.matchAll(/<HelpLink\b[^>]*>/g)) {
+      // Dynamic assistant links are checked against every topic by checkAssistantTopics.
+      const slug = tag.match(/\spage=["']([^"']+)["']/)?.[1]
+      if (!slug) continue
+      const target = path.join(dist, slug + '.html')
+      if (!existsSync(target)) { errors.push(`frontend/src/${file}: 帮助入口不存在 ${slug}`); continue }
+      const anchor = tag.match(/\sanchor=["']([^"']+)["']/)?.[1]
+      if (anchor && !elements(readFileSync(target, 'utf8')).some(node => attr(node, 'id') === anchor)) {
+        errors.push(`frontend/src/${file}: 帮助章节不存在 ${slug}#${anchor}`)
+      }
     }
   }
   return errors
@@ -210,6 +217,7 @@ export function checkAssetManifest(root = docsRoot) {
 
 export function checkAll() {
   checkDiagrams()
+  checkAssistantTopics()
   assertPublicOutput(defaultDist, publicPages())
   const actual = JSON.parse(readFileSync(path.join(defaultDist, 'csp-hashes.json'), 'utf8')).scriptHashes
   const expected = collectScriptHashes(defaultDist)

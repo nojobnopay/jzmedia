@@ -7,6 +7,14 @@
       <div class="settings-mobile-title"><h1 tabindex="-1" ref="mobileTitle">{{ active === 'sec-status' ? '设置' : currentPage.label }}</h1><p v-if="active !== 'sec-status'">{{ settingsScope }}</p></div>
       <HelpLink page="user-guide/settings" label="帮助" icon="help" aria-label="设置帮助（在新标签页打开）" />
     </header>
+    <SettingsAssistantLauncher ref="launcher" :open="assistantOpen" :modal="isPhone"
+      :speaking="assistantSpeaking" :busy="assistantBusy" :section="active" @toggle="toggleAssistant" @position="assistantCorner = $event">
+      <SettingsAssistantDialog v-if="assistantOpen" :section="active" :libraries="libList" :libraries-ready="ready" :docked="!isPhone"
+        :corner="assistantCorner" :context-key="assistantContext" :settings-version="assistantSettingsVersion"
+        :libraries-error="librariesError" :refresh-libraries="refreshAssistantLibraries" :dirty-libraries="chainDirtyLibraries" :rules-busy="savingChain"
+        @speaking="assistantSpeaking = $event" @busy="assistantBusy = $event" @update:corner="launcher?.moveToCorner($event)"
+        @configure="configureAssistant" @close="closeAssistant" @rules-saved="reflectSavedRules" @display-saved="prefs = $event" />
+    </SettingsAssistantLauncher>
     <aside class="side-nav" aria-label="设置导航">
       <h1>设置</h1><router-link class="setup-link" to="/setup">新手配置</router-link>
       <nav class="desktop-categories" aria-label="设置分区">
@@ -143,7 +151,7 @@
         </section></details>
       </div>
 
-      <div v-if="visited.has('sec-ai')" v-show="active === 'sec-ai'" id="sec-ai"><AiSettingsPanel /></div>
+      <div v-if="visited.has('sec-ai')" v-show="active === 'sec-ai'" id="sec-ai"><AiSettingsPanel :open-service-request="openServiceRequest" @saved="assistantSettingsVersion++" /></div>
 
       <section v-show="active === 'sec-offline'" id="sec-offline" class="card-block">
         <h3>IMDb 离线数据</h3>
@@ -175,8 +183,8 @@
 
       <section v-show="active === 'sec-display'" id="sec-display" class="card-block">
         <h3>显示偏好</h3>
-        <div class="slider-row"><label for="font-size">字体大小 <b>{{ prefs.fontSize }} px</b></label><input id="font-size" type="range" min="13" max="20" step="1" v-model.number="prefs.fontSize" @input="saveDisplay" /></div>
-        <div class="slider-row"><label for="poster-size">海报大小 <b>{{ prefs.posterMin }} px</b></label><input id="poster-size" type="range" min="120" max="200" step="10" v-model.number="prefs.posterMin" @input="saveDisplay" /><span class="hint">越小，每行显示越多</span></div>
+        <div class="slider-row"><label for="font-size">字体大小 <b>{{ prefs.fontSize }} px</b></label><input id="font-size" type="range" :min="DISPLAY_FIELDS.fontSize.min" :max="DISPLAY_FIELDS.fontSize.max" :step="DISPLAY_FIELDS.fontSize.step" v-model.number="prefs.fontSize" @input="saveDisplay" /></div>
+        <div class="slider-row"><label for="poster-size">海报大小 <b>{{ prefs.posterMin }} px</b></label><input id="poster-size" type="range" :min="DISPLAY_FIELDS.posterMin.min" :max="DISPLAY_FIELDS.posterMin.max" :step="DISPLAY_FIELDS.posterMin.step" v-model.number="prefs.posterMin" @input="saveDisplay" /><span class="hint">越小，每行显示越多</span></div>
         <div class="settings-form"><label for="tv-updates-preference">剧集更新推荐</label><select id="tv-updates-preference" v-model="prefs.tvUpdates" @change="saveDisplay"><option value="weekly">每周提醒一次</option><option value="off">关闭推荐</option></select><p class="hint">仅影响当前浏览器。剧集海报页推荐已播但尚未收藏的新集；关闭后仍可在详情页查看播出资料。</p></div>
         <div class="bar"><JzButton @click="resetDisplay" type="button" icon="undo">恢复默认显示</JzButton><span v-if="displayMsg" role="status">{{ displayMsg }}</span></div>
       </section>
@@ -207,6 +215,8 @@ import JzDialog from '../components/JzDialog.vue'
 import HelpLink from '../components/HelpLink.vue'
 import SettingsFormActions from '../components/SettingsFormActions.vue'
 import SettingsLeaveDialog from '../components/SettingsLeaveDialog.vue'
+import SettingsAssistantDialog from '../components/SettingsAssistantDialog.vue'
+import SettingsAssistantLauncher from '../components/SettingsAssistantLauncher.vue'
 import ProtectionSettings from '../components/ProtectionSettings.vue'
 import ChildrenMetadataRefresh from '../components/ChildrenMetadataRefresh.vue'
 import { SETTINGS_DRAFTS, createSettingsDraftGuard } from '../settingsDrafts.js'
@@ -222,7 +232,7 @@ import LibraryToolsPanel from '../components/LibraryToolsPanel.vue'
 import { fmtBytes } from '../format.js'
 import { api, setToken } from '../api.js'
 import { currentMediaId, listLibs, loadLibs } from '../libraries.js'
-import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
+import { DISPLAY_FIELDS, loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
 
 import StorageUsagePanel from '../components/StorageUsagePanel.vue'
 import { SETTINGS_PAGES, SETTINGS_TASK_PAGES, settingsTarget, settingsBrowseTarget } from '../settingsNavigation.js'
@@ -231,6 +241,28 @@ import '../styles/settings.css'
 
 const route = useRoute()
 const router = useRouter()
+const assistantOpen = ref(false)
+const assistantSpeaking = ref(false), assistantBusy = ref(false)
+const assistantCorner = ref('top-right'), launcher = ref(null)
+const openServiceRequest = ref(0), assistantSettingsVersion = ref(0)
+function closeAssistant() {
+  if (assistantBusy.value) return
+  assistantOpen.value = false
+  assistantSpeaking.value = false
+  nextTick(() => launcher.value?.focus())
+}
+function toggleAssistant() {
+  if (assistantOpen.value) closeAssistant()
+  else assistantOpen.value = true
+}
+async function configureAssistant() {
+  if (active.value !== 'sec-ai') {
+    const failure = await router.push(pageTarget('sec-ai'))
+    if (failure) return
+  }
+  openServiceRequest.value++
+  if (isPhone.value) closeAssistant()
+}
 const draftGuard = createSettingsDraftGuard()
 provide(SETTINGS_DRAFTS, draftGuard)
 onBeforeRouteLeave(to => draftGuard.requestLeave(to))
@@ -409,11 +441,15 @@ const {
   dirty: chainDirty, dirtyLibraries: chainDirtyLibraries, discardAll: discardAllChains, draftCount: chainDraftCount, message: chainMsg, orderText: chainOrderText,
   saving: savingChain, testing: testingChain, query: chainQuery,
   testMessage: chainTestMsg, testResult: chainTestResult,
-  toggle: toggleChain, move: moveChain, discard: discardChain, save: saveChain, testSearch: testChain,
+  toggle: toggleChain, move: moveChain, discard: discardChain, save: saveChain, testSearch: testChain, reflectSavedRules,
 } = useMatchingSettings(libList, api, async () => { await loadLibs(api); syncLibs() })
 function syncLibs() {
   libList.value = listLibs()
   currentId.value = currentMediaId()
+}
+async function refreshAssistantLibraries() {
+  await loadLibs(api, { force: true })
+  syncLibs()
 }
 async function onLibrariesChanged() {
   syncLibs()
@@ -453,6 +489,8 @@ function pageTarget(id) {
 const todoCount = computed(() => movieTodos.value.reduce((n, row) => n + Number(row.pending || 0) + Number(row.missing_files || 0), 0) + tvTodos.value.reduce((n, row) => n + Number(row.pending || 0), 0))
 const active = ref(settingsTarget(route.query).page)
 const currentPage = computed(() => navs.find(n => n.id === active.value) || navs[0])
+const assistantContext = computed(() => JSON.stringify([active.value, currentId.value, route.query.library,
+  active.value === 'sec-matching' ? chainLibId.value : null]))
 const settingsScope = computed(() => {
   if (active.value === 'sec-display') return '当前浏览器 · 自动保存'
   if (active.value === 'sec-auth') return '全部媒体库'

@@ -115,7 +115,7 @@ const overrides = request => ({
 })
 const link = { props: ['to'], setup: (_props, { slots }) => () => Vue.h('a', slots.default?.()) }
 for (const [name, props, expected] of [
-  ['AiSettingsPanel', {}, /搜索与匹配建议/],
+  ['AiSettingsPanel', {}, /向设置助手提问/],
   ['AiMatchSuggestions', { kind: 'tv', itemId: 12 }, /AI 匹配建议/],
 ]) {
   test(name + ' initializes and renders without a cloud request', async () => {

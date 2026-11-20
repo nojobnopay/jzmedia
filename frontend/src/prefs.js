@@ -3,6 +3,12 @@ const KEY = 'jz.prefs'
 
 export const PREF_DEFAULTS = { fontSize: 16, posterMin: 150, tvUpdates: 'weekly' }
 
+export const DISPLAY_FIELDS = {
+  fontSize: { label: '字体大小', min: 13, max: 20, step: 1 },
+  posterMin: { label: '海报大小', min: 120, max: 200, step: 10 },
+  tvUpdates: { label: '剧集更新推荐', options: { weekly: '每周提醒一次', off: '关闭推荐' } },
+}
+
 export function loadPrefs() {
   try {
     const prefs = { ...PREF_DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }

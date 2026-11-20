@@ -168,6 +168,8 @@ JZMEDIA_DOCS_TARGET=pages JZMEDIA_DOCS_BASE=/jzmedia/ npm --prefix docs run prev
 
 开发预览和发布产物只使用本地资源；主题与导航配置在 `docs/.vitepress/`。`.vitepress/public-pages.mjs` 是公开页面与导航的单一来源，新增教程需登记到此清单；仓库 Markdown 检查默认排除依赖、产物、运行数据和私有记录。`docs/scripts/check.mjs` 按当前目标检查最终 HTML 的资源/锚点、离线依赖、公开边界、SSR、CSP 和应用帮助入口，必须在 build 成功后执行。
 
+网页设置助手按主题引用用户手册的已发布章节。`docs/scripts/settings-assistant.mjs` 维护主题关键词、章节锚点和设置入口。相关正文或分区变化后，在仓库根运行 `npm --prefix docs run assistant:index`，将更新的 `docs/settings-assistant-topics.json` 随正文提交。开发服务从源码树读取这份摘录，发行镜像也包含相同文件。`npm --prefix docs run verify` 会核对教程锚点、分区覆盖及摘录与本版 HTML 是否一致。
+
 FastAPI 的 `app/help_site.py` 只挂载应用目标的 `docs/.vitepress/dist/`；没有 `index.html` 返回 503，未知页面返回 404。构建生成 `csp-hashes.json`，仅应用内帮助 HTML 的策略加入这些脚本哈希；GitHub Pages 使用其托管服务的响应头。Docker 复制应用目标静态产物；宿主 `start.sh` 通过 `scripts/build_docs.py` 按输入内容摘要检测更新和删除，排除私有记录、路线图及历史报告。两种部署都只发布检查通过的产物，不能把整个 `docs/` 当静态目录发布。
 
 开发参考中的 Mermaid 保留在正文中。修改图定义后运行 `npm --prefix docs run diagrams` 生成并提交 `docs/.vitepress/diagrams/` 中的 SVG；首次生成需要安装 Playwright Chromium。普通文档构建只核验生成图存在，不需要浏览器和联网渲染。

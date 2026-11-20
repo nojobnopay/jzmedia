@@ -18,18 +18,25 @@ KNOWN_PROVIDERS = {"local", "tmdb", "wikidata", "douban", "nfo",
                    "tvmaze", "bgm"}
 
 
+def parse_provider_chain(raw: str) -> list[str]:
+    """Resolve a saved library rule, including the default used by older libraries."""
+    try:
+        values = json.loads(raw) if raw else []
+    except (ValueError, RecursionError):
+        values = []
+    if isinstance(values, list):
+        names = [value.strip().lower() for value in values if isinstance(value, str)]
+        known = [name for name in names if name in KNOWN_PROVIDERS]
+        if known:
+            return known
+    return list(DEFAULT_CHAIN)
+
+
 def chain_for(library_id=None) -> list[str]:
     if library_id is not None:
         try:
             lib = library_paths.get_library(library_id)
-            raw = str((lib or {}).get("metadata_providers") or "").strip()
-            if raw:
-                names = json.loads(raw)
-                if isinstance(names, list):
-                    names = [str(x).strip().lower() for x in names
-                             if str(x).strip().lower() in KNOWN_PROVIDERS]
-                    if names:
-                        return names
+            return parse_provider_chain((lib or {}).get("metadata_providers") or "")
         except Exception as e:
             logger.debug("parse metadata_providers failed lib=%s: %s", library_id, e)
     return list(DEFAULT_CHAIN)
@@ -164,4 +171,5 @@ def detail_for(cand: Candidate, fetch: bool = True) -> dict:
     return d
 
 
-__all__ = ['search', 'detail_for', 'candidate_for', 'chain_for', 'DEFAULT_CHAIN', 'KNOWN_PROVIDERS']
+__all__ = ['search', 'detail_for', 'candidate_for', 'chain_for', 'parse_provider_chain',
+           'DEFAULT_CHAIN', 'KNOWN_PROVIDERS']

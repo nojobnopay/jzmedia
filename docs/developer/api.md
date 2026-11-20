@@ -21,7 +21,7 @@
 | `/api/cast` | DLNA 发现、前台电视 App 接收、播放控制、投屏状态和电视取流 |
 | `/api/metadata` | 外部来源状态及诊断 |
 | `/api/viewing` | 观看模式、内容可见性与儿童筛选资料补全 |
-| `/api/ai` | 智能辅助配置、连接检查、找片、筛选建议与匹配建议 |
+| `/api/ai` | 智能辅助配置、连接检查、设置问答、找片、筛选建议与匹配建议 |
 | `/api/online/settings`、`/api/online/sources`、`/api/online/network` | 在线功能开关、来源、网络配置及持久身份；当前仅提供管理接口 |
 
 ## 库作用域
@@ -382,6 +382,8 @@ claim 不接收任意播放身份，而是核对 `session_id` 的设备归属。
 已入库视频预览仍使用现有电影/分集/花絮播放接口；前端 `PlayerModal.preview` 默认 `false`，文件预览设为 `true` 后禁用观看进度读写、清除、已看和连播事件。未入库视频仅原文件预览，不新增临时入库身份。
 
 ### 匹配规则测试
+
+`PUT /api/libraries/{library_id}/matching-rules` 提交 `{expected, providers}`。两个数组分别为预览时生效的来源顺序和期望保存的顺序。服务器核对旧值后保存，成功返回 `{providers}`；其他操作已改动规则时返回 409，用户需重新核对当前值再确认。视频库不存在时返回 404，无效来源或顺序返回 422。
 
 `GET /api/metadata/test-search?library=<id>&q=<片名>` 必须指定存在的视频库和非空片名。服务端根据库类型选择电影或剧集，并严格按该库保存的来源顺序查找；响应为 `{library_id,kind,chain,items,source,elapsed_ms}`。空结果的 `source` 为 `null`，不能视为连接检测成功。此接口不调用 AI，也不绑定媒体；TMDB 凭据直连验证仍使用 `POST /api/tmdb/check`。
 
@@ -757,6 +759,7 @@ AI 服务默认关闭。所有产生外部调用的入口使用 POST，沿用应
 | `GET /api/ai/settings` | 返回启用状态、服务商、地址、模型、超时、每日上限、`api_key_set/api_key_masked/api_key_source` 和当日 `usage`，不返回完整 Key |
 | `PATCH /api/ai/settings` | 部分更新 `enabled/provider/base_url/model/api_key/timeout_seconds/daily_limit`；完整校验成功才保存，保存后清空 AI 结果缓存 |
 | `POST /api/ai/check` | 使用已保存的有效配置做一次真实 JSON 输出检查；关闭智能辅助时也可显式测试，不使用缓存，计入当日次数 |
+| `POST /api/ai/settings-assistant` | 提交 `{question, section?, history?}`，返回 `{answer, topics, mode, suggestion}`。教程引用由服务端按本版手册生成。模型关闭、不可用或建议校验失败时返回本地手册说明。接口只生成答复与建议，用户在网页确认后应用更改 |
 | `POST /api/ai/search` | `{q, kind:"movie"\|"tv", media_library_id?, library_id?}`；`q` 最多 500 字符，返回 `filters/summary/warnings` 供用户核对，不执行本地查询 |
 | `POST /api/ai/search/results` | `{q, kind?, kinds?, media_library_id?, library_id?, source?, session_id?, filters?}`。返回有序作品、范围、逐项依据、资料不足和追问标识。会话标识与设备 Cookie、进入页面、观看身份及库范围配套使用 |
 | `POST /api/ai/search/results/refresh` | 提交上次的 `session_id` 及同一页面与库范围，重新核实可见作品和观看状态，恢复返回位置。此请求不调用模型 |
@@ -798,4 +801,4 @@ OpenCode Go 请求使用 jzmedia 自己的 User-Agent 和每次业务操作的 `
 
 ### 失败响应与人工确认
 
-连接检查及业务请求遇模型不可用时返回 HTTP 200 与 `{ok:false, code, message}`，包括 `disabled/not_configured/invalid_credentials/rate_limited/timeout/daily_limit/invalid_result` 等；上游 401 不转换成应用令牌提示。条目不存在返回 404，应用自身鉴权失败仍为 401。网页保留普通搜索与手动匹配。智能找片直接返回结果，匹配建议经用户确认后才调用绑定接口。[架构与验收边界](metadata.md#智能辅助的边界)。
+连接检查、找片和匹配请求遇模型不可用时返回 HTTP 200 与 `{ok:false, code, message}`，包括 `disabled/not_configured/invalid_credentials/rate_limited/timeout/daily_limit/invalid_result` 等；上游 401 不转换成应用令牌提示。设置问答在这些情况下返回 `mode:"local"` 和本地手册入口，修改建议为空。条目不存在返回 404，应用自身鉴权失败仍为 401。网页保留普通搜索与手动匹配。智能找片直接返回结果，匹配建议经用户确认后才调用绑定接口。[架构与验收边界](metadata.md#智能辅助的边界)。

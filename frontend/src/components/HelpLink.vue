@@ -1,5 +1,5 @@
 <template>
-  <a class="help-link" :href="page ? `/help/${page}.html` : '/help/'" target="_blank" rel="noopener noreferrer"
+  <a class="help-link" :href="page ? `/help/${page}.html${anchor ? '#' + encodeURIComponent(anchor) : ''}` : '/help/'" target="_blank" rel="noopener noreferrer"
     :title="`${label}（在新标签页打开）`" @click.stop><AppIcon v-if="icon" :name="icon" /><span>{{ label }}<AppIcon class="help-new-tab" name="external-link" :size="12" /></span><span class="help-sr">（在新标签页打开）</span></a>
 </template>
 
@@ -7,6 +7,7 @@
 import AppIcon from './AppIcon.vue'
 defineProps({
   page: { type: String, default: '' },
+  anchor: { type: String, default: '' },
   label: { type: String, default: '图文帮助' },
   icon: { type: String, default: '' }
 })

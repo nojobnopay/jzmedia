@@ -85,6 +85,10 @@ test('app help slugs are validated as the actual .html interface', t => {
   assert.deepEqual(checkAppHelpLinks(path.join(root, 'docs'), path.join(root, 'docs/.vitepress/dist')), [])
   writeFileSync(path.join(root, 'frontend/src/Player.vue'), '<HelpLink page="user-guide/missing" />')
   assert.match(checkAppHelpLinks(path.join(root, 'docs'), path.join(root, 'docs/.vitepress/dist'))[0], /帮助入口不存在/)
+  writeFileSync(path.join(root, 'frontend/src/Player.vue'), '<HelpLink page="user-guide/subtitles" anchor="missing" />')
+  assert.match(checkAppHelpLinks(path.join(root, 'docs'), path.join(root, 'docs/.vitepress/dist'))[0], /帮助章节不存在/)
+  writeFileSync(path.join(root, 'frontend/src/Player.vue'), '<HelpLink :page="topic.page" :anchor="topic.anchor" />')
+  assert.deepEqual(checkAppHelpLinks(path.join(root, 'docs'), path.join(root, 'docs/.vitepress/dist')), [])
 })
 
 test('HTML checking catches broken component assets, anchors, and external media', t => {

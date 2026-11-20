@@ -7,6 +7,7 @@
 - 旧扁平建库 `create_library()` 保留为兼容包装：自动建同名媒体库 + 一个根视频库。
 - 删视频库只清 DB 记录（存储连接与磁盘文件不动）；删媒体库由 media_libraries 级联。
 """
+import json
 import os
 import sqlite3
 import time
@@ -16,6 +17,7 @@ from ._base import DEFAULT_LIBRARY_ID, _conn, _lock, logger
 
 __all__ = ['list_libraries', 'get_library', 'default_library', 'create_library',
            'create_video_library', 'update_library', 'delete_library',
+           'update_matching_rules', 'MatchingRulesConflict',
            'library_movie_count', 'library_tv_count', 'public_library',
            'KINDS', 'SOURCES', 'NAMING_PROFILES', 'ARTWORK_MODES',
            '_norm_subpath', '_sub_overlap', '_recompute_library_paths']
@@ -315,6 +317,36 @@ _UPDATE_SCALARS = ("name", "kind", "subpath", "enabled", "sort_order",
                    "metadata_providers")
 _MEDIA_OWNED_FIELDS = ("path", "source", "read_only", "auto_mount", "smb", "nfs",
                        "smb_url", "nfs_password", "smb_password")
+
+
+class MatchingRulesConflict(Exception):
+    """The saved provider order changed after the user reviewed it."""
+
+
+def update_matching_rules(library_id: int, expected: list[str], providers: list[str]) -> list[str] | None:
+    from ..metadata.chain import KNOWN_PROVIDERS, parse_provider_chain
+
+    for names in (expected, providers):
+        if (not 1 <= len(names) <= len(KNOWN_PROVIDERS)
+                or not all(name in KNOWN_PROVIDERS for name in names)
+                or len(set(names)) != len(names)):
+            raise ValueError("匹配来源必须是已支持且不重复的非空列表")
+
+    with _lock, _conn() as c:
+        # Reserve the write before reading the value, including across server processes.
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT metadata_providers FROM libraries WHERE id=?", (library_id,)).fetchone()
+        if row is None:
+            return None
+        current = list(dict.fromkeys(parse_provider_chain(row["metadata_providers"])))
+        if current != expected:
+            raise MatchingRulesConflict
+        if current == providers:
+            return current
+        c.execute("UPDATE libraries SET metadata_providers=?, updated_at=? WHERE id=?",
+                  (json.dumps(providers), _now(), library_id))
+    _invalidate_paths()
+    return providers
 
 
 def update_library(library_id: int, **fields) -> dict | None:

@@ -158,3 +158,53 @@ test('nested dialogs keep Tab in the top dialog and return focus to its trigger'
   assert.equal(ui.body.style.overflow, 'auto', 'closing the last dialog restores the previous page overflow')
   assert.equal(ui.listeners.size, 2, 'hidden dialogs remove their traps; mounted document Escape listeners stay inert')
 })
+
+test('inline panel can become modal without remounting controls or trapping the page while docked', async t => {
+  const ui = harness(t)
+  const opener = ui.makeNode('button')
+  opener.focus()
+  let closed = 0
+  const field = ref(null)
+  const state = await ui.mount({ title: '设置助手', presentation: 'inline', onClose: () => closed++ },
+    { default: () => h('input', { ref: field }) })
+  const initial = field.value
+  const panel = initial.parent.parent
+  assert.equal(panel.props.role, 'complementary')
+  assert.equal(panel.props['aria-modal'], undefined)
+  assert.equal(ui.body.style.overflow, 'auto')
+  assert.equal(ui.key('Tab').defaultPrevented, false)
+  ui.key('Escape')
+  assert.equal(closed, 0)
+  initial.focus()
+  ui.key('Escape')
+  assert.equal(closed, 1)
+  state.value = { ...state.value, presentation: 'default' }
+  await nextTick()
+  assert.equal(field.value, initial)
+  assert.equal(panel.props.role, 'dialog')
+  assert.equal(ui.body.style.overflow, 'hidden')
+  state.value = { ...state.value, presentation: 'inline' }
+  await nextTick()
+  assert.equal(field.value, initial)
+  assert.equal(ui.body.style.overflow, 'auto')
+})
+
+test('narrowing a docked panel preserves an active form dialog and its keyboard focus', async t => {
+  const ui = harness(t)
+  const field = ref(null), otherField = ref(null)
+  const state = await ui.mount({ title: '设置助手', presentation: 'inline' },
+    { default: () => h('input', { ref: field }) })
+  const other = await ui.mount({ title: '未保存的修改' }, { default: () => h('input', { ref: otherField }) })
+  otherField.value.focus()
+  state.value = { ...state.value, presentation: 'default' }
+  await nextTick()
+  const mask = field.value.parent.parent.parent
+  assert.equal(mask.props.hidden, true)
+  assert.equal(ui.doc.activeElement, otherField.value)
+  other.value = { ...other.value, open: false }
+  await nextTick()
+  await nextTick()
+  assert.equal(mask.props.hidden, undefined)
+  assert.ok(mask.contains(ui.doc.activeElement))
+  assert.equal(ui.body.style.overflow, 'hidden')
+})

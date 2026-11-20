@@ -20,6 +20,8 @@ RUN --mount=type=cache,id=jzmedia-npm,target=/root/.npm,sharing=locked \
     if [ -n "$HTTP_PROXY" ]; then npm config set proxy "$HTTP_PROXY" && npm config set https-proxy "$HTTPS_PROXY"; fi \
  && npm ci --prefer-offline --no-audit --no-fund
 COPY docs/ ./
+COPY frontend/package.json /frontend/package.json
+COPY frontend/src/ /frontend/src/
 COPY design/doc-storyboards.json /design/doc-storyboards.json
 COPY version.properties /version.properties
 RUN npm run build && npm run check
@@ -89,6 +91,7 @@ COPY LICENSE ./LICENSE
 COPY version.properties ./version.properties
 COPY --from=web /web/dist ./frontend/dist
 COPY --from=help /help/.vitepress/dist ./docs/.vitepress/dist
+COPY --from=help /help/settings-assistant-topics.json ./docs/settings-assistant-topics.json
 
 EXPOSE 8080
 

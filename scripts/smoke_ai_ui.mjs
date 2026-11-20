@@ -1,4 +1,4 @@
-// Run: node scripts/smoke_ai_ui.mjs [--capture-docs | --capture-search | --demo]
+// Run: node scripts/smoke_ai_ui.mjs [--capture-docs | --capture-search | --settings-assistant-only | --demo]
 // Build the real Vue pages into /tmp, serve local static assets and mock every API.
 // --capture-docs also saves documented screenshots; --demo keeps the loopback UI open.
 // No backend, .env, data directory, NAS, or model service is opened. Vite config/env
@@ -18,9 +18,10 @@ import { chromium } from '../docs/node_modules/playwright/index.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
-assert.ok(args.every(arg => ['--capture-docs', '--capture-search', '--demo'].includes(arg)), 'Usage: node scripts/smoke_ai_ui.mjs [--capture-docs | --capture-search | --demo]')
+assert.ok(args.every(arg => ['--capture-docs', '--capture-search', '--settings-assistant-only', '--demo'].includes(arg)), 'Unknown AI UI smoke mode')
 assert.ok(args.length <= 1, 'Choose one mode per run')
 const searchCapture = args.includes('--capture-search')
+const assistantOnly = args.includes('--settings-assistant-only')
 const capture = args.includes('--capture-docs') || searchCapture, demo = args.includes('--demo')
 const simulatedConnection = '模拟响应：未连接 OpenCode Go 或其他模型服务'
 const desktop = { width: 1440, height: 1000 }
@@ -56,6 +57,30 @@ const settings = { enabled: false, provider: 'deepseek', base_url: 'https://api.
   api_key_set: false, api_key_source: 'unset', api_key_masked: '',
   usage: { date: '2026-10-02', requests: 0, input_tokens: 0, output_tokens: 0 } }
 const requests = [], unexpected = [], errors = []
+const assistantTopics = JSON.parse(await readFile(path.join(project, 'docs/settings-assistant-topics.json'), 'utf8'))
+const assistantEndpoint = '/api/ai/settings-assistant'
+const ruleWrites = () => requests.filter(r => r.method === 'PUT' && r.path.endsWith('/matching-rules'))
+let beforeMatchingWrite, expectedConflictPath
+
+function assistantReply(body) {
+  assert.deepEqual(Object.keys(body).sort(), ['history', 'question', 'section'])
+  const font = body.question.includes('字体')
+  const protection = body.question.includes('密码')
+  const local = !settings.enabled
+  const topic = assistantTopics.find(item => item.id === (protection ? 'protection' : font ? 'display' : 'matching'))
+  const { id, title, page, anchor, section } = topic
+  const suggestion = font ? { kind: 'display', field: 'fontSize', delta: 2 }
+    : body.question.includes('停用本地索引') ? { kind: 'matching', operation: 'disable', providers: ['local'] }
+    : { kind: 'matching', operation: 'prioritize', providers: ['tmdb'] }
+  const answer = protection ? '打开访问保护填写密码。'
+    : font && body.question.includes('帮我') ? '可以，字体大小只影响当前浏览器。'
+    : font ? '在「界面显示」里拖动「字体大小」滑块即可。字号会保存在当前浏览器。'
+    : body.question.includes('其他视频库') ? '只对选中的视频库生效，其他库会继续使用自己的匹配顺序。'
+    : '打开「匹配规则」，选中电影库，再将 TMDB 移到第一位。保存后，新匹配会优先用它查找资料。'
+  return { mode: local ? 'local' : 'ai', topics: [{ id, title, page, anchor, section }],
+    answer,
+    suggestion: !local && body.question.includes('帮我') ? suggestion : null }
+}
 let searchFailure = null, matchFailure = null, delayedSearch = null
 let delayedResolve
 let httpServer, browser, page
@@ -106,6 +131,18 @@ async function mockApi(route) {
   const method = request.method(), body = request.postData() ? request.postDataJSON() : undefined
   const key = url.pathname
   requests.push({ path: key, method, body, query: Object.fromEntries(url.searchParams) })
+  if (key === assistantEndpoint && method === 'POST') return response(route, assistantReply(body))
+  if (/^\/api\/libraries\/\d+\/matching-rules$/.test(key) && method === 'PUT') {
+    const library = libraries.find(item => item.id === Number(key.split('/').at(-2)))
+    assert.ok(library, 'A matching rule requires a known fixture library')
+    assert.deepEqual(Object.keys(body).sort(), ['expected', 'providers'])
+    await beforeMatchingWrite?.(library)
+    if (JSON.stringify(JSON.parse(library.metadata_providers)) !== JSON.stringify(body.expected)) {
+      return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: '此视频库的匹配规则已变更，请重新核对后确认' }) })
+    }
+    library.metadata_providers = JSON.stringify(body.providers)
+    return response(route, { providers: body.providers })
+  }
   if (key === '/api/ai/settings') {
     if (method === 'PATCH') {
       const { api_key: secret, clear_api_key: clear, ...config } = body
@@ -157,8 +194,10 @@ async function mockApi(route) {
     ok: true, total_bytes: 0, warning_bytes: 20 * 1024 ** 3, over_limit: false, error: '',
     categories: { database: 0, posters: 0, previews: 0, transcode: 0, other: 0 },
   })
-  if (key === '/api/jobs/stats') return response(route, { total: 1, by_library: [] })
-  if (key === '/api/tv/stats') return response(route, { shows: 1, seasons: 0, episodes: 0, by_library: [] })
+  if (key === '/api/jobs/stats') return response(route, { total: 1, grouped: 1, versions: 2, needs_review: 0,
+    no_match: 0, missing_files: 0, by_library: [] })
+  if (key === '/api/tv/stats') return response(route, { shows: 1, seasons: 2, episodes: 3, pending: 0,
+    episode_review: 0, by_library: [] })
   if (key === '/api/jobs/tv-ingest') return response(route, { job_id: 'demo-tv-ingest' })
   if (key === '/api/jobs/tv-ingest/demo-tv-ingest') return response(route, { state: 'done', summary: { preview_id: 'demo-tv-ingest', plans: [], metadata_results: [], auto_prompt: false } })
   if (key === '/api/tv/ingestion-reviews') return response(route, { items: [], count: 0 })
@@ -273,6 +312,355 @@ async function checkDiscoveryLayouts(panel) {
   }
 }
 
+async function checkSettingsAssistant(go) {
+  Object.assign(settings, { enabled: true, api_key_set: true })
+  const launcher = page.getByRole('button', { name: '问设置助手', exact: true })
+  const floating = page.getByRole('complementary', { name: '设置助手', exact: true })
+  const modal = page.getByRole('dialog', { name: '设置助手', exact: true })
+  const dialog = floating.or(modal)
+  const proposal = dialog.getByRole('region', { name: '配置建议' })
+  const confirm = proposal.getByRole('button', { name: '确认应用' })
+  const target = proposal.getByLabel('目标视频库')
+  const rules = page.locator('#sec-matching')
+  const captureAssistant = async name => {
+    if (!assistantOnly) return
+    const directory = path.join(project, 'output/playwright/settings-assistant')
+    await mkdir(directory, { recursive: true })
+    await page.screenshot({ path: path.join(directory, name + '.png'), animations: 'disabled' })
+  }
+  const open = async () => { if (!await dialog.isVisible()) await launcher.click() }
+  const ask = async text => {
+    await dialog.getByRole('textbox').fill(text)
+    await dialog.getByRole('button', { name: '发送' }).click()
+    await dialog.getByRole('heading', { name: text, exact: true }).last().waitFor()
+  }
+  const checkLinks = async (id, label) => {
+    const { title, page: guide, anchor, section } = assistantTopics.find(topic => topic.id === id)
+    const link = dialog.getByRole('link', { name: new RegExp(title) }).last()
+    assert.equal(decodeURIComponent(await link.getAttribute('href')), '/help/' + guide + '.html#' + anchor)
+    assert.equal(await link.getAttribute('target'), '_blank')
+    const settingsLink = dialog.getByRole('link', { name: '打开' + label, exact: true }).last()
+    assert.equal(await settingsLink.getAttribute('href'), '/settings?sec=' + section)
+  }
+
+  // Measure the actual visible boxes, so a fixed but disconnected chat or a
+  // three-column grid with an apparent overlay both fail this regression.
+  const checkAttached = async (where, side) => {
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    const { pet, panel, w, h, petCanReceiveClicks } = await page.evaluate(() => {
+      const launcher = document.querySelector('.assistant-launcher')
+      const rect = node => {
+        const { left, top, right, bottom, width, height } = node.getBoundingClientRect()
+        return { left, top, right, bottom, width, height }
+      }
+      const pet = rect(launcher)
+      return { pet, panel: rect(document.querySelector('#settings-assistant-panel')), w: innerWidth, h: innerHeight,
+        petCanReceiveClicks: launcher.contains(document.elementFromPoint(pet.left + pet.width / 2, pet.top + pet.height / 2)) }
+    })
+    const hGap = Math.max(0, panel.left - pet.right, pet.left - panel.right)
+    const vGap = Math.max(0, panel.top - pet.bottom, pet.top - panel.bottom)
+    const context = where + ' ' + JSON.stringify({ pet, panel, w, h })
+    assert.ok((hGap === 0 || vGap === 0) && Math.max(hGap, vGap) <= 24, 'Panel detached at ' + context)
+    assert.ok(panel.left >= -1 && panel.top >= -1 && panel.right <= w + 1 && panel.bottom <= h + 1,
+      'Panel escaped viewport at ' + context)
+    assert.ok(petCanReceiveClicks, 'Launcher is covered at ' + context)
+    if (side === 'right') assert.ok(pet.left > w / 2 && panel.right <= pet.right + 1, context)
+    if (side === 'left') assert.ok(pet.right < w / 2 && panel.left >= pet.left - 1, context)
+    return panel
+  }
+  const settingsBoxes = () => page.locator('.side-nav, .settings-main, #sec-status .settings-shortcuts').evaluateAll(nodes =>
+    nodes.map(node => {
+      const { x, y, width, height } = node.getBoundingClientRect()
+      return { x, y, width, height }
+    }))
+
+  await page.setViewportSize({ width: 1700, height: 900 })
+  await go('/settings')
+  await page.locator('#sec-status .settings-shortcuts').waitFor()
+  await page.locator('#sec-status .overview-clear').waitFor()
+  const overviewBoxes = await settingsBoxes()
+  await open()
+  await dialog.getByRole('textbox').waitFor()
+  await checkAttached('opening on the overview', 'right')
+  assert.deepEqual(await settingsBoxes(), overviewBoxes, 'The overview and navigation retain their normal footprint')
+  const glass = await dialog.evaluate(node => {
+    const style = getComputedStyle(node)
+    const paint = document.createElement('canvas').getContext('2d')
+    paint.fillStyle = style.backgroundColor
+    paint.fillRect(0, 0, 1, 1)
+    return { alpha: paint.getImageData(0, 0, 1, 1).data[3], filter: style.backdropFilter }
+  })
+  assert.ok(glass.alpha > 0 && glass.alpha < 255 && glass.filter.includes('blur('), 'Floating chat has a translucent, blurred shell')
+  assert.equal(requests.filter(r => r.path === assistantEndpoint).length, 0, 'Opening reads only the saved model configuration')
+  await captureAssistant('overview-right')
+  await ask('电影匹配时，怎么优先使用 TMDB？')
+  await ask('会影响其他视频库吗？')
+  await captureAssistant('conversation')
+  const chooseCorner = async corner => dialog.getByRole('combobox', { name: '停靠位置' }).selectOption(corner)
+  for (const corner of ['top-left', 'bottom-left', 'bottom-right', 'top-right']) {
+    await chooseCorner(corner)
+    await checkAttached(corner, corner.split('-')[1])
+    assert.deepEqual(await settingsBoxes(), overviewBoxes)
+    if (corner === 'top-left') await captureAssistant('overview-left')
+    if (corner === 'bottom-left') await captureAssistant('conversation-left')
+  }
+  const initial = await launcher.boundingBox()
+  await page.mouse.move(initial.x + 24, initial.y + 24)
+  await page.mouse.down()
+  await page.mouse.move(610, 460, { steps: 12 })
+  await launcher.locator('img[src*="projector-drag"]').waitFor()
+  const traversing = await checkAttached('drag in progress')
+  await page.mouse.up()
+  const snapped = await checkAttached('custom left height', 'left')
+  assert.ok(Math.abs(snapped.left - traversing.left) > 100, 'Releasing moves the open chat to its docked position')
+  assert.deepEqual(await settingsBoxes(), overviewBoxes)
+  await launcher.press('Home')
+  await page.setViewportSize({ width: 820, height: 820 })
+  await floating.waitFor()
+  await checkAttached('tablet', 'right')
+  await page.setViewportSize({ width: 1700, height: 900 })
+  await dialog.getByRole('button', { name: '关闭设置助手' }).click()
+  assert.deepEqual(await settingsBoxes(), overviewBoxes, 'Closing the chat restores the same overview')
+
+  await page.setViewportSize(desktop)
+  await go('/settings?sec=sec-matching')
+  const beforeDrag = await launcher.boundingBox()
+  assert.equal(beforeDrag.width, 56)
+  await page.mouse.move(beforeDrag.x + 24, beforeDrag.y + 24)
+  await page.mouse.down()
+  await page.mouse.move(72, 300, { steps: 10 })
+  await launcher.locator('img[src*="projector-drag"]').waitFor()
+  await page.mouse.up()
+  assert.equal(await dialog.count(), 0, 'Releasing a drag only docks the projector')
+  assert.ok((await launcher.boundingBox()).x < 100)
+  await page.reload()
+  await launcher.waitFor()
+  assert.ok((await launcher.boundingBox()).x < 100, 'Docked side survives reload')
+  await launcher.press('Home')
+  await open()
+  await floating.waitFor()
+  assert.equal(await modal.count(), 0)
+  assert.equal(await floating.getAttribute('aria-modal'), null)
+  assert.equal(requests.filter(r => r.path === assistantEndpoint).length, 2, 'Reopening does not start a new model request')
+  const firstQuestion = '怎么让电影库优先用 TMDB？'
+  let releaseReply
+  const replyGate = new Promise(resolve => { releaseReply = resolve })
+  const delayReply = async route => { await replyGate; await route.continue() }
+  await page.route('**' + assistantEndpoint, delayReply)
+  try {
+    await dialog.getByRole('textbox').fill(firstQuestion)
+    await dialog.getByRole('button', { name: '发送' }).click()
+    const pending = dialog.locator('.assistant-pending')
+    await pending.getByText(firstQuestion, { exact: true }).waitFor()
+    await pending.getByRole('status').waitFor()
+    assert.equal(await proposal.count(), 0)
+  } finally {
+    releaseReply()
+  }
+  await dialog.getByRole('heading', { name: firstQuestion, exact: true }).waitFor()
+  await page.unroute('**' + assistantEndpoint, delayReply)
+  await checkLinks('matching', '匹配规则')
+  const turn = dialog.locator('.assistant-turn').last()
+  const outgoing = await turn.locator('.assistant-question').boundingBox()
+  const incoming = await turn.locator('.assistant-answer').boundingBox()
+  assert.ok(outgoing.x + outgoing.width > incoming.x + incoming.width && outgoing.x > incoming.x,
+    'User and assistant messages are aligned to opposite edges')
+  await captureAssistant('desktop')
+  assert.equal(await proposal.count(), 0, 'Asking for instructions has no proposed write')
+  await ask('帮我调整这个顺序')
+  const followUp = requests.filter(r => r.path === assistantEndpoint).at(-1).body
+  assert.equal(followUp.section, 'sec-matching')
+  assert.equal(followUp.history[0].question, '怎么让电影库优先用 TMDB？')
+  assert.equal(await target.locator('option:checked').innerText(), '选择要修改的视频库')
+  assert.equal(await confirm.count(), 0)
+  await target.selectOption('3')
+  assert.match(await target.locator('option:checked').innerText(), /模拟媒体库乙.*电影/)
+  assert.deepEqual(await proposal.locator('dd').allTextContents(), ['本地索引', 'TMDB → 本地索引'])
+  // The underlying real form remains usable while an unapplied proposal is visible.
+  await rules.getByLabel('视频库', { exact: true }).selectOption('1')
+  assert.equal(await target.inputValue(), '3')
+  await proposal.getByRole('button', { name: '取消', exact: true }).click()
+  await proposal.getByText('已取消修改').waitFor()
+  assert.equal(ruleWrites().length, 0)
+  await ask('帮我优先使用 TMDB')
+  await target.selectOption('3')
+  await confirm.evaluate(button => { button.click(); button.click() })
+  await proposal.getByText('已保存匹配规则').waitFor()
+  assert.deepEqual(ruleWrites().map(r => [r.path, r.body]), [[
+    '/api/libraries/3/matching-rules', { expected: ['local'], providers: ['tmdb', 'local'] },
+  ]])
+  await proposal.getByRole('link', { name: '查看已保存规则' }).click()
+  await page.waitForURL(url => url.searchParams.get('library') === '3')
+  assert.equal(await rules.getByLabel('视频库', { exact: true }).inputValue(), '3')
+  assert.match(await rules.getByRole('list', { name: '已启用来源的匹配顺序' }).innerText(), /^1\. TMDB/)
+
+  await rules.getByLabel('视频库', { exact: true }).selectOption('2')
+  await rules.getByLabel('TVmaze', { exact: true }).check()
+  await open()
+  await ask('帮我调整视频库的优先级')
+  await target.selectOption('2')
+  await proposal.getByText(/请先在原表单处理草稿/).waitFor()
+  assert.equal(await confirm.count(), 0)
+  await proposal.getByRole('link', { name: '查看本库草稿' }).click()
+  assert.equal(await rules.getByLabel('TVmaze', { exact: true }).isChecked(), true)
+  await rules.getByRole('button', { name: '放弃本库修改' }).click()
+  assert.equal(ruleWrites().length, 1)
+
+  await open()
+  await ask('帮我让 TMDB 优先')
+  await target.selectOption('4')
+  expectedConflictPath = '/api/libraries/4/matching-rules'
+  beforeMatchingWrite = library => { library.metadata_providers = '["local","wikidata"]' }
+  await confirm.click()
+  await proposal.getByRole('alert').filter({ hasText: /重新核对/ }).waitFor()
+  beforeMatchingWrite = undefined
+  assert.equal(await confirm.count(), 0)
+  await proposal.getByRole('button', { name: '重新核对' }).click()
+  await proposal.getByText('TMDB → 本地索引 → Wikidata').waitFor()
+  assert.equal(ruleWrites().length, 2, 'Reviewing a conflict cannot write')
+  await confirm.click()
+  await proposal.getByText('已保存匹配规则').waitFor()
+  expectedConflictPath = undefined
+  assert.deepEqual(ruleWrites().at(-1).body, { expected: ['local', 'wikidata'], providers: ['tmdb', 'local', 'wikidata'] })
+  await ask('帮我停用本地索引')
+  await target.selectOption('1')
+  await proposal.getByText('至少保留一个匹配来源。', { exact: true }).waitFor()
+  assert.equal(await confirm.count(), 0)
+  await target.selectOption('4')
+  assert.deepEqual(await proposal.locator('dd').allTextContents(), ['TMDB → 本地索引 → Wikidata', 'TMDB → Wikidata'])
+  assert.equal(ruleWrites().length, 3)
+  await confirm.click()
+  await proposal.getByRole('link', { name: '查看已保存规则' }).click()
+  await page.waitForURL(url => url.searchParams.get('library') === '4')
+  const savedOrder = rules.getByRole('list', { name: '已启用来源的匹配顺序' })
+  assert.deepEqual(await savedOrder.locator('li > span').allTextContents(), ['1. TMDB', '2. Wikidata'])
+  assert.deepEqual(ruleWrites().at(-1).body, { expected: ['tmdb', 'local', 'wikidata'], providers: ['tmdb', 'wikidata'] })
+  await open()
+  await ask('帮我调整匹配来源')
+  await page.locator('.desktop-categories').getByRole('button', { name: '界面显示' }).click()
+  await floating.getByRole('heading', { name: '帮我调整匹配来源' }).waitFor()
+  assert.equal(await proposal.count(), 0, 'Changing section retires the previous proposal')
+  await ask('这里可以设置什么？')
+  assert.equal(requests.filter(r => r.path === assistantEndpoint).at(-1).body.section, 'sec-display')
+  console.log('PASS 设置助手问答、教程、显式选库和确认、取消、连续点击、未保存草稿与过期规则重新核对')
+
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await go('/settings?sec=sec-display')
+    assert.equal((await launcher.boundingBox()).width, 48)
+    const slider = page.getByLabel(/^字体大小/)
+    const previous = Number(await slider.inputValue())
+    await open()
+    await modal.waitFor()
+    assert.equal(await floating.count(), 0)
+    await modal.getByRole('textbox').waitFor()
+    await checkAttached(width + 'px mobile')
+    for (const key of ['Tab', 'Shift+Tab']) {
+      await page.keyboard.press(key)
+      assert.ok(await modal.evaluate(el => el.contains(document.activeElement)), 'Mobile chat keeps keyboard focus')
+    }
+    if (width === 390) {
+      await modal.getByRole('textbox').focus()
+      await page.setViewportSize({ width, height: 450 })
+      const short = await checkAttached('short mobile viewport')
+      const composer = await modal.getByRole('textbox').boundingBox()
+      assert.ok(composer.height > 0 && composer.y + composer.height <= short.bottom, 'Composer fits when the visible height shrinks')
+      await page.setViewportSize({ width, height: 844 })
+    }
+    await ask('帮我把字体调大一点')
+    if (width === 390 && assistantOnly) {
+      await confirm.scrollIntoViewIfNeeded()
+      await captureAssistant('mobile-confirmation')
+    }
+    assert.deepEqual(await proposal.locator('dd').allTextContents(), [previous + ' px', (previous + 2) + ' px'])
+    assert.equal(await slider.inputValue(), String(previous))
+    const layout = await dialog.evaluate(node => ({
+      page: document.documentElement.scrollWidth, viewport: innerWidth,
+      content: node.scrollWidth, dialog: node.clientWidth,
+      overflowing: [...node.querySelectorAll('*')].filter(el => el.clientWidth && el.scrollWidth > el.clientWidth + 1)
+        .map(el => [el.tagName, el.className, el.clientWidth, el.scrollWidth]),
+    }))
+    assert.ok(layout.content <= layout.dialog + 1 && layout.page <= layout.viewport + 1,
+      width + 'px assistant overflow: ' + JSON.stringify(layout))
+    let reviewedFontSize = previous
+    if (width === 320) {
+      const otherTab = await page.context().newPage()
+      await otherTab.goto(page.url())
+      await otherTab.getByLabel(/^字体大小/).press('ArrowLeft')
+      await otherTab.getByLabel(/^海报大小/).press('End')
+      reviewedFontSize = Number(await otherTab.getByLabel(/^字体大小/).inputValue())
+      assert.equal(reviewedFontSize, previous - 1)
+      await otherTab.close()
+
+      await confirm.click()
+      await proposal.getByRole('alert').filter({ hasText: /显示偏好已变化/ }).waitFor()
+      assert.equal(await confirm.count(), 0)
+      const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('jz.prefs')))
+      assert.equal(stored.fontSize, reviewedFontSize)
+      assert.equal(stored.posterMin, 200)
+      await proposal.getByRole('button', { name: '重新核对' }).click()
+      assert.deepEqual(await proposal.locator('dd').allTextContents(), [reviewedFontSize + ' px', (reviewedFontSize + 2) + ' px'])
+    }
+    await confirm.click()
+    await proposal.getByRole('link', { name: '查看显示设置' }).click()
+    await modal.waitFor({ state: 'hidden' })
+    assert.equal(await slider.inputValue(), String(reviewedFontSize + 2))
+    await page.reload()
+    assert.equal(await slider.inputValue(), String(reviewedFontSize + 2), 'Browser preference survives reload')
+    assert.equal(await page.getByLabel(/^海报大小/).inputValue(), '200', 'Keep the poster size saved by the other tab')
+  }
+  await go('/settings?sec=sec-ai')
+  const modelName = page.getByLabel('模型名称', { exact: true })
+  await modelName.fill('unsaved-test-model')
+  await open()
+  await ask('怎么调整字体？')
+  const openDisplay = modal.getByRole('link', { name: '打开界面显示', exact: true })
+  const leaveGuard = page.getByRole('dialog', { name: '设置尚未保存' })
+  await openDisplay.click()
+  await leaveGuard.getByRole('button', { name: '继续编辑', exact: true }).click()
+  await leaveGuard.waitFor({ state: 'hidden' })
+  await modal.getByRole('heading', { name: '怎么调整字体？', exact: true }).waitFor()
+  assert.equal(await modelName.inputValue(), 'unsaved-test-model')
+  assert.equal(new URL(page.url()).searchParams.get('sec'), 'sec-ai')
+  await openDisplay.click()
+  await leaveGuard.getByRole('button', { name: '放弃修改并离开' }).click()
+  await page.waitForURL(url => url.searchParams.get('sec') === 'sec-display')
+  await modal.waitFor({ state: 'hidden' })
+  await open()
+  await ask('界面字体怎么改？')
+  await captureAssistant('mobile')
+  await openDisplay.click()
+  await modal.waitFor({ state: 'hidden' })
+  settings.enabled = false
+  await go('/settings')
+  await open()
+  const sends = requests.filter(r => r.path === assistantEndpoint).length
+  await dialog.getByText('去配置智能辅助', { exact: true }).waitFor()
+  await dialog.getByRole('link', { name: /配置教程/ }).waitFor()
+  assert.equal(await dialog.getByRole('textbox').count(), 0)
+  await dialog.getByText('去配置智能辅助', { exact: true }).click()
+  await page.waitForURL(url => url.searchParams.get('sec') === 'sec-ai')
+  await page.getByLabel('服务商', { exact: true }).waitFor()
+  Object.assign(settings, { enabled: true, api_key_set: false })
+  await open()
+  await dialog.getByText('去配置智能辅助', { exact: true }).waitFor()
+  assert.equal(await dialog.getByRole('textbox').count(), 0, 'Hosted provider needs a saved key')
+  await dialog.getByRole('button', { name: /关闭/ }).first().click()
+  settings.provider = 'compatible'
+  await open()
+  await dialog.getByRole('textbox').waitFor()
+  assert.equal(requests.filter(r => r.path === assistantEndpoint).length, sends)
+  assert.equal(await proposal.count(), 0)
+  assert.equal(ruleWrites().length, 4)
+  await page.keyboard.press('Escape')
+  await dialog.waitFor({ state: 'hidden' })
+  assert.equal(await launcher.evaluate(el => document.activeElement === el), true)
+  Object.assign(settings, { enabled: false, provider: 'deepseek', api_key_set: false })
+  await page.evaluate(() => localStorage.removeItem('jz.prefs'))
+  await page.setViewportSize(desktop)
+  console.log('PASS 半透明浮窗与设置布局、四角停靠及拖动跟随、双向气泡和等待状态、320/390px 手机确认及模型引导')
+}
+
 async function captureDocs(go) {
   const binary = await ffmpegBinary(), assets = path.join(project, 'docs/assets')
   await mkdir(path.join(assets, 'screenshots'), { recursive: true })
@@ -351,7 +739,7 @@ async function captureDocs(go) {
   console.log('Updated AI entries only: docs/assets/manifest.json; raw PNGs: ' + temporary)
 }
 
-try {
+async function runSmoke() {
   const demoLabel = { name: 'isolated-demo-label', transformIndexHtml: () => [{ tag: 'div',
     attrs: { id: 'isolated-demo-label', style: 'position:fixed;bottom:0;left:0;right:0;z-index:99999;padding:9px 16px;background:#25384a;color:#e5efff;text-align:center;font:14px/1.4 sans-serif;border-top:1px solid #698baa;pointer-events:none' },
     children: '隔离演示 · 真实界面 + 模拟 API · 无真实 Key · 不代表 OpenCode Go 连通或影视效果', injectTo: 'body' }] }
@@ -402,14 +790,26 @@ try {
   page = await context.newPage()
   page.setDefaultTimeout(15000)
   page.on('pageerror', e => errors.push(String(e)))
-  page.on('response', r => { if (r.status() >= 400) errors.push(`${r.status()} ${new URL(r.url()).pathname}`) })
-  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
+  page.on('response', r => {
+    const pathname = new URL(r.url()).pathname
+    if (r.status() >= 400 && !(r.status() === 409 && pathname === expectedConflictPath)) errors.push(`${r.status()} ${pathname}`)
+  })
+  page.on('console', message => {
+    if (message.type() !== 'error') return
+    if (expectedConflictPath && message.location().url === base + expectedConflictPath &&
+      /Failed to load resource:.*409/.test(message.text())) return
+    errors.push(message.text())
+  })
   const go = async pathname => {
     await page.goto(base + pathname)
     if (pathname.startsWith('/settings')) await page.locator('.settings-layout').waitFor()
     else await page.getByRole('combobox', { name: '切换媒体库' }).waitFor()
   }
 
+  await checkSettingsAssistant(go)
+  assert.deepEqual(unexpected, [])
+  assert.deepEqual(errors, [])
+  if (assistantOnly) return
   await go('/settings?sec=sec-ai')
   const config = page.locator('.ai-settings')
   await config.getByRole('button', { name: '配置与测试服务' }).click()
@@ -640,6 +1040,10 @@ try {
   console.log('PASS 390px 布局与运行时；所有 API/模型响应均为模拟，未访问真实后端、媒体或云服务')
   if (capture) await captureDocs(go)
   }
+}
+
+try {
+  await runSmoke()
 } catch (error) {
   const report = path.join(project, 'output/playwright/ai-matching')
   await mkdir(report, { recursive: true })

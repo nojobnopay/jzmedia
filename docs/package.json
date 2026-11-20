@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vitepress dev --host 127.0.0.1",
     "diagrams": "node scripts/diagrams.mjs",
+    "assistant:index": "npm run build && node scripts/settings-assistant.mjs",
     "build": "node scripts/diagrams.mjs --check && vitepress build",
     "check": "node scripts/check.mjs",
     "lint": "node scripts/lint.mjs",

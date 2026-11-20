@@ -2,8 +2,8 @@
   <section class="card-block ai-settings">
     <p v-if="!settings && busy" role="status">正在加载智能辅助配置…</p>
     <fieldset :disabled="busy || !settings">
-      <div class="ai-enable"><div><h3>搜索与匹配建议</h3><p class="hint">用自然语言找片，也可核对难匹配的片名。</p></div><label class="check"><input v-model="form.enabled" type="checkbox" />启用智能辅助</label></div>
-      <p class="ai-privacy">提交找片或追问时，模型会收到你的要求和相关候选的片名、简介、主创等资料。观看状态由本地片库判断。</p>
+      <div class="ai-enable"><div><h3>智能辅助服务</h3><p class="hint">用自然语言找片、核对匹配，或向设置助手提问。</p></div><label class="check"><input v-model="form.enabled" type="checkbox" />启用智能辅助</label></div>
+      <p class="ai-privacy">找片时，模型会收到你的要求和相关候选的片名、简介、主创等资料。观看状态由本地片库判断。设置问答会发送问题、必要的对话上下文和本版手册摘录。</p>
       <div v-if="!form.enabled" class="ai-disabled"><span>当前关闭。可以先配置并测试服务，保存后再启用。</span><JzButton type="button" :aria-expanded="configure" aria-controls="ai-service-fields" @click="configure = !configure">{{ configure ? '收起服务配置' : '配置与测试服务' }}</JzButton></div>
       <div v-if="form.enabled || configure" id="ai-service-fields">
         <div class="ai-fields">
@@ -39,13 +39,15 @@
 <script setup>
 import AppIcon from './AppIcon.vue'
 
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useSettingsDraft } from '../settingsDrafts.js'
 import { useAiRequest } from '../useAiRequest.js'
 import { aiProviderPreset } from '../aiProviders.js'
 import JzButton from './JzButton.vue'
 import JzField from './JzField.vue'
 import SettingsFormActions from './SettingsFormActions.vue'
+const props = defineProps({ openServiceRequest: { type: Number, default: 0 } })
+const emit = defineEmits(['saved'])
 const fields = ['enabled', 'provider', 'base_url', 'model', 'timeout_seconds', 'daily_limit']
 const settings = ref(null)
 const form = reactive({ enabled: false, provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-flash', timeout_seconds: 12, daily_limit: 100 })
@@ -53,6 +55,9 @@ const apiKey = ref('')
 const message = ref('')
 const armClear = ref(false)
 const configure = ref(false)
+watch(() => props.openServiceRequest, request => {
+  if (request) configure.value = true
+}, { immediate: true })
 const advanced = ref(null), attempted = ref(false)
 const { busy, error, run } = useAiRequest()
 const preset = computed(() => aiProviderPreset(form.provider))
@@ -109,7 +114,7 @@ async function save() {
   const body = { ...form, base_url: form.base_url.trim(), model: form.model.trim() }
   if (apiKey.value.trim()) body.api_key = apiKey.value.trim()
   const value = await run('/api/ai/settings', body, 'PATCH')
-  if (value) { sync(value); message.value = value.enabled ? '配置已保存，智能辅助已开启' : '配置已保存，智能辅助已关闭' }
+  if (value) { sync(value); emit('saved'); message.value = value.enabled ? '配置已保存，智能辅助已开启' : '配置已保存，智能辅助已关闭' }
 }
 async function check() {
   if (dirty.value) return
@@ -128,7 +133,7 @@ async function clearKey() {
   if (!armClear.value) { armClear.value = true; return }
   message.value = ''
   const value = await run('/api/ai/settings', { clear_api_key: true }, 'PATCH')
-  if (value) { sync(value, true); message.value = value.api_key_source === 'env' ? '已移除设置页密钥，现使用服务器环境密钥' : '已移除设置页密钥' }
+  if (value) { sync(value, true); emit('saved'); message.value = value.api_key_source === 'env' ? '已移除设置页密钥，现使用服务器环境密钥' : '已移除设置页密钥' }
 }
 onMounted(load)
 </script>

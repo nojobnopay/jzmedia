@@ -4,14 +4,28 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from .. import store
-from ..ai import discovery, discovery_sessions
+from .. import store, viewing
+from ..ai import discovery, discovery_sessions, settings_assistant
 from ..ai.search import SearchFilters, ShortText, Year
 from ..ai.client import AiUnavailable, operation_session
 from ..ai.match import suggest_match
 from ..ai.search import propose_search, scope_libraries
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+@router.post("/settings-assistant")
+def ask_about_settings(body: settings_assistant.SettingsQuestion, request: Request, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    # Management middleware keeps the original grant on request.state while
+    # unscoping database reads. The grant can expire during a provider call.
+    access = getattr(request.state, "viewing_context", None)
+    with operation_session():
+        result = settings_assistant.reply(body)
+    if viewing.enabled() and (not access or not viewing.check_lease(
+            access.session_hash, access.generation, management=True)):
+        viewing.error("management_required", "管理权限已过期，请重新验证后提问。")
+    return result
 
 
 class SearchRequest(BaseModel):

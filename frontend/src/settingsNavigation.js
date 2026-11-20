@@ -12,7 +12,7 @@ export const SETTINGS_PAGES = [
   { id: 'sec-online', icon: 'play', label: '在线视频源', group: '媒体与文件', description: '管理在线点播开关、视频源及其网络连接。' },
   { id: 'sec-tmdb', icon: 'link', label: '在线资料服务', group: '资料与智能', description: '配置 TMDB 连接，查看资料服务运行状态。配置对全部视频库生效。' },
   { id: 'sec-matching', icon: 'match', label: '匹配规则', group: '资料与智能', description: '为每个视频库选择资料来源、调整优先级并测试已保存规则。' },
-  { id: 'sec-ai', icon: 'ai', label: '智能辅助', group: '资料与智能', description: '配置可选的智能搜索与匹配建议，整个实例共用。' },
+  { id: 'sec-ai', icon: 'ai', label: '智能辅助', group: '资料与智能', description: '配置智能搜索、匹配建议和设置助手共用的模型服务。' },
   { id: 'sec-offline', icon: 'download', label: '离线资料', group: '资料与智能', description: '导入本地 IMDb 数据，为全部视频库提供离线标题与年份索引。' },
   { id: 'sec-auth', icon: 'lock', label: '访问保护', group: '安全与显示', description: '设置儿童与隐私保护密码，管理访问令牌。' },
   { id: 'sec-display', icon: 'image', label: '界面显示', group: '安全与显示', description: '修改后自动保存到当前浏览器。' },

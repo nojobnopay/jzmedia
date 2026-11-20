@@ -767,6 +767,51 @@
         "tag": 1,
         "cast": 1
       }
+    },
+    {
+      "path": "frontend/src/assets/assistant/projector-idle.webp",
+      "asset": "projector-idle",
+      "format": "webp",
+      "units": "px",
+      "dimensions": [
+        256,
+        256
+      ],
+      "transparent": true,
+      "platform": "web",
+      "source": "design/illustrations/assistant/projector-idle.webp",
+      "sha256": "2d56066ddb8a4bbeaf3675f3e99bbaa9bf00d69129d80eec1eaf7d69b2e2d6c3",
+      "generator_version": 1
+    },
+    {
+      "path": "frontend/src/assets/assistant/projector-drag.webp",
+      "asset": "projector-drag",
+      "format": "webp",
+      "units": "px",
+      "dimensions": [
+        256,
+        256
+      ],
+      "transparent": true,
+      "platform": "web",
+      "source": "design/illustrations/assistant/projector-drag.webp",
+      "sha256": "e54e6c56c40a36c5f9807eacaf6d0e80f662d5b2f8fe5a7dda07eb74a9fe666e",
+      "generator_version": 1
+    },
+    {
+      "path": "frontend/src/assets/assistant/projector-talk.webp",
+      "asset": "projector-talk",
+      "format": "webp",
+      "units": "px",
+      "dimensions": [
+        256,
+        256
+      ],
+      "transparent": true,
+      "platform": "web",
+      "source": "design/illustrations/assistant/projector-talk.webp",
+      "sha256": "849b0443a877e899b130ff8f87055404e024e8a7a149f1457a6f813e17a275b8",
+      "generator_version": 1
     }
   ]
 }

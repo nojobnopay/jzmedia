@@ -9,7 +9,8 @@ export const DEFAULT_CHAIN = ['local', 'tmdb', 'wikidata']
 export function librarySourceOrder(library) {
   let value = []
   try { value = JSON.parse(library?.metadata_providers || '[]') } catch { /* Old invalid values use the server default. */ }
-  const names = Array.isArray(value) ? [...new Set(value.filter(name => CHAIN_PROVIDERS.includes(name)))] : []
+  const normalized = Array.isArray(value) ? value.filter(name => typeof name === 'string').map(name => name.trim().toLowerCase()) : []
+  const names = [...new Set(normalized.filter(name => CHAIN_PROVIDERS.includes(name)))]
   return names.length ? names : [...DEFAULT_CHAIN]
 }
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
@@ -69,6 +70,14 @@ export function useMatchingSettings(libraries, request, refreshLibraries) {
     for (const id of Object.keys(drafts)) { delete drafts[id]; delete messages[id] }
     resetTest()
   }
+  function reflectSavedRules(id, names) {
+    const item = libraries.value.find(lib => lib.id === id)
+    if (!item) return
+    if (same(drafts[id], librarySourceOrder(item))) delete drafts[id]
+    item.metadata_providers = JSON.stringify(names)
+    messages[id] = '已保存：' + names.map(name => CHAIN_LABELS[name]).join(' → ')
+    if (libraryId.value === id) resetTest()
+  }
   async function save() {
     if (disposed || saving.value || !library.value || !selection.value.length) return
     const id = libraryId.value
@@ -122,5 +131,5 @@ export function useMatchingSettings(libraries, request, refreshLibraries) {
     }
   }
   onScopeDispose(() => { disposed = true; resetTest() })
-  return { libraryId, library, selection, dirty, dirtyLibraries, discardAll, draftCount, message, orderText, saving, testing, query, testMessage, testResult, toggle, move, discard, save, testSearch }
+  return { libraryId, library, selection, dirty, dirtyLibraries, discardAll, draftCount, message, orderText, saving, testing, query, testMessage, testResult, toggle, move, discard, save, testSearch, reflectSavedRules }
 }

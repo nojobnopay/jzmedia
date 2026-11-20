@@ -1,5 +1,13 @@
 {
   "schema_version": 1,
+  "product_illustrations": [
+    {
+      "source": "frontend/src/components/SettingsAssistantLauncher.vue",
+      "expression": "dragging ? projectorArtwork.drag : speaking ? projectorArtwork.talk : projectorArtwork.idle",
+      "assets": ["projector-idle", "projector-drag", "projector-talk"],
+      "purpose": "小放映机以待机、拖动和回答表情提示设置助手状态"
+    }
+  ],
   "dynamic_icons": [
     {
       "source": "frontend/src/views/Online.vue",
@@ -634,6 +642,14 @@
     "frontend/src/components/MovieFileManager.vue"
   ],
   "text_symbols": [
+    {
+      "source": "frontend/src/components/SettingsAssistantSuggestion.vue",
+      "symbols": "→",
+      "contexts": [
+        "value.map(name => CHAIN_LABELS[name])"
+      ],
+      "reason": "在匹配规则的当前值和建议值中表示资料来源的查找顺序。"
+    },
     {
       "source": "frontend/src/components/OrganizePanel.vue",
       "symbols": "←→",

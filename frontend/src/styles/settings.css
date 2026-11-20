@@ -106,7 +106,7 @@
 @media (max-width: 700px) {
   .settings-layout { --jz-control-current: var(--jz-touch-target); display: block; padding: 0 16px max(40px, env(safe-area-inset-bottom)); }
   .settings-layout .side-nav, .settings-layout .settings-heading, .settings-layout .settings-shortcuts { display: none; }
-  .settings-mobile-header { position: sticky; top: 0; z-index: 15; display: grid; grid-template-columns: auto minmax(0, 1fr) 44px; align-items: center; gap: 12px; margin-inline: -16px; padding: max(8px, env(safe-area-inset-top)) 16px 8px; min-height: 64px; box-sizing: border-box; border-bottom: 1px solid var(--jz-border); background: var(--jz-bg); }
+  .settings-mobile-header { position: sticky; top: 0; z-index: 15; display: grid; grid-template-columns: auto minmax(0, 1fr) 44px; align-items: center; gap: 6px; margin-inline: -16px; padding: max(8px, env(safe-area-inset-top)) 16px 8px; min-height: 64px; box-sizing: border-box; border-bottom: 1px solid var(--jz-border); background: var(--jz-bg); }
   .settings-back { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; color: var(--jz-text); text-decoration: none; font-size: var(--jz-font-m); white-space: nowrap; }
   .settings-mobile-title { min-width: 0; }
   .settings-mobile-title h1 { margin: 0; font-size: 1.25rem; line-height: 1.4; overflow-wrap: anywhere; }
