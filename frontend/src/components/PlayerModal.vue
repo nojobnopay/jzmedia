@@ -24,6 +24,7 @@
         <div class="player-corner-controls" :class="{ show: overlayVisible }"
           :inert="!overlayVisible" :aria-hidden="!overlayVisible"
           @click.stop @pointerdown.stop @dblclick.stop>
+          <AskAssistantButton class="player-corner-btn" />
           <PlayerSettings v-if="!isFull" ref="settingsRef" v-bind="settingsProps" v-on="settingsEvents" />
           <PlayerSettings v-else ref="settingsRef" v-bind="settingsProps" v-on="settingsEvents" />
           <button v-if="canCast" type="button" class="player-icon-btn player-corner-btn"
@@ -149,6 +150,7 @@ import PlayerQuickControls from './PlayerQuickControls.vue'
 import { supportsMediaVolume } from '../volumeControls.js'
 import PlayerIcon from './PlayerIcon.vue'
 import JzButton from './JzButton.vue'
+import AskAssistantButton from './AskAssistantButton.vue'
 import PlayerSeekbar from './PlayerSeekbar.vue'
 import { applyPlaybackRate, normalizeRate, reusableSeekTime, surfaceClickRevealsOnly, pauseButtonPlacement } from '../playbackControls.js'
 import { usePlaybackPreviews } from '../usePlaybackPreviews.js'
@@ -400,7 +402,7 @@ function syncPlaybackRate() {
   if (rate > 0) playbackRate.value = normalizeRate(rate)
 }
 let hls = null
-useFocusTrap(ref(true), computed(() => isFull.value ? pvWrapEl.value : dlgRef.value))
+const playerFocus = useFocusTrap(ref(true), computed(() => isFull.value ? pvWrapEl.value : dlgRef.value))
 let saveTimer = 0
 let lastSave = 0
 const quality = ref('auto')
@@ -1696,7 +1698,7 @@ function volumeBy(delta) {
   logEvt('kbd:vol', Math.round(x * 100) + '%')
 }
 function onKeydown(e) {
-  if (casting.open.value) return
+  if (!playerFocus.isTop() || casting.open.value) return
   const hidden = !overlayVisible.value
   showOverlay()
   // The focus trap may prevent Tab while every fullscreen control is inert.
@@ -2315,7 +2317,7 @@ defineExpose({ saveFinal })
   opacity: 0; pointer-events: none; transition: opacity .2s; }
 .pv-wrap:fullscreen .pv-ctl.show { opacity: 1; pointer-events: auto; }
 .pv-wrap:fullscreen .pv-top { display: flex; gap: 20px; align-items: center; position: absolute; inset: 0 0 auto;
-  padding: 16px 180px 36px 20px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 6; }
+  padding: 16px 224px 36px 20px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 6; }
 .pv-wrap:fullscreen .pv-top.show { opacity: 1; }
 .pv-wrap:fullscreen .resume-bar, .pv-wrap:fullscreen .player-toast { bottom: 118px; }
 @media (max-width: 700px) {
@@ -2331,7 +2333,7 @@ defineExpose({ saveFinal })
   .status-card { padding: 14px; gap: 8px; }
   .status-card > svg { display: none; }
   .pv-wrap:fullscreen .pv-ctl { padding-left: 16px; padding-right: 16px; }
-  .pv-wrap:fullscreen .pv-top { padding: 16px 180px 30px 20px; }
+  .pv-wrap:fullscreen .pv-top { padding: 16px 224px 30px 20px; }
 }
 /* Six 44px controls fit at 320px. Time owns a separate line; utilities live on the picture. */
 @media (max-width: 600px) {

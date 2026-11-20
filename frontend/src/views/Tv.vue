@@ -18,7 +18,7 @@
     :ai-open="ai.open" :ai-enabled="!isChildren" @update:ai-open="setAiOpen"
     @input="!ai.open && onQInput($event)" @compositionstart="!ai.open && (composing = true)" @compositionend="!ai.open && onCompositionEnd()"
     @enter="ai.open ? discovery.submit() : onSearchEnter($event)" @move="suggestMove" @close="closeSuggest" @blur="!ai.open && onQBlur()"
-    @pick-item="pickShow" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="ai.open ? discovery.submit() : applyAndLoad()">
+    @pick-item="pickShow" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="ai.open ? discovery.submit() : submitQuery()">
     <template #filters>
       <BrowseFilters :model-value="sel" :facets="facets" kind="tv" v-model:open="filtersOpen"
         :scope-label="filterScope" :scope-key="curMediaId" :context-key="route.fullPath"
@@ -91,6 +91,7 @@
 </template>
 
 <script setup>
+import { useAssistantPage } from '../assistantPage.js'
 import { isChildren, isPrivate, viewing } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
@@ -400,12 +401,9 @@ function suggestMove(d) {
   suggestIdx.value = i
 }
 function pickRow(row) {
-  clearTimeout(suggestTimer)
-  suggestSeq++
   // 剧集无人物页：选剧/选演员都是回填搜索框按名过滤（与电影跳人物页不同）
   q.value = row.kind === 'show' ? row.v.title : row.v.name
-  closeSuggest()
-  applyAndLoad()
+  submitQuery()
 }
 function pickShow(s) { pickRow({ kind: 'show', v: s }) }
 function pickPerson(p) { pickRow({ kind: 'person', v: p }) }
@@ -421,15 +419,18 @@ function onQBlur() {
 }
 function onSearchEnter(e) {
   if (e && (e.isComposing || e.keyCode === 229)) return
-  clearTimeout(suggestTimer)
-  suggestSeq++
   const row = suggestOpen.value ? suggestRow(suggestIdx.value) : null
   if (row) {
     pickRow(row)
     return
   }
+  submitQuery()
+}
+function submitQuery() {
+  clearTimeout(suggestTimer)
+  suggestSeq++
   closeSuggest()
-  applyAndLoad()
+  return applyAndLoad()
 }
 async function clearAll() {
   q.value = ''
@@ -568,6 +569,25 @@ watch(() => route.query, () => {
   // Facets describe the whole media library, so applying filters need not reload them.
   if (facetsScope !== currentMediaId()) loadFacets()
   load()
+})
+useAssistantPage('tv', () => {
+  if (playing.value || upDlg.value || scanOpen.value || filtersOpen.value || suggestOpen.value || ai.open
+      || viewing.locallyLocked || viewing.suspended) return { blocked: true, tips: [] }
+  if (!firstLoaded.value || loading.value || loadError.value) return { tips: [] }
+  const tips = []
+  if (!isChildren.value && updatesRef.value?.canRevealUpdates) tips.push({
+    id: 'tv-updates', text: '有新集已经播出、还没入库。展开「最近播出」可以看是哪几集。',
+    actionLabel: '查看更新', run: () => updatesRef.value?.revealUpdates(),
+  })
+  if (showContinue.value && cwRef.value?.hasUnfinished) tips.push({
+    id: 'tv-resume', text: '接着看上次的剧，可以直接点「继续观看」海报上的播放按钮。',
+    actionLabel: '查看继续观看', run: () => cwRef.value?.focusResume(),
+  })
+  tips.push({
+    id: 'tv-filters', manualOnly: true, text: '想等一部剧完结再看？在「全部筛选」里可以按连载状态挑剧。',
+    actionLabel: '打开全部筛选', run: () => { filtersOpen.value = true },
+  })
+  return { tips }
 })
 </script>
 

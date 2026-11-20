@@ -78,7 +78,7 @@ async function player(t, { slowCreation = false, p5 = false, blocked = false, ve
     ...(mp4 ? { '../mp4Chunks.js': { ...mp4Playback, loadMp4Blob: async () => ({ url: 'blob:synthetic-cast-chunk', bytes: 3 }) } } : {}),
     '../clipboard.js': { copyText: async text => { copied.push(text); return clipboardAllowed } },
     '../caps.js': { getCaps: async () => ({ native_hls: true }), probeStrings: async () => [], withProbes: value => value, playbackSupport: () => ({}) },
-    '../useFocusTrap.js': { useFocusTrap: () => {} },
+    '../useFocusTrap.js': { useFocusTrap: () => ({ isTop: () => true }) },
     '../usePlaybackPreviews.js': { usePlaybackPreviews: () => ({ manifest: Vue.ref(null), busy: Vue.ref(false),
       ready: Vue.ref(false), status: Vue.ref('') }) },
     '../useCasting.js': { useCasting: options => {

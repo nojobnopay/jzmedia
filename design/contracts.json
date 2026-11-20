@@ -5,7 +5,7 @@
       "source": "frontend/src/components/SettingsAssistantProjector.vue",
       "expression": "artwork",
       "assets": ["projector-idle", "projector-drag", "projector-talk"],
-      "purpose": "设置入口和最新回复中的放映机小映呈现拖动、等待、答复与互动表情"
+      "purpose": "网页助手小映在入口呈现招手、皱眉和瞌睡等待机动作，在拖动、等待和答复时呈现相应表情"
     }
   ],
   "dynamic_icons": [

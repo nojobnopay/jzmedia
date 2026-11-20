@@ -14,7 +14,12 @@
       <span class="projector-tear projector-tear--left"></span>
       <span class="projector-tear projector-tear--right"></span>
     </template>
-    <span v-else-if="phase === 'wave'" class="projector-wave"></span>
+    <span v-else-if="phase === 'wave' || phase === 'ambient-wave'" class="projector-wave"></span>
+    <template v-else-if="phase === 'ambient-frown'">
+      <span class="projector-brows"></span>
+      <span class="projector-pursed-mouth"></span>
+    </template>
+    <span v-else-if="phase === 'ambient-sleep'" class="projector-lids"></span>
   </span>
 </template>
 
@@ -30,7 +35,7 @@ const stillArtwork = computed(() => {
 })
 const artwork = computed(() => {
   if (props.phase === 'drag') return projectorArtwork.drag
-  if (props.phase === 'reply') return projectorArtwork.talk
+  if (props.phase === 'reply' || props.phase === 'ambient-wave') return projectorArtwork.talk
   return stillArtwork.value
 })
 </script>
@@ -83,6 +88,28 @@ const artwork = computed(() => {
 .projector-wave::after { content: ""; position: absolute; left: 48%; top: -27%; width: 100%; height: 140%; border-right: 1px solid #ffdfaa; border-radius: 50%; }
 @media (prefers-reduced-motion: no-preference) {
   [data-pose="wave"] { animation: projector-hello 850ms ease-in-out; }
+  [data-pose="ambient-wave"] { animation: projector-greet 1.2s ease-in-out; }
+  [data-pose="ambient-wave"] .projector-wave { animation: projector-gesture 1.2s ease both; }
+  [data-pose="ambient-frown"] { animation: projector-ponder 1.6s ease-in-out; }
+  .projector-brows, .projector-pursed-mouth, .projector-lids { position: absolute; inset: 0; }
+  .projector-brows { animation: projector-knit 1.6s ease-in-out both; }
+  .projector-brows::before, .projector-brows::after {
+    content: ""; position: absolute; top: 60%; width: 9.5%; height: 2.8%;
+    background: #491515; border-radius: 60%; transform: rotate(19deg);
+  }
+  .projector-brows::before { left: 21%; }
+  .projector-brows::after { left: 45%; transform: rotate(-19deg); }
+  .projector-pursed-mouth, .projector-lids {
+    background: url('../assets/assistant/projector-drag.webp') center / contain no-repeat;
+  }
+  .projector-pursed-mouth { mask-image: radial-gradient(ellipse 7.5% 3.8% at 38% 72%, #000 90%, transparent); }
+  /* The drag master has two arched lids. Reflect the eye strip around its own center for closed, relaxed eyes. */
+  .projector-lids {
+    mask-image: radial-gradient(ellipse 8.5% 6% at 26% 66.5%, #000 90%, transparent),
+      radial-gradient(ellipse 8.5% 6% at 49.5% 66.5%, #000 90%, transparent);
+    transform-origin: 50% 66.5%; transform: scaleY(-1);
+  }
+  [data-pose="ambient-sleep"] { animation: projector-doze 1.8s ease-in-out both; }
   [data-pose="smile"] { animation: projector-laugh 450ms ease-in-out 2; }
   [data-pose="cry"] { animation: projector-sniff 850ms ease-in-out 2; }
   .projector-tear { animation: projector-teardrop 810ms ease-in 2 both; }
@@ -90,6 +117,22 @@ const artwork = computed(() => {
   [data-pose="dance"] { animation: projector-dance 840ms ease-in-out 2; }
   @keyframes projector-hello {
     23%, 68% { transform: rotate(-10deg); } 45% { transform: rotate(6deg); }
+  }
+  @keyframes projector-greet {
+    25%, 65% { transform: rotate(-6deg); }
+    45% { transform: rotate(3deg); }
+  }
+  @keyframes projector-gesture { 0%, 100% { opacity: 0; } 25%, 70% { opacity: 1; } }
+  @keyframes projector-ponder { 30%, 68% { transform: rotate(-4deg); } }
+  @keyframes projector-knit {
+    0%, 100% { opacity: 0; transform: translateY(-2%); }
+    25%, 75% { opacity: 1; transform: translateY(1%); }
+  }
+  @keyframes projector-doze {
+    0% { transform: none; }
+    35% { transform: rotate(3deg); }
+    60% { transform: rotate(1deg); }
+    100% { transform: translateY(2%) rotate(7deg) scaleY(.96); }
   }
   @keyframes projector-laugh {
     35% { transform: translateY(-3%) scale(.98, 1.04); } 70% { transform: scale(1.04, .95); }
@@ -110,5 +153,8 @@ const artwork = computed(() => {
     67% { transform: translate(7%, -6%) rotate(12deg); }
     82% { transform: translateX(5%) rotate(5deg) scale(1.04, .96); }
   }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-pose="ambient-wave"] .projector-wave { display: none; }
 }
 </style>

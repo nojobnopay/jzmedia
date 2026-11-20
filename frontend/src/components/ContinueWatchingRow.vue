@@ -41,7 +41,7 @@ import JzButton from './JzButton.vue'
 
 import PlayerIcon from './PlayerIcon.vue'
 
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, posterUrl } from '../api.js'
 import { fmtDate, fmtRemaining } from '../format.js'
 import { canScroll, loadRecentAll, progressWidth, saveRecentAll, scrollStep } from '../recentPlayed.js'
@@ -127,7 +127,12 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateScroll)
   if (rowIO) { try { rowIO.disconnect() } catch (e) { /* 忽略 */ } rowIO = null }
 })
-defineExpose({ reload, ready: () => pending })
+const hasUnfinished = computed(() => !loading.value && items.value.some(item => !item.watched))
+function focusResume() {
+  const index = items.value.findIndex(item => !item.watched)
+  if (index >= 0) rowRef.value?.querySelectorAll?.('.poster-play')[index]?.focus()
+}
+defineExpose({ reload, ready: () => pending, hasUnfinished, focusResume })
 </script>
 <style scoped>
 .cw { margin: var(--jz-gap-xl) 0 0; }

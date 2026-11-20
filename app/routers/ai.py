@@ -5,13 +5,27 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import store, viewing
-from ..ai import discovery, discovery_sessions, settings_assistant
+from ..ai import browse_assistant, discovery, discovery_sessions, settings_assistant
 from ..ai.search import SearchFilters, ShortText, Year
 from ..ai.client import AiUnavailable, operation_session
 from ..ai.match import suggest_match
 from ..ai.search import propose_search, scope_libraries
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+@router.post("/assistant")
+def ask_while_browsing(body: browse_assistant.BrowseQuestion, request: Request, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    ctx = viewing.current.get()
+    mode = ctx.mode if ctx else "normal"
+    if request.headers.get("X-Viewing-Mode", mode) != mode:
+        viewing.error("viewing_locked", "观看模式已改变，请重新提问。", 403)
+    viewing.verify_current_scope("观看模式已改变，请重新提问。")
+    with operation_session():
+        result = browse_assistant.reply(body, mode)
+    viewing.verify_current_scope("观看模式已改变，请重新提问。")
+    return result
 
 
 @router.post("/settings-assistant")

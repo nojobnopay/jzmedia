@@ -1,8 +1,12 @@
 <template>
   <Teleport to="body">
-    <div v-if="currentFile" class="file-preview-mask" @click.self="requestClose" @keydown.stop>
+    <div v-if="currentFile" class="file-preview-mask" @click.self="requestClose" @keydown="previewFocus.isTop() && $event.stopPropagation()">
       <section ref="dialog" class="file-preview-dialog" role="dialog" aria-modal="true" :aria-label="'文件预览：' + currentFile.name">
-        <header><div><span class="file-preview-eyebrow">文件预览</span><h3>{{ currentFile.name }}</h3></div><JzButton variant="ghost" icon-only class="file-preview-close" aria-label="关闭文件预览" @click="requestClose"><AppIcon name="close" /></JzButton></header>
+        <header>
+          <div class="file-preview-title"><span class="file-preview-eyebrow">文件预览</span><h3>{{ currentFile.name }}</h3></div>
+          <AskAssistantButton />
+          <JzButton variant="ghost" icon-only class="file-preview-close" aria-label="关闭文件预览" @click="requestClose"><AppIcon name="close" /></JzButton>
+        </header>
         <p v-if="currentFile.rel" class="file-preview-path">{{ currentFile.rel }}<span v-if="currentFile.size != null"> · {{ fmtBytes(currentFile.size) }}</span></p>
         <div class="file-preview-content" :aria-busy="loading">
           <p v-if="loading" role="status">正在读取文件…</p>
@@ -26,6 +30,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import JzButton from './JzButton.vue'
+import AskAssistantButton from './AskAssistantButton.vue'
 import AppIcon from './AppIcon.vue'
 import { fmtBytes } from '../format.js'
 import { clearFilePreviewElement, filePreviewUrl } from '../filePreview.js'
@@ -42,7 +47,7 @@ const state = useFilePreview({ clearMedia: () => clearFilePreviewElement(media.v
 const { file: currentFile, kind, text, error, loading, truncated, limit, generation } = state
 const inlineUrl = computed(() => currentFile.value ? filePreviewUrl(currentFile.value.url, 'inline') : '')
 watch(() => props.file, file => state.open(file), { immediate: true, flush: 'sync' })
-useFocusTrap(computed(() => !!currentFile.value), dialog)
+const previewFocus = useFocusTrap(computed(() => !!currentFile.value), dialog)
 function assetError(event, message) {
   if (event.currentTarget !== media.value || !currentFile.value) return
   clearFilePreviewElement(media.value)
@@ -60,7 +65,7 @@ async function toggleFullscreen() {
 }
 function requestClose() { state.close(); emit('close') }
 function onKeydown(event) {
-  if (event.key !== 'Escape' || !currentFile.value || document.fullscreenElement) return
+  if (event.key !== 'Escape' || !previewFocus.isTop() || document.fullscreenElement) return
   event.preventDefault()
   event.stopPropagation()
   requestClose()
@@ -74,7 +79,7 @@ onUnmounted(() => { document.removeEventListener('keydown', onKeydown, true); do
 .file-preview-mask { position: fixed; inset: 0; z-index: var(--jz-z-preview); background: var(--jz-overlay); display: flex; align-items: center; justify-content: center; padding: 20px; }
 .file-preview-dialog { display: flex; flex-direction: column; box-sizing: border-box; width: min(1380px, 100%); max-height: 94dvh; padding: 24px; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-dialog); background: var(--jz-surface); color: var(--jz-text); box-shadow: var(--jz-shadow-dialog); overflow: auto; }
 .file-preview-dialog header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
-.file-preview-dialog header > div { min-width: 0; }
+.file-preview-title { flex: 1; min-width: 0; }
 .file-preview-eyebrow { color: var(--jz-text-dim); font-size: .75rem; }
 .file-preview-dialog h3 { font-size: var(--jz-font-xl); line-height: 1.5; margin: 4px 0 8px; overflow-wrap: anywhere; }
 .file-preview-close { flex: none; }

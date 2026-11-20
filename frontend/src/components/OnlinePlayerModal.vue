@@ -22,6 +22,7 @@
             @ratechange="rateState" @seeked="seeked" @ended="ended" @error="mediaError" />
           <div class="online-player-corner" :inert="!controlsVisible" :aria-hidden="!controlsVisible"
             @click.stop @pointerdown.stop @dblclick.stop>
+            <AskAssistantButton class="player-icon-btn" />
             <JzButton variant="ghost" icon-only class="player-icon-btn" :aria-label="isFull ? '退出全屏' : '全屏'"
               :title="isFull ? '退出全屏（Esc）' : '全屏（双击画面）'" @click="toggleFull">
               <PlayerIcon :name="isFull ? 'exitFullscreen' : 'fullscreen'" />
@@ -88,6 +89,7 @@ import { registerViewingPlaybackCleanup, refreshViewing } from '../viewing.js'
 import { useFocusTrap } from '../useFocusTrap.js'
 import { landscapeLockWanted, lockLandscape, orientationEnv, unlockOrientation } from '../screenOrientation.js'
 import JzButton from './JzButton.vue'
+import AskAssistantButton from './AskAssistantButton.vue'
 import PlayerIcon from './PlayerIcon.vue'
 import PlayerSeekbar from './PlayerSeekbar.vue'
 import PlayerVolumeControl from './PlayerVolumeControl.vue'

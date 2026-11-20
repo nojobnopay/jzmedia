@@ -47,13 +47,7 @@ def allowed():
 
 def verify_access():
     allowed()
-    ctx = viewing.current.get()
-    if ctx is None:
-        valid = not viewing.enabled()
-    else:
-        valid = viewing.enabled() and viewing.check_lease(ctx.session_hash, ctx.generation)
-    if not valid:
-        viewing.error("viewing_locked", "观看范围已经改变，请重新搜索。", 403)
+    viewing.verify_current_scope("观看范围已经改变，请重新搜索。")
 
 
 def _access_scope(owner):

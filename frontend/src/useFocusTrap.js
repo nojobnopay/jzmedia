@@ -64,7 +64,7 @@ export function useFocusTrap(active, containerRef) {
     nextTick(() => {
       if (!active.value || traps.at(-1) !== trap) return
       const list = nodes()
-      if (list.length) list[0].focus()
+      if (list.length) (list.find(node => !node.matches?.('[data-assistant-entry]')) || list[0]).focus()
       else if (containerRef.value) {
         containerRef.value.setAttribute('tabindex', '-1')
         containerRef.value.focus()

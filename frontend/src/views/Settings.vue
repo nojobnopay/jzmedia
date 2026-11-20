@@ -7,14 +7,6 @@
       <div class="settings-mobile-title"><h1 tabindex="-1" ref="mobileTitle">{{ active === 'sec-status' ? '设置' : currentPage.label }}</h1><p v-if="active !== 'sec-status'">{{ settingsScope }}</p></div>
       <HelpLink page="user-guide/settings" label="帮助" icon="help" aria-label="设置帮助（在新标签页打开）" />
     </header>
-    <SettingsAssistantLauncher ref="launcher" :open="assistantOpen" :modal="isPhone"
-      :motion="assistantMotion" :busy="assistantBusy" :section="active" @toggle="toggleAssistant" @position="assistantCorner = $event">
-      <SettingsAssistantDialog v-if="assistantOpen" :section="active" :libraries="libList" :libraries-ready="ready" :docked="!isPhone"
-        :corner="assistantCorner" :context-key="assistantContext" :settings-version="assistantSettingsVersion"
-        :libraries-error="librariesError" :refresh-libraries="refreshAssistantLibraries" :dirty-libraries="chainDirtyLibraries" :rules-busy="savingChain"
-        @motion="assistantMotion = $event" @busy="assistantBusy = $event" @update:corner="launcher?.moveToCorner($event)"
-        @configure="configureAssistant" @close="closeAssistant" @rules-saved="reflectSavedRules" @display-saved="prefs = $event" />
-    </SettingsAssistantLauncher>
     <aside class="side-nav" aria-label="设置导航">
       <h1>设置</h1><router-link class="setup-link" to="/setup">新手配置</router-link>
       <nav class="desktop-categories" aria-label="设置分区">
@@ -215,8 +207,7 @@ import JzDialog from '../components/JzDialog.vue'
 import HelpLink from '../components/HelpLink.vue'
 import SettingsFormActions from '../components/SettingsFormActions.vue'
 import SettingsLeaveDialog from '../components/SettingsLeaveDialog.vue'
-import SettingsAssistantDialog from '../components/SettingsAssistantDialog.vue'
-import SettingsAssistantLauncher from '../components/SettingsAssistantLauncher.vue'
+import { useSettingsAssistantHost } from '../settingsAssistantHost.js'
 import ProtectionSettings from '../components/ProtectionSettings.vue'
 import ChildrenMetadataRefresh from '../components/ChildrenMetadataRefresh.vue'
 import { SETTINGS_DRAFTS, createSettingsDraftGuard } from '../settingsDrafts.js'
@@ -241,27 +232,14 @@ import '../styles/settings.css'
 
 const route = useRoute()
 const router = useRouter()
-const assistantOpen = ref(false)
-const assistantMotion = ref('idle'), assistantBusy = ref(false)
-const assistantCorner = ref('top-right'), launcher = ref(null)
 const openServiceRequest = ref(0), assistantSettingsVersion = ref(0)
-function closeAssistant() {
-  if (assistantBusy.value) return
-  assistantOpen.value = false
-  assistantMotion.value = 'idle'
-  nextTick(() => launcher.value?.focus())
-}
-function toggleAssistant() {
-  if (assistantOpen.value) closeAssistant()
-  else assistantOpen.value = true
-}
 async function configureAssistant() {
   if (active.value !== 'sec-ai') {
     const failure = await router.push(pageTarget('sec-ai'))
-    if (failure) return
+    if (failure || disposed) return false
   }
   openServiceRequest.value++
-  if (isPhone.value) closeAssistant()
+  return true
 }
 const draftGuard = createSettingsDraftGuard()
 provide(SETTINGS_DRAFTS, draftGuard)
@@ -518,6 +496,24 @@ const librariesError = ref('')
 const loadError = ref('')
 let navigationGeneration = 0
 let disposed = false
+useSettingsAssistantHost({
+  get dialogProps() {
+    return {
+      section: active.value,
+      contextKey: assistantContext.value,
+      settingsVersion: assistantSettingsVersion.value,
+      libraries: libList.value,
+      librariesReady: ready.value,
+      librariesError: librariesError.value,
+      refreshLibraries: refreshAssistantLibraries,
+      dirtyLibraries: chainDirtyLibraries.value,
+      rulesBusy: savingChain.value,
+    }
+  },
+  configure: configureAssistant,
+  rulesSaved: reflectSavedRules,
+  displaySaved: updated => { prefs.value = updated },
+})
 async function activate(query) {
   const generation = ++navigationGeneration
   const target = settingsTarget(query)

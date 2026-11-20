@@ -51,6 +51,8 @@
       <router-view :key="isManagementRoute(route) ? 'management' : viewing.revision" />
     </template>
   </div>
+  <AppAssistant ref="assistant" :channel="activeSection" :scope="assistantScope" :blocked="assistantBlocked"
+    :viewing-mode="viewing.mode" />
   <BackToTop />
   <TvIngestReviewHost :context-key="ingestContextKey" :allowed="ingestAllowed" :library-ids="ingestLibraryIds" />
   <JzDialog v-if="viewing.suspended" title="正在验证保护会话" layer="auth" size="small" busy mask-class="viewing-verification-mask">
@@ -70,6 +72,8 @@
 </template>
 <script setup>
 import HelpLink from './components/HelpLink.vue'
+import AppAssistant from './components/AppAssistant.vue'
+import { assistantAccess } from './assistantPage.js'
 import SetupWelcome from './components/SetupWelcome.vue'
 import BackToTop from './components/BackToTop.vue'
 import TvIngestReviewHost from './components/TvIngestReviewHost.vue'
@@ -80,7 +84,7 @@ import AppIcon from './components/AppIcon.vue'
 import EmptyState from './components/EmptyState.vue'
 import ViewingModeControls from './components/ViewingModeControls.vue'
 import { viewing, isChildren, refreshViewing, startViewingLifecycle, setViewingChangeHandler, isManagementRoute, ensureManagement } from './viewing.js'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, provide, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setToken, api } from './api.js'
 import { clearBrowse } from './browseHistory.js'
@@ -103,6 +107,14 @@ let usageTimer = null
 let stopViewing = null
 const managementBlocked = computed(() => isManagementRoute(route) &&
   (isChildren.value || viewing.enabled && !viewing.management_unlocked))
+const assistantBlocked = computed(() => !viewing.ready || viewing.locallyLocked || viewing.suspended ||
+  !!viewing.prompt || authAsk.value || managementBlocked.value || (isChildren.value && route.path === '/online'))
+const assistant = ref(null)
+const assistantScope = computed(() => JSON.stringify([viewing.mode, viewing.revision, viewing.generation, viewing.management_unlocked, currentId.value]))
+provide(assistantAccess, {
+  available: computed(() => !assistantBlocked.value),
+  open: trigger => assistant.value?.openFrom(trigger),
+})
 async function initializeViewing() {
   try { await refreshViewing() } catch { /* 展示重试入口 */ }
 }

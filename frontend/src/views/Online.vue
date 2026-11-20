@@ -13,7 +13,7 @@
       <template v-else>
         <div v-show="browseVisible" ref="browseTools" class="online-browse-tools" data-online-browse-tools>
         <form class="online-search" data-online-search aria-label="搜索在线视频" @submit.prevent="(!searching || searchProgress) && search(1)">
-          <JzField id="online-source" label="视频源"><template #default="field"><select :id="field.id" v-model="sourceId" data-online-source :disabled="loadingSources" @change="sourceChanged"><option v-for="source in sources" :key="source.id" :value="source.id">{{ source.name }}</option></select></template></JzField>
+          <JzField id="online-source" label="视频源"><template #default="field"><select ref="sourceSelect" :id="field.id" v-model="sourceId" data-online-source :disabled="loadingSources" @change="sourceChanged"><option v-for="source in sources" :key="source.id" :value="source.id">{{ source.name }}</option></select></template></JzField>
           <BrowseToolbar id="online-search" input-id="online-query" :maxlength="100" embedded v-model="query" label="搜索在线视频" placeholder="搜索电影或剧集" :suggestions-enabled="false" :ai-enabled="false" :disabled="loadingSources || !sourceId" :search-disabled="!canSearch" :loading="searching && !searchProgress" @search="search(1)"><template #filters><span /></template></BrowseToolbar>
           <details class="online-connection"><summary>连接状态</summary><div class="online-health" data-online-health><span>目录：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.api) : healthError || '尚未使用' }}</span><span>播放：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.media) : healthError || '尚未使用' }}</span><JzButton variant="ghost" :loading="healthLoading" @click="loadHealth">刷新状态</JzButton><small>卡顿时可在来源网络设置中尝试代理。</small></div></details>
         </form>
@@ -136,6 +136,7 @@
 </template>
 
 <script setup>
+import { useAssistantPage } from '../assistantPage.js'
 import { aiNavigationContext } from '../aiDiscoveryNav.js'
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -179,6 +180,7 @@ const healthClient = createOnlineHealthClient(), health = ref(null), healthLoadi
 const relatedClient = createOnlineRelatedClient(), related = ref(null), relatedLoading = ref(false), relatedError = ref(null), relatedDeferred = ref(false)
 const progress = createOnlineProgressMemory()
 const sources = ref([]), sourceId = ref(''), enabled = ref(false), query = ref('')
+const sourceSelect = ref(null)
 const loadingSources = ref(true), sourcesError = ref(''), searching = ref(false), searched = ref(false), searchError = ref('')
 const categories = ref([]), categoryId = ref('')
 const loadedCategoryId = ref(''), browseRoot = ref(null)
@@ -1527,4 +1529,24 @@ watch(() => [browseVisible.value, safeMode.value, loadingSources.value, searchin
   if (canCheckUpdates()) scheduleAutomaticRefresh()
   else if (!applyingUpdates.value) cancelAutomaticRefresh()
 }, { flush: 'post' })
+useAssistantPage('online', () => {
+  if (!safeMode.value || !browseVisible.value || playing.value || starting.value || nextLoading.value
+      || hostDialog.value || categoriesOpen.value || networkPrompt.value || cacheDialog.value) return { blocked: true, tips: [] }
+  if (loadingSources.value || sourcesError.value) return { tips: [] }
+  const tips = []
+  if (enabled.value && continueRows.value.some(row => row.available && row.progress && !row.progress.completed)) tips.push({
+    id: 'online-continue', text: '上次在线没看完的内容，在「我的记录」的「继续观看」里可以接着看。',
+    actionLabel: '查看继续观看', run: () => showRecords('continue'),
+  })
+  if (enabled.value && sources.value.length > 1) tips.push({
+    id: 'online-sources', manualOnly: !searched.value || !!searchError.value || searching.value || !!results.value.length || !committedQuery.value,
+    text: '在线搜索只查当前选中的视频源。没找到想看的片，可以换个源再搜。',
+    actionLabel: '选择视频源', run: () => sourceSelect.value?.focus(),
+  })
+  tips.push({
+    id: 'online-favorites', manualOnly: true, text: '在线详情里收藏的电影和剧集，可以在本设备的「我的记录」里找到。',
+    actionLabel: '查看我的收藏', run: () => showRecords('favorites'),
+  })
+  return { tips }
+})
 </script>

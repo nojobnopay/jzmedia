@@ -18,7 +18,7 @@
     :ai-open="ai.open" :ai-enabled="!isChildren" @update:ai-open="setAiOpen"
     @input="!ai.open && onQInput($event)" @compositionstart="!ai.open && (composing = true)" @compositionend="!ai.open && onCompositionEnd()"
     @enter="ai.open ? discovery.submit() : onSearchEnter($event)" @move="suggestMove" @close="closeSuggest" @blur="!ai.open && onQBlur()"
-    @pick-item="pickMovie" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="ai.open ? discovery.submit() : applyAndLoad()">
+    @pick-item="pickMovie" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="ai.open ? discovery.submit() : submitQuery()">
     <template #filters>
       <BrowseFilters :model-value="sel" :facets="facets" kind="movie" v-model:open="filtersOpen"
         :scope-label="filterScope" :scope-key="curMediaId" :context-key="route.fullPath"
@@ -192,6 +192,7 @@
   </div>
 </template>
 <script setup>
+import { useAssistantPage } from '../assistantPage.js'
 import ContentPolicyButton from '../components/ContentPolicyButton.vue'
 import { isChildren, isPrivate, viewing } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
@@ -291,13 +292,13 @@ const curMediaId = ref(currentMediaId())
 const discovery = useAiDiscovery({ kind: 'movie', mediaId: curMediaId, ordinaryQuery: q, selection: sel, route, viewing })
 const ai = discovery.state
 const searchInput = discovery.input
-function setAiOpen(value) {
+function setAiOpen(value, reveal = false) {
   composing = false
   clearTimeout(suggestTimer)
   suggestSeq++
   closeSuggest()
   filtersOpen.value = false
-  if (value) discovery.open()
+  if (value) discovery.open({ reveal })
   else discovery.close()
 }
 
@@ -549,11 +550,8 @@ function suggestMove(d) {
   suggestIdx.value = i
 }
 function pickRow(row) {
-  clearTimeout(suggestTimer)
-  suggestSeq++
   q.value = row.kind === 'movie' ? row.v.title : row.v.name
-  closeSuggest()
-  applyAndLoad()
+  submitQuery()
 }
 function pickMovie(s) { pickRow({ kind: 'movie', v: s }) }
 // 演员联想直跳人物页（评审 B8/R04-B5：比“按名字搜片”更准，避免同名混淆）
@@ -575,15 +573,18 @@ function onQBlur() {
 }
 function onSearchEnter(e) {
   if (e && (e.isComposing || e.keyCode === 229)) return
-  clearTimeout(suggestTimer)
-  suggestSeq++
   const row = suggestOpen.value ? suggestRow(suggestIdx.value) : null
   if (row) {
     pickRow(row)
     return
   }
+  submitQuery()
+}
+function submitQuery() {
+  clearTimeout(suggestTimer)
+  suggestSeq++
   closeSuggest()
-  applyAndLoad()
+  return applyAndLoad()
 }
 async function showAll() {
   q.value = ''
@@ -946,6 +947,26 @@ watch(() => route.query, () => {
   // Facets describe the whole media library, so applying filters need not reload them.
   if (facetsScope !== currentMediaId()) loadFacets()
   load()
+})
+useAssistantPage('movie', () => {
+  const blocked = !!playVid.value || playBusy.value !== null || selecting.value || upDlg.value
+    || tagDlg.value || colDlg.value || delDlg.value || filtersOpen.value || scanOpen.value
+    || suggestOpen.value || ai.open
+  if (blocked || viewing.locallyLocked || viewing.suspended) return { blocked: true, tips: [] }
+  if (!firstLoaded.value || loading.value || loadError.value) return { tips: [] }
+  const tips = []
+  if (!isChildren.value) tips.push({
+    id: 'movie-discovery', manualOnly: !!items.value.length || !appliedQuery.value.trim(),
+    text: '只记得电影里的一幕？打开智能搜索，描述你记得的情节就行。',
+    actionLabel: '打开智能搜索', run: () => setAiOpen(true, true),
+  })
+  if (items.value.length || activeCount.value) tips.push({
+    id: 'movie-filters', manualOnly: !!activeCount.value || !!appliedQuery.value
+      || !watchedCounts.value.watched || !watchedCounts.value.unwatched,
+    text: '想挑一部还没看过的电影？在全部筛选里可以一起选观看状态和类型。',
+    actionLabel: '打开全部筛选', run: () => { filtersOpen.value = true },
+  })
+  return { tips }
 })
 </script>
 <style scoped>

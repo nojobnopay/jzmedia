@@ -11,6 +11,7 @@ import { defaultDist } from './server.mjs'
 const topics = [
   ['overview', 'sec-status', 'settings', '设置页的范围', '查看设置概览', '概览 待办 分类 范围 新手'],
   ['assistant', 'sec-status', 'settings', '问设置助手', '使用设置助手', '设置助手 小放映机 悬浮助手 拖动助手 如何提问 教程链接 确认应用 对话'],
+  ['assistant-tips', 'sec-status', 'settings', '浏览时使用小映', '浏览时提问和调整提示', '问小映 频道提问 继续追问 播放器 日常提示 主动提示 只在点开时提示 待机动作 待机动画 招手 皱眉 瞌睡 减少动态效果'],
   ['libraries', 'sec-libraries', 'libraries', '创建本地媒体库', '添加本地媒体库', '添加媒体库 本地路径 容器 挂载目录 视频库 子目录'],
   ['smb', 'sec-libraries', 'libraries', 'smb', '连接 SMB 共享', 'smb samba NAS 网络共享 群晖 远程连接'],
   ['nfs', 'sec-libraries', 'libraries', 'nfs', '连接 NFS 导出目录', 'nfs NAS 导出路径 挂载'],

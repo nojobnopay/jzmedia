@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as Vue from 'vue'
 import { loadSfc } from './helpers/loadSfc.js'
+import { settingsAssistantHost } from '../src/settingsAssistantHost.js'
 
 const flush = async () => {
   for (let i = 0; i < 10; i++) { await Promise.resolve(); await Vue.nextTick() }
@@ -106,6 +107,7 @@ async function mountSettings(t) {
       finishOtherRequests()
       await flush()
       app.unmount()
+      assert.equal(settingsAssistantHost.value, null, 'Leaving settings releases management actions')
       assert.equal(listeners.get('jzmedia:libraries-changed')?.size || 0, 0, 'Unmount removes the recovery listener')
       assert.equal(listeners.get('beforeunload')?.size || 0, 0, 'Unmount removes the draft refresh guard')
     } finally { globalThis.window = previousWindow }
@@ -182,4 +184,21 @@ test('a successfully loaded empty library list can show the empty state', async 
   assert.equal(ui.toolProps.librariesReady, true)
   assert.equal(ui.toolProps.librariesError, '')
   assert.deepEqual(ui.toolProps.libs, [])
+})
+
+test('the global assistant follows the active settings section and currently loaded libraries', async t => {
+  const ui = await mountSettings(t)
+  const host = settingsAssistantHost.value
+  assert.equal(host.dialogProps.section, 'sec-files')
+  assert.equal(host.dialogProps.librariesReady, false)
+  ui.libraryRequest.resolve(sampleLibraries)
+  await flush()
+  assert.equal(host.dialogProps.librariesReady, true)
+  assert.deepEqual(host.dialogProps.libraries.map(library => library.id), [7, 9])
+
+  const previousContext = host.dialogProps.contextKey
+  assert.equal(await host.configure(), true)
+  await flush()
+  assert.equal(host.dialogProps.section, 'sec-ai')
+  assert.notEqual(host.dialogProps.contextKey, previousContext)
 })

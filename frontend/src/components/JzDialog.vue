@@ -6,6 +6,7 @@
         :role="inline ? 'complementary' : 'dialog'" :aria-modal="inline ? undefined : 'true'" :aria-labelledby="labelledby || $attrs['aria-labelledby'] || (title ? titleId : undefined)" tabindex="-1">
         <header class="jz-dialog-header">
           <div class="jz-dialog-heading"><slot name="header" :title-id="titleId"><h2 :id="titleId">{{ title }}</h2></slot></div>
+          <AskAssistantButton v-if="assistantEntry && !inline && layer !== 'auth'" />
           <JzButton variant="ghost" class="jz-dialog-close" :disabled="busy" :aria-label="closeLabel" @click="requestClose"><AppIcon name="close" /></JzButton>
         </header>
         <div class="jz-dialog-body"><slot /></div>
@@ -18,6 +19,7 @@
 <script setup>
 import { computed, getCurrentInstance, onMounted, onUnmounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import AskAssistantButton from './AskAssistantButton.vue'
 import JzButton from './JzButton.vue'
 import { activeFocusTraps, useFocusTrap } from '../useFocusTrap.js'
 
@@ -30,6 +32,7 @@ const props = defineProps({
   presentation: { type: String, default: 'default', validator: value => ['default', 'drawer', 'popover', 'inline'].includes(value) },
   layer: { type: String, default: 'dialog', validator: value => ['dialog', 'preview', 'auth'].includes(value) },
   busy: Boolean,
+  assistantEntry: { type: Boolean, default: true },
   closeOnBackdrop: { type: Boolean, default: true },
   closeOnEscape: { type: Boolean, default: true },
   closeLabel: { type: String, default: '关闭' },

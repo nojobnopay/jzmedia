@@ -83,6 +83,10 @@ reset()
 function api(url, method, body) {
   const key = url.pathname, query = url.searchParams
   state.requests.push({ path: key, method, query: Object.fromEntries(query), ...(body ? { body } : {}) })
+  if (key === '/api/ai/assistant' && method === 'POST') {
+    assert.deepEqual(body, { channel: 'online', question: '等待开播时可以问你吗？', history: [] })
+    return { mode: 'local', answer: '可以，开播前也能问我。', reaction: null }
+  }
   if (settingsOnly) {
     if (key === '/api/online/settings') { if (method === 'PATCH') settingsData.enabled = body.enabled; return { enabled: settingsData.enabled } }
     if (key === '/api/online/sources') return { items: settingsData.sources }
@@ -438,6 +442,19 @@ try {
     await capture(page, 'player-waiting', width)
     const animation = await page.locator('.jz-spinner').last().evaluate(element => getComputedStyle(element).animationName)
     assert.equal(animation, 'none', 'Reduced motion keeps a static waiting symbol')
+    if (!baseline) {
+      const player = page.locator('.online-player-dlg')
+      const trigger = player.getByRole('button', { name: '问小映', exact: true })
+      const chat = page.getByRole('dialog', { name: '小映', exact: true })
+      await trigger.click()
+      await chat.getByRole('textbox').fill('等待开播时可以问你吗？')
+      await chat.getByRole('button', { name: '发送', exact: true }).click()
+      await chat.getByText('可以，开播前也能问我。', { exact: true }).waitFor()
+      await chat.getByRole('textbox').press('Escape')
+      await chat.waitFor({ state: 'hidden' })
+      await page.waitForFunction(el => el === document.activeElement, await trigger.elementHandle())
+      assert.ok(await player.isVisible(), 'Closing 小映 returns to the original online player')
+    }
     await page.keyboard.press('Escape'); await page.locator('.online-player-dlg').waitFor({ state: 'hidden' }); state.delay = ''
     await go(page, base)
     state.delay = 'browse'
@@ -506,7 +523,7 @@ try {
       await page.locator('.online-refresh-error').waitFor()
       assert.deepEqual(await page.locator('[data-online-result]').evaluateAll(elements => elements.map(element => element.getAttribute('data-online-result'))), before,
         'A failed refresh retains the previous poster wall')
-      report.checks.push({ width, checks: ['continue shelf', 'initial skeleton', 'independent records view', 'browse scroll/focus return', 'browser back/forward', 'cross-source return', 'keyboard action menu', 'cancel favorite', 'browser back restores records page', 'delete last-page history', 'failed refresh preserves content', 'reduced motion', '44px touch targets'] })
+      report.checks.push({ width, checks: ['continue shelf', 'initial skeleton', 'independent records view', 'browse scroll/focus return', 'browser back/forward', 'cross-source return', 'keyboard action menu', 'cancel favorite', 'browser back restores records page', 'delete last-page history', 'failed refresh preserves content', 'reduced motion', '44px touch targets', 'ask 小映 while preparing playback and return to player'] })
     }
     await context.close()
   }

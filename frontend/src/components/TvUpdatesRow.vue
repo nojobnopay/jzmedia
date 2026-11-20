@@ -2,7 +2,7 @@
   <section v-if="active && mode !== 'off' && (items.length || error || loading)" class="tv-updates" aria-label="最近播出 · 尚未收藏">
     <div class="updates-head">
       <h3>最近播出<span v-if="items.length" class="updates-count">{{ items.length }} 部尚未收藏新集</span></h3>
-      <JzButton v-if="items.length" size="compact" variant="ghost" :aria-expanded="expanded" aria-controls="tv-updates-list" @click="expanded = !expanded">{{ expanded ? '收起' : '查看更新' }}</JzButton>
+      <JzButton v-if="items.length" ref="updatesButton" size="compact" variant="ghost" :aria-expanded="expanded" aria-controls="tv-updates-list" @click="expanded = !expanded">{{ expanded ? '收起' : '查看更新' }}</JzButton>
     </div>
     <p v-if="loading && !items.length" class="updates-note" role="status">正在读取剧集更新…</p>
     <p v-if="error" class="updates-note" role="status">{{ error }} <JzButton size="compact" variant="ghost" @click="reload" :disabled="loading">重试</JzButton></p>
@@ -141,7 +141,14 @@ onUnmounted(() => {
   generation++; controller?.abort(); stopObserving()
   if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', observeCards)
 })
-defineExpose({ ready: () => pending, snapshot, reload })
+const updatesButton = ref(null)
+const canRevealUpdates = computed(() => props.active && props.mode !== 'off' && !loading.value && !expanded.value && items.value.length > 0)
+function revealUpdates() {
+  if (!canRevealUpdates.value) return
+  expanded.value = true
+  updatesButton.value?.focus()
+}
+defineExpose({ ready: () => pending, snapshot, reload, canRevealUpdates, revealUpdates })
 </script>
 <style scoped>
 .tv-updates { margin-top: var(--jz-gap-xl); }

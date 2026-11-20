@@ -1,8 +1,8 @@
 <template>
   <div class="browse-page collections-page">
     <header class="browse-heading"><h1>合集</h1><JzButton v-if="!isChildren" :disabled="creating" icon="plus" variant="primary" :aria-expanded="createOpen" aria-controls="collection-create" @click="createOpen = !createOpen">新建合集</JzButton></header>
-    <form class="bar collection-search" role="search" aria-label="搜索合集" @submit.prevent="load"><input v-model="q" aria-label="搜索合集" placeholder="搜合集名" /><JzButton type="submit" icon="search">搜索</JzButton></form>
-    <form v-show="createOpen" id="collection-create" class="bar collection-create" @submit.prevent="create"><input v-model="name" :disabled="creating" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><JzButton :disabled="!name.trim()" :loading="creating" type="submit" icon="plus">创建</JzButton><JzButton :disabled="creating" type="button" @click="createOpen = false">取消</JzButton></form>
+    <form class="bar collection-search" role="search" aria-label="搜索合集" @submit.prevent="load"><input ref="searchInput" v-model="q" aria-label="搜索合集" placeholder="搜合集名" /><JzButton type="submit" icon="search">搜索</JzButton></form>
+    <form v-show="createOpen" id="collection-create" class="bar collection-create" @submit.prevent="create"><input ref="nameInput" v-model="name" :disabled="creating" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><JzButton :disabled="!name.trim()" :loading="creating" type="submit" icon="plus">创建</JzButton><JzButton :disabled="creating" type="button" @click="createOpen = false">取消</JzButton></form>
     <p v-if="msg" role="status">{{ msg }}</p>
     <div class="collections-heading"><h2 class="sec-h">我的合集</h2><span v-if="!loading && !loadError">{{ items.length }} 个合集</span></div>
     <EmptyState v-if="loading" state="loading" title="正在加载合集" text="请稍候…" />
@@ -19,7 +19,8 @@
         <div class="collection-card-body"><h3>{{ c.name }}</h3><span>{{ c.member_count }} 部影片</span></div>
       </router-link>
     </div>
-    <details v-if="!isChildren && (suggest.length || topups.length)" class="collection-section">
+    <details v-if="!isChildren && (suggest.length || topups.length)" ref="seriesSection" class="collection-section"
+      :open="seriesOpen" @toggle="seriesOpen = $event.currentTarget.open">
       <summary>推荐与可补齐合集 · {{ suggest.length + topups.length }}</summary>
       <section v-if="topups.length"><h3>可补齐</h3><div class="grid collection-action-grid">
         <div v-for="t in topups" :key="t.collection_id" class="card tp-card">
@@ -48,17 +49,22 @@
   </div>
 </template>
 <script setup>
+import { useAssistantPage } from '../assistantPage.js'
 import { isChildren, viewing } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import EmptyState from '../components/EmptyState.vue'
 import JzButton from '../components/JzButton.vue'
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { api, posterUrl } from '../api.js'
 import { currentMediaId, mediaParam, loadLibs, onLibChange } from '../libraries.js'
 import { usePolling } from '../usePolling.js'
 
 const createOpen = ref(false)
+const seriesSection = ref(null)
+const seriesOpen = ref(false)
+const nameInput = ref(null)
+const searchInput = ref(null)
 const creating = ref(false)
 const q = ref('')
 const name = ref('')
@@ -451,6 +457,38 @@ onUnmounted(() => {
   suggestController?.abort()
   resetBackfill()
   if (unsubLib) { try { unsubLib() } catch (e) { /* 忽略 */ } unsubLib = null }
+})
+async function revealSeries() {
+  seriesOpen.value = true
+  await nextTick()
+  seriesSection.value?.querySelector?.('summary')?.focus()
+}
+useAssistantPage('collections', () => {
+  if (viewing.locallyLocked || viewing.suspended || createOpen.value) return { blocked: true, tips: [] }
+  if (loading.value || loadError.value) return { tips: [] }
+  const tips = []
+  if (isChildren.value) {
+    if (items.value.length || loadedQuery.value) tips.push({
+      id: 'collections-search', manualOnly: true, text: '记得合集名字里的几个字？输入这些字就能搜合集。',
+      actionLabel: '搜索合集', run: () => searchInput.value?.focus(),
+    })
+    return { tips }
+  }
+  if (!seriesOpen.value && (topups.value.length || suggest.value.length)) tips.push({
+    id: topups.value.length ? 'collections-topup' : 'collections-series',
+    text: topups.value.length ? '库里有新影片可以补进已有系列，展开后可以先看看片名。' : '库里有可以组成系列的影片，在「推荐与可补齐合集」里可以先看看有哪些。',
+    actionLabel: '查看系列推荐', run: revealSeries,
+  })
+  tips.push({
+    id: 'collections-create', manualOnly: items.value.length > 0 || !!loadedQuery.value || viewing.mode === 'private',
+    text: '想做一张自己的片单？先给合集起个名字，再去电影海报墙多选影片加入。',
+    actionLabel: '新建合集', run: async () => {
+      createOpen.value = true
+      await nextTick()
+      nameInput.value?.focus?.()
+    },
+  })
+  return { tips }
 })
 </script>
 <style scoped>

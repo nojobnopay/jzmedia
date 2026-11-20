@@ -401,6 +401,13 @@ def check_lease(key, generation, *, management=False):
                                                        session["playback_until"]) > time.time()))
 
 
+def verify_current_scope(message):
+    ctx = current.get()
+    active = enabled()
+    if active != (ctx is not None) or (ctx and not check_lease(ctx.session_hash, ctx.generation)):
+        error("viewing_locked", message, 403)
+
+
 def management_path(path, method):
     """Explicit browsing/playback allowlist; new management APIs default protected."""
     if path.startswith("/api/viewing/"):
@@ -459,6 +466,8 @@ def management_path(path, method):
                     path in {"/api/stream/client-check", "/api/stream/versions", "/api/stream/progress"} or
                     re.fullmatch(r"/api/stream/sessions/[^/]+(?:/ping)?", path))
     if path.startswith("/api/cast/"):
+        return False
+    if method == "POST" and path == "/api/ai/assistant":
         return False
     if path in {"/api/ai/search", "/api/ai/search/results", "/api/ai/search/results/refresh"}:
         return False

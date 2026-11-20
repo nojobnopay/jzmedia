@@ -1,8 +1,7 @@
 const gap = 10
-const width = 396
 
 // Bounds describe where the top-left corner of the projector can move.
-export function placeAssistant(point, bounds) {
+export function placeAssistant(point, bounds, width = 396) {
   const { left, right, top, bottom, size } = bounds
   const before = point.x - left - gap
   const after = right - point.x - gap

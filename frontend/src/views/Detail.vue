@@ -161,7 +161,7 @@
       <div ref="posterDlgRef" class="dlg pv-dlg poster-dlg" role="dialog" aria-modal="true">
         <template v-if="!posterPick">
           <img :src="posterBig" class="pv-img poster-big" />
-          <div class="bar"><span class="hint">{{ posterHi ? '高清原图' : '标清预览（原图加载中或不可用）' }}</span><a :href="posterBig" :download="baseName(posterBig)"><AppIcon name="download" :size="16" />下载</a><JzButton @click="openPosterPicker" :disabled="posterSaving" type="button">换海报</JzButton><JzButton @click="closePoster" :disabled="posterSaving" type="button">关闭</JzButton></div>
+          <div class="bar"><span class="hint">{{ posterHi ? '高清原图' : '标清预览（原图加载中或不可用）' }}</span><a :href="posterBig" :download="baseName(posterBig)"><AppIcon name="download" :size="16" />下载</a><JzButton @click="openPosterPicker" :disabled="posterSaving" type="button">换海报</JzButton><AskAssistantButton /><JzButton @click="closePoster" :disabled="posterSaving" type="button">关闭</JzButton></div>
         </template>
         <template v-else>
           <div class="poster-pick-head">
@@ -181,6 +181,7 @@
           </div>
           <div class="bar">
             <JzButton :disabled="posterSaving" @click="posterPick = false" type="button" icon="back">返回</JzButton>
+            <AskAssistantButton />
             <JzButton @click="closePoster" :disabled="posterSaving" type="button">关闭</JzButton>
           </div>
         </template>
@@ -205,6 +206,7 @@
       <div class="bar">
         <JzButton @click="doArchive" :disabled="archApplying" type="button" icon="organize">{{ archApplying ? '归档中…' : '立即归档' }}</JzButton>
         <JzButton @click="closeArchive" :disabled="archApplying" type="button">稍后整理</JzButton>
+        <AskAssistantButton />
         <span>{{ archMsg }}</span>
       </div>
     </div>
@@ -221,6 +223,7 @@ import { browseReturn } from '../browseHistory.js'
 
 import PlayerIcon from '../components/PlayerIcon.vue'
 import JzButton from '../components/JzButton.vue'
+import AskAssistantButton from '../components/AskAssistantButton.vue'
 import AppIcon from '../components/AppIcon.vue'
 
 import MediaBackdrop from '../components/MediaBackdrop.vue'
@@ -1036,8 +1039,7 @@ function closeArchive() {
 }
 function escPlayer(e) {
   // 预览弹窗（Esc 关闭）随 MovieFileManager；这里只管海报大图
-  if (e.key !== 'Escape') return
-  if (posterDlg.value) closePoster()
+  if (e.key === 'Escape' && !e.defaultPrevented && posterFocus.isTop()) closePoster()
 }
 function clearMovieActivity() {
   movieGeneration++
@@ -1084,7 +1086,7 @@ function clearMovieActivity() {
   similar.value = []
 }
 // 焦点陷阱需在 ref 全部声明后启用（watch immediate 会立即求值，避免 TDZ 崩整页）
-useFocusTrap(computed(() => !!posterDlg.value), posterDlgRef)
+const posterFocus = useFocusTrap(computed(() => !!posterDlg.value), posterDlgRef)
 useFocusTrap(computed(() => !!archHint.value), archDlgRef)
 
 onMounted(() => {

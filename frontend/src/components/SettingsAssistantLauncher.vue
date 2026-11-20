@@ -1,16 +1,18 @@
 <template>
-  <div ref="frame" class="assistant-launcher-frame">
+  <div ref="frame" class="assistant-launcher-frame" :class="{ 'assistant-launcher-raised': raised }"
+    @click.stop @pointerdown.stop @dblclick.stop>
     <div v-if="open && modal" class="assistant-chat-backdrop" aria-hidden="true" @click.self="!busy && emit('toggle')"></div>
     <JzButton ref="button" class="assistant-launcher" variant="ghost" icon-only
-      :data-motion="phase" :data-paused="pageHidden || undefined" :style="style" aria-label="问设置助手" :aria-expanded="open"
-      :aria-controls="open ? 'settings-assistant-panel' : undefined" aria-describedby="assistant-position-help"
-      :title="open ? '收起设置助手' : '问设置助手'" :disabled="busy"
+      :data-motion="phase" :data-paused="pageHidden || undefined" :style="style" :aria-label="label" :aria-expanded="open"
+      :aria-controls="open ? panelId : undefined" aria-describedby="assistant-position-help"
+      :title="open ? '收起小映' : label" :disabled="busy"
       @pointerdown="start" @pointermove="move" @pointerup="finish" @pointercancel="cancel" @lostpointercapture="cancel"
       @keydown="positionKey" @click="activate">
       <SettingsAssistantProjector :phase="phase" :paused="pageHidden" :style="{ '--projector-lean': lean + 'deg' }" />
     </JzButton>
-    <div v-if="open && placement" class="assistant-chat-window" :data-edge="placement.edge" :style="windowStyle">
-      <slot />
+    <div v-if="placement" class="assistant-chat-window" :data-edge="placement.edge" :style="windowStyle">
+      <slot v-if="open" />
+      <p v-else class="assistant-tip-bubble assistant-glass" role="status">{{ tip }}</p>
     </div>
     <span id="assistant-position-help" class="launcher-sr">可拖动调整位置，方向键移动，Home 恢复右上角。</span>
   </div>
@@ -22,18 +24,20 @@ import JzButton from './JzButton.vue'
 import SettingsAssistantProjector from './SettingsAssistantProjector.vue'
 import { placeAssistant } from '../settingsAssistantPlacement.js'
 
-const props = defineProps({ open: Boolean, modal: Boolean, motion: { type: String, default: 'idle' }, busy: Boolean, section: String })
+const props = defineProps({ open: Boolean, modal: Boolean, motion: { type: String, default: 'idle' }, busy: Boolean, section: String,
+  label: { type: String, default: '问设置助手' }, panelId: { type: String, default: 'settings-assistant-panel' },
+  browse: Boolean, raised: Boolean, tip: String })
 const emit = defineEmits(['toggle', 'position'])
 const key = 'jz.settings-assistant.position'
-const defaults = { side: 'right', height: 0 }
 function loadPosition() {
   try {
     const p = JSON.parse(localStorage.getItem(key))
     if (['left', 'right'].includes(p?.side) && Number.isFinite(p.height) && p.height >= 0 && p.height <= 1) return p
   } catch { /* The launcher is usable when storage is unavailable. */ }
-  return defaults
+  return null
 }
-const saved = ref(loadPosition()), frame = ref(null), button = ref(null)
+const custom = ref(loadPosition()), frame = ref(null), button = ref(null)
+const saved = computed(() => custom.value || { side: 'right', height: props.browse ? 1 : 0 })
 const dragging = ref(false), point = ref(null)
 const settling = ref(false), lean = ref(0), pageHidden = ref(false)
 const phase = computed(() => dragging.value ? 'drag' : settling.value ? 'settle' : props.motion)
@@ -42,7 +46,7 @@ const clamp = (value, min, max) => Math.max(min, Math.min(value, max))
 let gesture, blockedClick = false, animation = 0, observer, resizeObserver, viewport
 let settleTimer, ownerDocument
 let bounds = null, obstacles = []
-const placement = computed(() => props.open && point.value && placeAssistant(point.value, bounds))
+const placement = computed(() => (props.open || props.tip) && point.value && placeAssistant(point.value, bounds, props.open ? 396 : 260))
 const windowStyle = computed(() => {
   const p = placement.value
   return {
@@ -53,8 +57,8 @@ const windowStyle = computed(() => {
 })
 
 function persist(side, height) {
-  saved.value = { side, height: clamp(height, 0, 1) }
-  try { localStorage.setItem(key, JSON.stringify(saved.value)) } catch { /* Keep this page's position. */ }
+  custom.value = { side, height: clamp(height, 0, 1) }
+  try { localStorage.setItem(key, JSON.stringify(custom.value)) } catch { /* Keep this page's position. */ }
 }
 watch(saved, p => {
   const vertical = p.height === 0 ? 'top' : p.height === 1 ? 'bottom' : ''
@@ -92,16 +96,18 @@ function measure() {
   const vx = viewport?.offsetLeft || 0, vy = viewport?.offsetTop || 0
   const viewRight = vx + (viewport?.width || document.documentElement.clientWidth)
   const viewBottom = vy + (viewport?.height || window.innerHeight)
-  const layout = root.parentElement
-  const nav = document.querySelector('.app-nav')?.getBoundingClientRect()
-  const header = layout.querySelector('.settings-mobile-header')?.getBoundingClientRect()
+  const nav = !props.raised && document.querySelector('.app-nav')?.getBoundingClientRect()
+  const header = !props.raised && document.querySelector('.settings-mobile-header')?.getBoundingClientRect()
   const left = Math.max(area.left, vx + 8)
   const right = Math.max(left, Math.min(area.right, viewRight - 8) - size)
   const bottom = Math.max(area.top, Math.min(area.bottom, viewBottom - 8) - size)
   const top = Math.min(bottom, Math.max(area.top, vy + 8, (nav?.bottom || 0) + 8, (header?.bottom || 0) + 8))
   bounds = { left, right, top, bottom, size }
-  obstacles = window.innerWidth <= 700 ? [...layout.querySelectorAll('.settings-form-actions, #sec-files .fs-selection-summary, #sec-files .fs-toolbar')]
-    .map(node => node.getBoundingClientRect()).filter(box => box.width && box.height && box.bottom > top && box.top < bottom + size) : []
+  const selectors = props.browse
+    ? '.back-to-top, .floatbar, .browse-heading, .browse-toolbar, .wall-sort, .online-search, .collection-search'
+    : '.back-to-top, .settings-form-actions, #sec-files .fs-selection-summary, #sec-files .fs-toolbar'
+  obstacles = props.raised ? [] : [...document.querySelectorAll(selectors)].map(node => node.getBoundingClientRect())
+    .filter(box => box.width && box.height && box.bottom > top && box.top < bottom + size)
   if (dragging.value) point.value = { x: clamp(point.value.x, left, right), y: clamp(point.value.y, top, bottom) }
   else park()
 }
@@ -195,7 +201,6 @@ function positionKey(event) {
 defineExpose({ moveToCorner, focus: () => button.value?.focus({ preventScroll: true }) })
 onMounted(() => {
   if (!frame.value?.getBoundingClientRect) return
-  const layout = frame.value.parentElement
   viewport = window.visualViewport
   ownerDocument = frame.value.ownerDocument
   syncVisibility()
@@ -205,16 +210,17 @@ onMounted(() => {
   viewport?.addEventListener('resize', schedule)
   viewport?.addEventListener('scroll', schedule)
   resizeObserver = new ResizeObserver(schedule)
-  for (const node of [frame.value, layout.querySelector('.settings-mobile-header'), document.querySelector('.app-nav')]) {
+  for (const node of [frame.value, document.querySelector('.app-nav')]) {
     if (node) resizeObserver.observe(node)
   }
   // File selections and form drafts can change sticky actions without scrolling.
   observer = new window.MutationObserver(schedule)
-  observer.observe(layout.querySelector('.settings-main'), { subtree: true, childList: true, attributes: true,
-    attributeFilter: ['class', 'style', 'open'] })
+  const content = document.getElementById('main-content')
+  if (content) observer.observe(content, { subtree: true, childList: true, attributes: true,
+    attributeFilter: ['class', 'hidden', 'open', 'style'] })
   measure()
 })
-watch(() => [props.section, props.open, props.modal], () => { if (bounds) schedule() }, { flush: 'post' })
+watch(() => [props.section, props.open, props.modal, props.browse, props.raised], () => { if (bounds) schedule() }, { flush: 'post' })
 onBeforeUnmount(() => {
   stopSettling()
   ownerDocument?.removeEventListener('visibilitychange', syncVisibility)
@@ -229,14 +235,30 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.assistant-launcher-frame { position: fixed; z-index: 12; inset: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); pointer-events: none; }
+.assistant-launcher-frame {
+  --assistant-surface: rgb(35 35 40 / 97%); --assistant-border: rgb(255 255 255 / 20%); --assistant-filter: none;
+  position: fixed; z-index: 12; inset: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); pointer-events: none;
+}
+.assistant-launcher-raised { z-index: calc(var(--jz-z-auth) - 1); cursor: auto; }
+@supports ((backdrop-filter: blur(7px)) or (-webkit-backdrop-filter: blur(7px))) {
+  .assistant-launcher-frame { --assistant-surface: rgb(41 40 46 / 60%); --assistant-filter: blur(7px) saturate(115%); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .assistant-launcher-frame { --assistant-surface: var(--jz-surface); --assistant-filter: none; }
+}
 .assistant-chat-backdrop { position: fixed; inset: 0; pointer-events: auto; }
 .assistant-chat-window { position: fixed; z-index: 1; }
+.assistant-chat-window :deep(.assistant-glass) {
+  border: 1px solid var(--assistant-border); color: var(--jz-text); background: var(--assistant-surface);
+  -webkit-backdrop-filter: var(--assistant-filter); backdrop-filter: var(--assistant-filter);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 36%), 0 3px 12px rgb(0 0 0 / 22%);
+}
+.assistant-tip-bubble { margin: 0; padding: 10px 14px; border-radius: 14px; font-size: var(--jz-font-m); line-height: 1.62; overflow-wrap: anywhere; }
 .assistant-chat-window :deep(.assistant-chat-mask) { position: static; display: block; height: auto; padding: 0; background: transparent; pointer-events: auto; }
 .assistant-chat-window :deep(.assistant-chat-mask[hidden]) { display: none; }
-.assistant-chat-window:has(.assistant-chat-mask:not([hidden]))::before {
+.assistant-chat-window:has(.assistant-chat-mask:not([hidden]), .assistant-tip-bubble)::before {
   content: ""; position: absolute; z-index: 1; width: 11px; height: 11px;
-  background: var(--jz-surface-2); border: solid var(--jz-border-strong); border-width: 1px 0 0 1px;
+  background: var(--assistant-surface); border: solid var(--assistant-border); border-width: 1px 0 0 1px;
   pointer-events: none;
 }
 .assistant-chat-window[data-edge="left"]::before { left: 0; top: var(--assistant-pointer); transform: translate(-50%, -50%) rotate(-45deg); }

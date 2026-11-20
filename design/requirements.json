@@ -11006,9 +11006,9 @@
       "source_excerpt": "<router-link :to=\"navTarget('/')\">"
     },
     {
-      "id": "frontend/src/App.vue:input:45",
+      "id": "frontend/src/App.vue:input:46",
       "source": "frontend/src/App.vue",
-      "line": 62,
+      "line": 64,
       "platforms": [
         "web",
         "mobile-web"
@@ -11045,9 +11045,9 @@
       "source_excerpt": "<input id=\"access-token\" v-model=\"authInput\" name=\"access-token\" type=\"password\" placeholder=\"粘贴访问令牌…\" autocomplete=\"off\" :spellcheck=\"false\" @keyup.enter=\"saveAuth\" />"
     },
     {
-      "id": "frontend/src/App.vue:JzButton:48",
+      "id": "frontend/src/App.vue:JzButton:49",
       "source": "frontend/src/App.vue",
-      "line": 66,
+      "line": 68,
       "platforms": [
         "web",
         "mobile-web"
@@ -11084,9 +11084,9 @@
       "source_excerpt": "<JzButton @click=\"authAsk = false\">"
     },
     {
-      "id": "frontend/src/App.vue:JzButton:49",
+      "id": "frontend/src/App.vue:JzButton:50",
       "source": "frontend/src/App.vue",
-      "line": 67,
+      "line": 69,
       "platforms": [
         "web",
         "mobile-web"
@@ -12934,6 +12934,121 @@
       "source_excerpt": "<JzButton v-if=\"!settings && !busy\" @click=\"load\" type=\"button\" icon=\"refresh\">"
     },
     {
+      "id": "frontend/src/components/AppAssistant.vue:JzButton:11",
+      "source": "frontend/src/components/AppAssistant.vue",
+      "line": 19,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "{{ tip.actionLabel }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:36px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton size=\"compact\" @click=\"perform(tip)\">"
+    },
+    {
+      "id": "frontend/src/components/AppAssistant.vue:AppIcon:12",
+      "source": "frontend/src/components/AppAssistant.vue",
+      "line": 19,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "AppIcon",
+      "purpose": "前进",
+      "assets": [
+        "arrow-right"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "14"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon name=\"arrow-right\" :size=\"14\" />"
+    },
+    {
+      "id": "frontend/src/components/AppAssistant.vue:input:20",
+      "source": "frontend/src/components/AppAssistant.vue",
+      "line": 27,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input v-model=\"manual\" type=\"checkbox\" />"
+    },
+    {
       "id": "frontend/src/components/AppIcon.vue:svg:1",
       "source": "frontend/src/components/AppIcon.vue",
       "line": 2,
@@ -13006,6 +13121,581 @@
       "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
       "classification": "shared design component",
       "source_excerpt": "<AppIcon :name=\"kind === 'person' ? 'person' : kind === 'collection' ? 'collections' : 'image'\" :size=\"32\" />"
+    },
+    {
+      "id": "frontend/src/components/AskAssistantButton.vue:JzButton:1",
+      "source": "frontend/src/components/AskAssistantButton.vue",
+      "line": 2,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "问小映",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/AskAssistantButton.vue",
+            "line": 17,
+            "selector": ".ask-assistant :deep(.projector-character)",
+            "values": {
+              "width": "24px",
+              "height": "24px"
+            }
+          }
+        ],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "问小映",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"assistant?.available.value\" variant=\"ghost\" icon-only type=\"button\" class=\"ask-assistant\" data-assistant-entry aria-label=\"问小映\" title=\"问小映\" @click.stop=\"assistant.o"
+    },
+    {
+      "id": "frontend/src/components/AssistantChatDialog.vue:JzButton:4",
+      "source": "frontend/src/components/AssistantChatDialog.vue",
+      "line": 8,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "本页提示",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:36px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"conversation.length\" size=\"compact\" variant=\"ghost\" :aria-expanded=\"showPageTips\" aria-controls=\"assistant-page-tips\" @click=\"showPageTips = !showPageTips\">"
+    },
+    {
+      "id": "frontend/src/components/AssistantChatDialog.vue:AppIcon:5",
+      "source": "frontend/src/components/AssistantChatDialog.vue",
+      "line": 9,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "AppIcon",
+      "purpose": "展开 / 收起",
+      "assets": [
+        "chevron-up",
+        "chevron-down"
+      ],
+      "dynamic_expression": "showPageTips ? 'chevron-up' : 'chevron-down'",
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "14"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon :name=\"showPageTips ? 'chevron-up' : 'chevron-down'\" :size=\"14\" />"
+    },
+    {
+      "id": "frontend/src/components/AssistantChatDialog.vue:JzButton:13",
+      "source": "frontend/src/components/AssistantChatDialog.vue",
+      "line": 19,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "{{ example }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:36px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-for=\"example in examples\" :key=\"example\" size=\"compact\" @click=\"prefill(example)\">"
+    },
+    {
+      "id": "frontend/src/components/AssistantChatDialog.vue:AppIcon:14",
+      "source": "frontend/src/components/AssistantChatDialog.vue",
+      "line": 20,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "AppIcon",
+      "purpose": "前进",
+      "assets": [
+        "arrow-right"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "14"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon name=\"arrow-right\" :size=\"14\" />"
+    },
+    {
+      "id": "frontend/src/components/AssistantChatDialog.vue:JzButton:21",
+      "source": "frontend/src/components/AssistantChatDialog.vue",
+      "line": 30,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "重试",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"readiness === 'unavailable'\" @click=\"loadStatus\">"
+    },
+    {
+      "id": "frontend/src/components/AssistantChatDialog.vue:JzButton:22",
+      "source": "frontend/src/components/AssistantChatDialog.vue",
+      "line": 31,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "去配置智能辅助",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-else variant=\"primary\" @click=\"emit('configure')\">"
+    },
+    {
+      "id": "frontend/src/components/AssistantChatDialog.vue:AppIcon:43",
+      "source": "frontend/src/components/AssistantChatDialog.vue",
+      "line": 56,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "AppIcon",
+      "purpose": "下一级",
+      "assets": [
+        "chevron-right"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "13"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon name=\"chevron-right\" :size=\"13\" />"
+    },
+    {
+      "id": "frontend/src/components/AssistantChatDialog.vue:input:47",
+      "source": "frontend/src/components/AssistantChatDialog.vue",
+      "line": 71,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "input",
+      "purpose": "turns.length ? '继续追问' : browse ? '向小映提问' : '设置问题'",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "turns.length ? '继续追问' : browse ? '向小映提问' : '设置问题'",
+      "classification": "native control",
+      "source_excerpt": "<input :id=\"browse ? 'assistant-question' : 'settings-question'\" ref=\"input\" v-model=\"question\" type=\"text\" autocomplete=\"off\" maxlength=\"500\" :aria-label=\"turns.length ? '继续追问' : "
+    },
+    {
+      "id": "frontend/src/components/AssistantChatDialog.vue:JzButton:48",
+      "source": "frontend/src/components/AssistantChatDialog.vue",
+      "line": 74,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "发送",
+      "assets": [
+        "arrow-up"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/AssistantChatDialog.vue",
+            "line": 292,
+            "selector": ".assistant-send.jz-button",
+            "values": {
+              "width": "32px",
+              "min-width": "32px",
+              "min-height": "32px",
+              "height": "32px",
+              "padding": "0"
+            }
+          },
+          {
+            "source": "frontend/src/components/AssistantChatDialog.vue",
+            "line": 295,
+            "selector": ".assistant-send.jz-button",
+            "values": {
+              "width": "44px",
+              "min-width": "44px",
+              "height": "44px",
+              "min-height": "44px"
+            }
+          }
+        ],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "发送",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton type=\"submit\" class=\"assistant-send\" icon-only icon=\"arrow-up\" variant=\"primary\" aria-label=\"发送\" title=\"发送\" :disabled=\"!question.trim() || applying || asking\" />"
+    },
+    {
+      "id": "frontend/src/components/AssistantPanel.vue:summary:10",
+      "source": "frontend/src/components/AssistantPanel.vue",
+      "line": 12,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "summary",
+      "purpose": "infoLabel",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "infoLabel",
+      "classification": "native control",
+      "source_excerpt": "<summary :title=\"infoLabel\" :aria-label=\"infoLabel\">"
+    },
+    {
+      "id": "frontend/src/components/AssistantPanel.vue:AppIcon:11",
+      "source": "frontend/src/components/AssistantPanel.vue",
+      "line": 12,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "AppIcon",
+      "purpose": "信息",
+      "assets": [
+        "info"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "17"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon name=\"info\" :size=\"17\" />"
+    },
+    {
+      "id": "frontend/src/components/AssistantPanel.vue:AppIcon:14",
+      "source": "frontend/src/components/AssistantPanel.vue",
+      "line": 16,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "AppIcon",
+      "purpose": "网格",
+      "assets": [
+        "grid"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "17"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon name=\"grid\" :size=\"17\" />"
+    },
+    {
+      "id": "frontend/src/components/AssistantPanel.vue:select:15",
+      "source": "frontend/src/components/AssistantPanel.vue",
+      "line": 17,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "select",
+      "purpose": "停靠位置",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "停靠位置",
+      "classification": "native control",
+      "source_excerpt": "<select aria-label=\"停靠位置\" :value=\"corner\" @change=\"emit('update:corner', $event.target.value)\">"
     },
     {
       "id": "frontend/src/components/BackToTop.vue:JzButton:1",
@@ -17620,7 +18310,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/ContinueWatchingRow.vue",
-            "line": 152,
+            "line": 157,
             "selector": ".cw-nav",
             "values": {
               "width": "36px",
@@ -17742,7 +18432,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/ContinueWatchingRow.vue",
-            "line": 144,
+            "line": 149,
             "selector": ".cw-no-poster",
             "values": {
               "width": "100%",
@@ -17788,7 +18478,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/ContinueWatchingRow.vue",
-            "line": 143,
+            "line": 148,
             "selector": ".cw-card .poster-play",
             "values": {
               "width": "44px",
@@ -17931,7 +18621,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/ContinueWatchingRow.vue",
-            "line": 152,
+            "line": 157,
             "selector": ".cw-nav",
             "values": {
               "width": "36px",
@@ -18109,9 +18799,9 @@
       "source_excerpt": "<JzButton v-if=\"retry\" icon=\"refresh\" @click=\"$emit('retry')\">"
     },
     {
-      "id": "frontend/src/components/FilePreviewDialog.vue:JzButton:8",
+      "id": "frontend/src/components/FilePreviewDialog.vue:JzButton:9",
       "source": "frontend/src/components/FilePreviewDialog.vue",
-      "line": 5,
+      "line": 8,
       "platforms": [
         "web",
         "mobile-web"
@@ -18148,9 +18838,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon-only class=\"file-preview-close\" aria-label=\"关闭文件预览\" @click=\"requestClose\">"
     },
     {
-      "id": "frontend/src/components/FilePreviewDialog.vue:AppIcon:9",
+      "id": "frontend/src/components/FilePreviewDialog.vue:AppIcon:10",
       "source": "frontend/src/components/FilePreviewDialog.vue",
-      "line": 5,
+      "line": 8,
       "platforms": [
         "web",
         "mobile-web"
@@ -18185,9 +18875,9 @@
       "source_excerpt": "<AppIcon name=\"close\" />"
     },
     {
-      "id": "frontend/src/components/FilePreviewDialog.vue:img:15",
+      "id": "frontend/src/components/FilePreviewDialog.vue:img:16",
       "source": "frontend/src/components/FilePreviewDialog.vue",
-      "line": 10,
+      "line": 14,
       "platforms": [
         "web",
         "mobile-web"
@@ -18220,9 +18910,9 @@
       "source_excerpt": "<img v-else-if=\"kind === 'image' && !error\" :key=\"generation\" ref=\"media\" :src=\"inlineUrl\" :alt=\"currentFile.name\" @error=\"assetError($event, '图片无法显示，可重试或下载原文件检查。')\" />"
     },
     {
-      "id": "frontend/src/components/FilePreviewDialog.vue:a:26",
+      "id": "frontend/src/components/FilePreviewDialog.vue:a:27",
       "source": "frontend/src/components/FilePreviewDialog.vue",
-      "line": 19,
+      "line": 23,
       "platforms": [
         "web",
         "mobile-web"
@@ -18255,9 +18945,9 @@
       "source_excerpt": "<a :href=\"currentFile.url\" :download=\"currentFile.name\">"
     },
     {
-      "id": "frontend/src/components/FilePreviewDialog.vue:AppIcon:27",
+      "id": "frontend/src/components/FilePreviewDialog.vue:AppIcon:28",
       "source": "frontend/src/components/FilePreviewDialog.vue",
-      "line": 19,
+      "line": 23,
       "platforms": [
         "web",
         "mobile-web"
@@ -18292,9 +18982,9 @@
       "source_excerpt": "<AppIcon name=\"download\" :size=\"16\" />"
     },
     {
-      "id": "frontend/src/components/FilePreviewDialog.vue:JzButton:28",
+      "id": "frontend/src/components/FilePreviewDialog.vue:JzButton:29",
       "source": "frontend/src/components/FilePreviewDialog.vue",
-      "line": 19,
+      "line": 23,
       "platforms": [
         "web",
         "mobile-web"
@@ -18333,9 +19023,9 @@
       "source_excerpt": "<JzButton icon=\"refresh\" v-if=\"error\" @click=\"retry\">"
     },
     {
-      "id": "frontend/src/components/FilePreviewDialog.vue:JzButton:29",
+      "id": "frontend/src/components/FilePreviewDialog.vue:JzButton:30",
       "source": "frontend/src/components/FilePreviewDialog.vue",
-      "line": 19,
+      "line": 23,
       "platforms": [
         "web",
         "mobile-web"
@@ -18375,9 +19065,9 @@
       "source_excerpt": "<JzButton :icon=\"fullscreen ? 'exit-fullscreen' : 'fullscreen'\" v-if=\"kind !== 'unknown'\" @click=\"toggleFullscreen\">"
     },
     {
-      "id": "frontend/src/components/FilePreviewDialog.vue:JzButton:30",
+      "id": "frontend/src/components/FilePreviewDialog.vue:JzButton:31",
       "source": "frontend/src/components/FilePreviewDialog.vue",
-      "line": 19,
+      "line": 23,
       "platforms": [
         "web",
         "mobile-web"
@@ -21952,9 +22642,9 @@
       ]
     },
     {
-      "id": "frontend/src/components/JzDialog.vue:JzButton:8",
+      "id": "frontend/src/components/JzDialog.vue:JzButton:9",
       "source": "frontend/src/components/JzDialog.vue",
-      "line": 9,
+      "line": 10,
       "platforms": [
         "web",
         "mobile-web"
@@ -21977,7 +22667,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/JzDialog.vue",
-            "line": 81,
+            "line": 84,
             "selector": ".jz-dialog-close",
             "values": {
               "width": "var(--jz-control-current)",
@@ -22003,9 +22693,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" class=\"jz-dialog-close\" :disabled=\"busy\" :aria-label=\"closeLabel\" @click=\"requestClose\">"
     },
     {
-      "id": "frontend/src/components/JzDialog.vue:AppIcon:9",
+      "id": "frontend/src/components/JzDialog.vue:AppIcon:10",
       "source": "frontend/src/components/JzDialog.vue",
-      "line": 9,
+      "line": 10,
       "platforms": [
         "web",
         "mobile-web"
@@ -31129,9 +31819,9 @@
       "source_excerpt": "<PlayerIcon name=\"close\" />"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:12",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:13",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 25,
+      "line": 26,
       "platforms": [
         "web",
         "mobile-web"
@@ -31197,9 +31887,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon-only class=\"player-icon-btn\" :aria-label=\"isFull ? '退出全屏' : '全屏'\" :title=\"isFull ? '退出全屏（Esc）' : '全屏（双击画面）'\" @click=\"toggleFull\">"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:13",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:14",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 27,
+      "line": 28,
       "platforms": [
         "web",
         "mobile-web"
@@ -31235,9 +31925,9 @@
       "source_excerpt": "<PlayerIcon :name=\"isFull ? 'exitFullscreen' : 'fullscreen'\" />"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:15",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:16",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 31,
+      "line": 32,
       "platforms": [
         "web",
         "mobile-web"
@@ -31272,9 +31962,9 @@
       "source_excerpt": "<PlayerIcon name=\"info\" :size=\"30\" />"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:18",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:19",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 34,
+      "line": 35,
       "platforms": [
         "web",
         "mobile-web"
@@ -31311,9 +32001,9 @@
       "source_excerpt": "<JzButton variant=\"primary\" @click=\"retry\">"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:Spinner:20",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:Spinner:21",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 37,
+      "line": 38,
       "platforms": [
         "web",
         "mobile-web"
@@ -31348,9 +32038,9 @@
       "source_excerpt": "<Spinner :size=\"32\" />"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:23",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:24",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 41,
+      "line": 42,
       "platforms": [
         "web",
         "mobile-web"
@@ -31408,9 +32098,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon-only class=\"online-center-play\" :aria-label=\"needGesture ? '开始播放' : '继续播放'\" @click.stop=\"togglePlay\">"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:24",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:25",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 42,
+      "line": 43,
       "platforms": [
         "web",
         "mobile-web"
@@ -31445,9 +32135,9 @@
       "source_excerpt": "<PlayerIcon name=\"play\" :size=\"38\" />"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:35",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:36",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 55,
+      "line": 56,
       "platforms": [
         "web",
         "mobile-web"
@@ -31514,9 +32204,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon-only class=\"player-icon-btn\" :aria-label=\"paused ? '播放' : '暂停'\" :title=\"paused ? '播放（空格）' : '暂停（空格）'\" :disabled=\"booting || !!error\" @click=\"togglePl"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:36",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:37",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 57,
+      "line": 58,
       "platforms": [
         "web",
         "mobile-web"
@@ -31552,9 +32242,9 @@
       "source_excerpt": "<PlayerIcon :name=\"paused ? 'play' : 'pause'\" :size=\"26\" />"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:37",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:38",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 59,
+      "line": 60,
       "platforms": [
         "web",
         "mobile-web"
@@ -31621,9 +32311,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon-only class=\"player-icon-btn\" aria-label=\"快退 10 秒\" title=\"快退 10 秒（←）\" :disabled=\"!canSeek || booting || !!error\" @click=\"seekBy(-10)\">"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:38",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:39",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 60,
+      "line": 61,
       "platforms": [
         "web",
         "mobile-web"
@@ -31658,9 +32348,9 @@
       "source_excerpt": "<PlayerIcon name=\"rewind\" />"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:39",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:40",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 61,
+      "line": 62,
       "platforms": [
         "web",
         "mobile-web"
@@ -31727,9 +32417,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon-only class=\"player-icon-btn\" aria-label=\"快进 10 秒\" title=\"快进 10 秒（→）\" :disabled=\"!canSeek || booting || !!error\" @click=\"seekBy(10)\">"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:40",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:41",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 62,
+      "line": 63,
       "platforms": [
         "web",
         "mobile-web"
@@ -35604,7 +36294,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2257,
+            "line": 2259,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -35719,7 +36409,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2237,
+            "line": 2239,
             "selector": ".player-video, .freeze-frame",
             "values": {
               "width": "100%",
@@ -35738,9 +36428,9 @@
       "source_excerpt": "<img v-if=\"freezeFrame\" :src=\"freezeFrame\" class=\"freeze-frame\" alt=\"\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:17",
+      "id": "frontend/src/components/PlayerModal.vue:button:18",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 29,
+      "line": 30,
       "platforms": [
         "web",
         "mobile-web"
@@ -35764,7 +36454,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2257,
+            "line": 2259,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -35773,7 +36463,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2272,
+            "line": 2274,
             "selector": ".player-corner-controls :deep(.player-corner-btn)",
             "values": {
               "width": "44px",
@@ -35782,7 +36472,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2277,
+            "line": 2279,
             "selector": ".player-corner-btn.connected::after",
             "values": {
               "width": "6px",
@@ -35835,9 +36525,9 @@
       "source_excerpt": "<button v-if=\"canCast\" type=\"button\" class=\"player-icon-btn player-corner-btn\" :class=\"{ connected: casting.active.value }\" :aria-label=\"castHeld ? '投屏控制' : '投屏'\" :title=\"castHeld "
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:18",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:19",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 32,
+      "line": 33,
       "platforms": [
         "web",
         "mobile-web"
@@ -35872,9 +36562,9 @@
       "source_excerpt": "<PlayerIcon name=\"cast\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:19",
+      "id": "frontend/src/components/PlayerModal.vue:button:20",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 34,
+      "line": 35,
       "platforms": [
         "web",
         "mobile-web"
@@ -35898,7 +36588,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2257,
+            "line": 2259,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -35907,7 +36597,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2272,
+            "line": 2274,
             "selector": ".player-corner-controls :deep(.player-corner-btn)",
             "values": {
               "width": "44px",
@@ -35916,7 +36606,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2277,
+            "line": 2279,
             "selector": ".player-corner-btn.connected::after",
             "values": {
               "width": "6px",
@@ -35968,9 +36658,9 @@
       "source_excerpt": "<button type=\"button\" class=\"player-icon-btn player-corner-btn\" @click=\"toggleFull\" :aria-label=\"isFull ? '退出全屏' : '全屏'\" :title=\"isFull ? '退出全屏（Esc）' : '全屏（双击画面）'\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:20",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:21",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 36,
+      "line": 37,
       "platforms": [
         "web",
         "mobile-web"
@@ -36006,9 +36696,9 @@
       "source_excerpt": "<PlayerIcon :name=\"isFull ? 'exitFullscreen' : 'fullscreen'\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:22",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:23",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 40,
+      "line": 41,
       "platforms": [
         "web",
         "mobile-web"
@@ -36043,9 +36733,9 @@
       "source_excerpt": "<PlayerIcon name=\"cast\" :size=\"32\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:26",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:27",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 44,
+      "line": 45,
       "platforms": [
         "web",
         "mobile-web"
@@ -36082,9 +36772,9 @@
       "source_excerpt": "<JzButton size=\"compact\" class=\"player-action\" @click=\"openCasting\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:27",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:28",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 45,
+      "line": 46,
       "platforms": [
         "web",
         "mobile-web"
@@ -36122,9 +36812,9 @@
       "source_excerpt": "<JzButton v-if=\"!casting.uncertain?.value\" size=\"compact\" class=\"player-action\" :disabled=\"casting.busy.value\" @click=\"returnToPhone\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:Spinner:29",
+      "id": "frontend/src/components/PlayerModal.vue:Spinner:30",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 49,
+      "line": 50,
       "platforms": [
         "web",
         "mobile-web"
@@ -36159,9 +36849,9 @@
       "source_excerpt": "<Spinner :size=\"36\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:34",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:35",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 55,
+      "line": 56,
       "platforms": [
         "web",
         "mobile-web"
@@ -36196,9 +36886,9 @@
       "source_excerpt": "<PlayerIcon name=\"info\" :size=\"30\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:38",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:39",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 59,
+      "line": 60,
       "platforms": [
         "web",
         "mobile-web"
@@ -36235,9 +36925,9 @@
       "source_excerpt": "<JzButton v-if=\"!p5Failed\" size=\"compact\" variant=\"primary\" class=\"player-action\" @click=\"reload\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:39",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:40",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 60,
+      "line": 61,
       "platforms": [
         "web",
         "mobile-web"
@@ -36274,9 +36964,9 @@
       "source_excerpt": "<JzButton v-if=\"p5Playback\" size=\"compact\" :variant=\"p5Failed ? 'primary' : 'secondary'\" class=\"player-action\" @click=\"copyDirectLink\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:40",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:41",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 61,
+      "line": 62,
       "platforms": [
         "web",
         "mobile-web"
@@ -36313,9 +37003,9 @@
       "source_excerpt": "<JzButton v-if=\"compatibleVersion\" size=\"compact\" class=\"player-action\" @click=\"playCompatibleVersion\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:input:42",
+      "id": "frontend/src/components/PlayerModal.vue:input:43",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 64,
+      "line": 65,
       "platforms": [
         "web",
         "mobile-web"
@@ -36338,7 +37028,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2298,
+            "line": 2300,
             "selector": ".error-copy-url",
             "values": {
               "width": "100%",
@@ -36365,9 +37055,9 @@
       "source_excerpt": "<input v-if=\"p5Playback && directFailUrl\" readonly :value=\"directFailUrl\" class=\"error-copy-url\" aria-label=\"播放直链\" @focus=\"$event.target.select()\" @click=\"$event.target.select()\" /"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:44",
+      "id": "frontend/src/components/PlayerModal.vue:button:45",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 70,
+      "line": 71,
       "platforms": [
         "web",
         "mobile-web"
@@ -36391,7 +37081,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2247,
+            "line": 2249,
             "selector": ".center-play",
             "values": {
               "width": "var(--pause-size)",
@@ -36416,9 +37106,9 @@
       "source_excerpt": "<button v-if=\"pausePlacement.visible\" type=\"button\" class=\"center-play\" @pointerdown.stop @click.stop=\"onCenterPlay\" @dblclick.stop :aria-label=\"needGesture ? '开始播放' : '继续播放'\" :tit"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:45",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:46",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 72,
+      "line": 73,
       "platforms": [
         "web",
         "mobile-web"
@@ -36453,9 +37143,9 @@
       "source_excerpt": "<PlayerIcon name=\"play\" :size=\"38\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:54",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:55",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 81,
+      "line": 82,
       "platforms": [
         "web",
         "mobile-web"
@@ -36492,9 +37182,9 @@
       "source_excerpt": "<JzButton size=\"compact\" variant=\"primary\" class=\"player-action\" @click=\"resumePlay\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:55",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:56",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 82,
+      "line": 83,
       "platforms": [
         "web",
         "mobile-web"
@@ -36531,9 +37221,9 @@
       "source_excerpt": "<JzButton size=\"compact\" class=\"player-action\" @click=\"restartPlay\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:61",
+      "id": "frontend/src/components/PlayerModal.vue:button:62",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 94,
+      "line": 95,
       "platforms": [
         "web",
         "mobile-web"
@@ -36557,7 +37247,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2257,
+            "line": 2259,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -36609,9 +37299,9 @@
       "source_excerpt": "<button class=\"player-icon-btn main-play\" @click=\"togglePlay\" :aria-label=\"isPlaying ? '暂停' : needGesture && !pausePlacement.visible ? '开始播放' : '播放'\" :title=\"isPlaying ? '暂停（空格）' :"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:62",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:63",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 96,
+      "line": 97,
       "platforms": [
         "web",
         "mobile-web"
@@ -36647,9 +37337,9 @@
       "source_excerpt": "<PlayerIcon :name=\"isPlaying ? 'pause' : 'play'\" :size=\"26\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:63",
+      "id": "frontend/src/components/PlayerModal.vue:button:64",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 98,
+      "line": 99,
       "platforms": [
         "web",
         "mobile-web"
@@ -36673,7 +37363,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2257,
+            "line": 2259,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -36726,9 +37416,9 @@
       "source_excerpt": "<button class=\"player-icon-btn skip-btn\" @click=\"seekBy(-10)\" :disabled=\"!(decidedDuration > 0)\" aria-label=\"快退 10 秒\" title=\"快退 10 秒（←）\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:64",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:65",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 98,
+      "line": 99,
       "platforms": [
         "web",
         "mobile-web"
@@ -36763,9 +37453,9 @@
       "source_excerpt": "<PlayerIcon name=\"rewind\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:65",
+      "id": "frontend/src/components/PlayerModal.vue:button:66",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 99,
+      "line": 100,
       "platforms": [
         "web",
         "mobile-web"
@@ -36789,7 +37479,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 2257,
+            "line": 2259,
             "selector": ".ctl-row .player-icon-btn",
             "values": {
               "width": "44px",
@@ -36842,9 +37532,9 @@
       "source_excerpt": "<button class=\"player-icon-btn skip-btn\" @click=\"seekBy(10)\" :disabled=\"!(decidedDuration > 0)\" aria-label=\"快进 10 秒\" title=\"快进 10 秒（→）\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:66",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:67",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 99,
+      "line": 100,
       "platforms": [
         "web",
         "mobile-web"
@@ -36879,9 +37569,9 @@
       "source_excerpt": "<PlayerIcon name=\"forward\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:75",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:76",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 116,
+      "line": 117,
       "platforms": [
         "web",
         "mobile-web"
@@ -36916,9 +37606,9 @@
       "source_excerpt": "<PlayerIcon name=\"info\" :size=\"28\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:79",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:80",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 120,
+      "line": 121,
       "platforms": [
         "web",
         "mobile-web"
@@ -36955,9 +37645,9 @@
       "source_excerpt": "<JzButton size=\"compact\" variant=\"primary\" class=\"player-action\" @click=\"switchTo1080\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:80",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:81",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 121,
+      "line": 122,
       "platforms": [
         "web",
         "mobile-web"
@@ -41355,434 +42045,9 @@
       "source_excerpt": "<AppIcon :name=\"source === 'custom' ? 'heart-filled' : 'star-filled'\" :size=\"12\" />"
     },
     {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:summary:10",
-      "source": "frontend/src/components/SettingsAssistantDialog.vue",
-      "line": 12,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "设置与引导",
-      "element": "summary",
-      "purpose": "对话隐私",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "对话隐私",
-      "classification": "native control",
-      "source_excerpt": "<summary title=\"对话隐私\" aria-label=\"对话隐私\">"
-    },
-    {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:11",
-      "source": "frontend/src/components/SettingsAssistantDialog.vue",
-      "line": 12,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "设置与引导",
-      "element": "AppIcon",
-      "purpose": "信息",
-      "assets": [
-        "info"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "17"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon name=\"info\" :size=\"17\" />"
-    },
-    {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:14",
-      "source": "frontend/src/components/SettingsAssistantDialog.vue",
-      "line": 16,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "设置与引导",
-      "element": "AppIcon",
-      "purpose": "网格",
-      "assets": [
-        "grid"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "17"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon name=\"grid\" :size=\"17\" />"
-    },
-    {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:select:15",
-      "source": "frontend/src/components/SettingsAssistantDialog.vue",
-      "line": 17,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "设置与引导",
-      "element": "select",
-      "purpose": "停靠位置",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "停靠位置",
-      "classification": "native control",
-      "source_excerpt": "<select aria-label=\"停靠位置\" :value=\"corner\" @change=\"emit('update:corner', $event.target.value)\">"
-    },
-    {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:26",
-      "source": "frontend/src/components/SettingsAssistantDialog.vue",
-      "line": 31,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "设置与引导",
-      "element": "JzButton",
-      "purpose": "{{ example }}",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:36px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton v-for=\"example in examples\" :key=\"example\" size=\"compact\" @click=\"prefill(example)\">"
-    },
-    {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:27",
-      "source": "frontend/src/components/SettingsAssistantDialog.vue",
-      "line": 32,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "设置与引导",
-      "element": "AppIcon",
-      "purpose": "前进",
-      "assets": [
-        "arrow-right"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "14"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon name=\"arrow-right\" :size=\"14\" />"
-    },
-    {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:AppIcon:46",
-      "source": "frontend/src/components/SettingsAssistantDialog.vue",
-      "line": 55,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "设置与引导",
-      "element": "AppIcon",
-      "purpose": "下一级",
-      "assets": [
-        "chevron-right"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "13"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon name=\"chevron-right\" :size=\"13\" />"
-    },
-    {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:54",
-      "source": "frontend/src/components/SettingsAssistantDialog.vue",
-      "line": 73,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "设置与引导",
-      "element": "JzButton",
-      "purpose": "重试",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"readiness === 'unavailable'\" ref=\"setupAction\" @click=\"loadStatus()\">"
-    },
-    {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:55",
-      "source": "frontend/src/components/SettingsAssistantDialog.vue",
-      "line": 74,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "设置与引导",
-      "element": "JzButton",
-      "purpose": "去配置智能辅助",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton v-else ref=\"setupAction\" variant=\"primary\" @click=\"emit('configure')\">"
-    },
-    {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:input:60",
-      "source": "frontend/src/components/SettingsAssistantDialog.vue",
-      "line": 83,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "设置与引导",
-      "element": "input",
-      "purpose": "turns.length ? '继续追问' : '设置问题'",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "turns.length ? '继续追问' : '设置问题'",
-      "classification": "native control",
-      "source_excerpt": "<input id=\"settings-question\" ref=\"input\" v-model=\"question\" type=\"text\" autocomplete=\"off\" maxlength=\"500\" :aria-label=\"turns.length ? '继续追问' : '设置问题'\" :placeholder=\"asking ? '等待助"
-    },
-    {
-      "id": "frontend/src/components/SettingsAssistantDialog.vue:JzButton:61",
-      "source": "frontend/src/components/SettingsAssistantDialog.vue",
-      "line": 86,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "设置与引导",
-      "element": "JzButton",
-      "purpose": "发送",
-      "assets": [
-        "arrow-up"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "发送",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton type=\"submit\" class=\"assistant-send\" icon-only icon=\"arrow-up\" variant=\"primary\" aria-label=\"发送\" title=\"发送\" :disabled=\"!question.trim() || applying || asking\" />"
-    },
-    {
       "id": "frontend/src/components/SettingsAssistantLauncher.vue:JzButton:3",
       "source": "frontend/src/components/SettingsAssistantLauncher.vue",
-      "line": 4,
+      "line": 5,
       "platforms": [
         "web",
         "mobile-web"
@@ -41790,7 +42055,7 @@
       "category": "control",
       "feature": "设置与引导",
       "element": "JzButton",
-      "purpose": "问设置助手",
+      "purpose": "label",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
@@ -41805,7 +42070,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/SettingsAssistantLauncher.vue",
-            "line": 245,
+            "line": 267,
             "selector": ".assistant-launcher.jz-button",
             "values": {
               "width": "56px",
@@ -41815,7 +42080,7 @@
           },
           {
             "source": "frontend/src/components/SettingsAssistantLauncher.vue",
-            "line": 248,
+            "line": 270,
             "selector": ".assistant-launcher :deep(.projector-character)",
             "values": {
               "width": "100%",
@@ -41824,7 +42089,7 @@
           },
           {
             "source": "frontend/src/components/SettingsAssistantLauncher.vue",
-            "line": 251,
+            "line": 273,
             "selector": ".assistant-launcher.jz-button",
             "values": {
               "width": "48px",
@@ -41844,9 +42109,9 @@
         "disabled",
         "busy"
       ],
-      "accessible_name_owner": "问设置助手",
+      "accessible_name_owner": "label",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton ref=\"button\" class=\"assistant-launcher\" variant=\"ghost\" icon-only :data-motion=\"phase\" :data-paused=\"pageHidden || undefined\" :style=\"style\" aria-label=\"问设置助手\" :aria-expa"
+      "source_excerpt": "<JzButton ref=\"button\" class=\"assistant-launcher\" variant=\"ghost\" icon-only :data-motion=\"phase\" :data-paused=\"pageHidden || undefined\" :style=\"style\" :aria-label=\"label\" :aria-exp"
     },
     {
       "id": "frontend/src/components/SettingsAssistantLink.vue:RouterLink:1",
@@ -41929,7 +42194,7 @@
       "category": "asset",
       "feature": "设置与引导",
       "element": "img",
-      "purpose": "设置入口和最新回复中的放映机小映呈现拖动、等待、答复与互动表情",
+      "purpose": "网页助手小映在入口呈现招手、皱眉和瞌睡等待机动作，在拖动、等待和答复时呈现相应表情",
       "assets": [
         "projector-idle",
         "projector-drag",
@@ -47554,7 +47819,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"items.length\" size=\"compact\" variant=\"ghost\" :aria-expanded=\"expanded\" aria-controls=\"tv-updates-list\" @click=\"expanded = !expanded\">"
+      "source_excerpt": "<JzButton v-if=\"items.length\" ref=\"updatesButton\" size=\"compact\" variant=\"ghost\" :aria-expanded=\"expanded\" aria-controls=\"tv-updates-list\" @click=\"expanded = !expanded\">"
     },
     {
       "id": "frontend/src/components/TvUpdatesRow.vue:JzButton:8",
@@ -47621,7 +47886,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/TvUpdatesRow.vue",
-            "line": 152,
+            "line": 159,
             "selector": ".update-card",
             "values": {
               "gap": "var(--jz-gap-s)",
@@ -47631,7 +47896,7 @@
           },
           {
             "source": "frontend/src/components/TvUpdatesRow.vue",
-            "line": 154,
+            "line": 161,
             "selector": ".update-card > img, .update-poster",
             "values": {
               "width": "48px",
@@ -47713,7 +47978,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/TvUpdatesRow.vue",
-            "line": 154,
+            "line": 161,
             "selector": ".update-card > img, .update-poster",
             "values": {
               "width": "48px",
@@ -49966,7 +50231,7 @@
       ],
       "accessible_name_owner": "搜索合集",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"q\" aria-label=\"搜索合集\" placeholder=\"搜合集名\" />"
+      "source_excerpt": "<input ref=\"searchInput\" v-model=\"q\" aria-label=\"搜索合集\" placeholder=\"搜合集名\" />"
     },
     {
       "id": "frontend/src/views/Collections.vue:JzButton:7",
@@ -50047,7 +50312,7 @@
       ],
       "accessible_name_owner": "新合集名称",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"name\" :disabled=\"creating\" aria-label=\"新合集名称\" placeholder=\"新建合集名，如 周星驰合集\" />"
+      "source_excerpt": "<input ref=\"nameInput\" v-model=\"name\" :disabled=\"creating\" aria-label=\"新合集名称\" placeholder=\"新建合集名，如 周星驰合集\" />"
     },
     {
       "id": "frontend/src/views/Collections.vue:JzButton:10",
@@ -50288,7 +50553,7 @@
           },
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 464,
+            "line": 502,
             "selector": ".collection-card",
             "values": {
               "min-width": "0"
@@ -50296,7 +50561,7 @@
           },
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 465,
+            "line": 503,
             "selector": ".collection-card .poster-wrap",
             "values": {
               "aspect-ratio": "2 / 3"
@@ -50377,7 +50642,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 466,
+            "line": 504,
             "selector": ".cover-empty",
             "values": {
               "height": "100%",
@@ -50398,7 +50663,7 @@
     {
       "id": "frontend/src/views/Collections.vue:summary:30",
       "source": "frontend/src/views/Collections.vue",
-      "line": 23,
+      "line": 24,
       "platforms": [
         "web",
         "mobile-web"
@@ -50437,7 +50702,7 @@
     {
       "id": "frontend/src/views/Collections.vue:JzButton:38",
       "source": "frontend/src/views/Collections.vue",
-      "line": 27,
+      "line": 28,
       "platforms": [
         "web",
         "mobile-web"
@@ -50477,7 +50742,7 @@
     {
       "id": "frontend/src/views/Collections.vue:RouterLink:39",
       "source": "frontend/src/views/Collections.vue",
-      "line": 27,
+      "line": 28,
       "platforms": [
         "web",
         "mobile-web"
@@ -50512,7 +50777,7 @@
     {
       "id": "frontend/src/views/Collections.vue:JzButton:43",
       "source": "frontend/src/views/Collections.vue",
-      "line": 30,
+      "line": 31,
       "platforms": [
         "web",
         "mobile-web"
@@ -50552,7 +50817,7 @@
     {
       "id": "frontend/src/views/Collections.vue:img:47",
       "source": "frontend/src/views/Collections.vue",
-      "line": 32,
+      "line": 33,
       "platforms": [
         "web",
         "mobile-web"
@@ -50587,7 +50852,7 @@
     {
       "id": "frontend/src/views/Collections.vue:ArtworkPlaceholder:48",
       "source": "frontend/src/views/Collections.vue",
-      "line": 32,
+      "line": 33,
       "platforms": [
         "web",
         "mobile-web"
@@ -50611,7 +50876,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 466,
+            "line": 504,
             "selector": ".cover-empty",
             "values": {
               "height": "100%",
@@ -50632,7 +50897,7 @@
     {
       "id": "frontend/src/views/Collections.vue:JzButton:54",
       "source": "frontend/src/views/Collections.vue",
-      "line": 35,
+      "line": 36,
       "platforms": [
         "web",
         "mobile-web"
@@ -50672,7 +50937,7 @@
     {
       "id": "frontend/src/views/Collections.vue:JzButton:55",
       "source": "frontend/src/views/Collections.vue",
-      "line": 35,
+      "line": 36,
       "platforms": [
         "web",
         "mobile-web"
@@ -50712,7 +50977,7 @@
     {
       "id": "frontend/src/views/Collections.vue:summary:57",
       "source": "frontend/src/views/Collections.vue",
-      "line": 40,
+      "line": 41,
       "platforms": [
         "web",
         "mobile-web"
@@ -50751,7 +51016,7 @@
     {
       "id": "frontend/src/views/Collections.vue:JzButton:61",
       "source": "frontend/src/views/Collections.vue",
-      "line": 42,
+      "line": 43,
       "platforms": [
         "web",
         "mobile-web"
@@ -50793,7 +51058,7 @@
     {
       "id": "frontend/src/views/Collections.vue:JzButton:62",
       "source": "frontend/src/views/Collections.vue",
-      "line": 42,
+      "line": 43,
       "platforms": [
         "web",
         "mobile-web"
@@ -50832,7 +51097,7 @@
     {
       "id": "frontend/src/views/Collections.vue:JzButton:63",
       "source": "frontend/src/views/Collections.vue",
-      "line": 42,
+      "line": 43,
       "platforms": [
         "web",
         "mobile-web"
@@ -51613,7 +51878,7 @@
           },
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 1126,
+            "line": 1128,
             "selector": ".ver-sel",
             "values": {
               "padding": "6px 8px",
@@ -51907,7 +52172,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 1126,
+            "line": 1128,
             "selector": ".pre-sel",
             "values": {
               "padding": "6px 8px",
@@ -51996,7 +52261,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 1126,
+            "line": 1128,
             "selector": ".col-chip",
             "values": {
               "font-size": "0.8125rem",
@@ -52278,7 +52543,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 1126,
+            "line": 1128,
             "selector": ".poster-big",
             "values": {
               "max-height": "78vh",
@@ -52410,7 +52675,7 @@
       "source_excerpt": "<JzButton @click=\"openPosterPicker\" :disabled=\"posterSaving\" type=\"button\">"
     },
     {
-      "id": "frontend/src/views/Detail.vue:JzButton:139",
+      "id": "frontend/src/views/Detail.vue:JzButton:140",
       "source": "frontend/src/views/Detail.vue",
       "line": 164,
       "platforms": [
@@ -52450,7 +52715,7 @@
       "source_excerpt": "<JzButton @click=\"closePoster\" :disabled=\"posterSaving\" type=\"button\">"
     },
     {
-      "id": "frontend/src/views/Detail.vue:button:147",
+      "id": "frontend/src/views/Detail.vue:button:148",
       "source": "frontend/src/views/Detail.vue",
       "line": 174,
       "platforms": [
@@ -52476,7 +52741,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 1129,
+            "line": 1131,
             "selector": ".poster-cand",
             "values": {
               "padding": "0"
@@ -52484,7 +52749,7 @@
           },
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 1131,
+            "line": 1133,
             "selector": ".poster-cand img",
             "values": {
               "width": "100%",
@@ -52510,7 +52775,7 @@
       "source_excerpt": "<button v-for=\"c in posterCands\" :key=\"c.file_path\" class=\"poster-cand\" :class=\"{ cur: c.current }\" :disabled=\"posterSaving\" :title=\"`${c.width}×${c.height}${c.lang ? ' · ' + c.lan"
     },
     {
-      "id": "frontend/src/views/Detail.vue:img:148",
+      "id": "frontend/src/views/Detail.vue:img:149",
       "source": "frontend/src/views/Detail.vue",
       "line": 178,
       "platforms": [
@@ -52545,7 +52810,7 @@
       "source_excerpt": "<img :src=\"scopedArtworkUrl(c.thumb_url)\" loading=\"lazy\" :alt=\"`${c.width}×${c.height}`\" />"
     },
     {
-      "id": "frontend/src/views/Detail.vue:JzButton:151",
+      "id": "frontend/src/views/Detail.vue:JzButton:152",
       "source": "frontend/src/views/Detail.vue",
       "line": 183,
       "platforms": [
@@ -52587,9 +52852,9 @@
       "source_excerpt": "<JzButton :disabled=\"posterSaving\" @click=\"posterPick = false\" type=\"button\" icon=\"back\">"
     },
     {
-      "id": "frontend/src/views/Detail.vue:JzButton:152",
+      "id": "frontend/src/views/Detail.vue:JzButton:154",
       "source": "frontend/src/views/Detail.vue",
-      "line": 184,
+      "line": 185,
       "platforms": [
         "web",
         "mobile-web"
@@ -52627,9 +52892,9 @@
       "source_excerpt": "<JzButton @click=\"closePoster\" :disabled=\"posterSaving\" type=\"button\">"
     },
     {
-      "id": "frontend/src/views/Detail.vue:AppIcon:160",
+      "id": "frontend/src/views/Detail.vue:AppIcon:162",
       "source": "frontend/src/views/Detail.vue",
-      "line": 198,
+      "line": 199,
       "platforms": [
         "web",
         "mobile-web"
@@ -52664,9 +52929,9 @@
       "source_excerpt": "<AppIcon class=\"arch-arrow\" name=\"arrow-right\" :size=\"16\" />"
     },
     {
-      "id": "frontend/src/views/Detail.vue:JzButton:164",
+      "id": "frontend/src/views/Detail.vue:JzButton:166",
       "source": "frontend/src/views/Detail.vue",
-      "line": 206,
+      "line": 207,
       "platforms": [
         "web",
         "mobile-web"
@@ -52706,9 +52971,9 @@
       "source_excerpt": "<JzButton @click=\"doArchive\" :disabled=\"archApplying\" type=\"button\" icon=\"organize\">"
     },
     {
-      "id": "frontend/src/views/Detail.vue:JzButton:165",
+      "id": "frontend/src/views/Detail.vue:JzButton:167",
       "source": "frontend/src/views/Detail.vue",
-      "line": 207,
+      "line": 208,
       "platforms": [
         "web",
         "mobile-web"
@@ -53779,7 +54044,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Library.vue",
-            "line": 956,
+            "line": 977,
             "selector": ".sel-circle",
             "values": {
               "width": "26px",
@@ -53789,7 +54054,7 @@
           },
           {
             "source": "frontend/src/views/Library.vue",
-            "line": 1013,
+            "line": 1034,
             "selector": "/* 热区保持 44px 触摸目标，视觉圆缩回 26px 居中（::before），避免占满小海报； 盒子左上各外扩 3px，使视觉圆上沿/左沿回到 6px，与右上评分徽章对齐 */ .sel-circle",
             "values": {
               "width": "var(--jz-touch-target)",
@@ -53798,7 +54063,7 @@
           },
           {
             "source": "frontend/src/views/Library.vue",
-            "line": 1022,
+            "line": 1043,
             "selector": ".sel-circle svg",
             "values": {
               "width": "14px",
@@ -56346,7 +56611,7 @@
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<select :id=\"field.id\" v-model=\"sourceId\" data-online-source :disabled=\"loadingSources\" @change=\"sourceChanged\">"
+      "source_excerpt": "<select ref=\"sourceSelect\" :id=\"field.id\" v-model=\"sourceId\" data-online-source :disabled=\"loadingSources\" @change=\"sourceChanged\">"
     },
     {
       "id": "frontend/src/views/Online.vue:summary:37",
@@ -59207,9 +59472,9 @@
       "source_excerpt": "<AppIcon name=\"back\" :size=\"20\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:RouterLink:14",
+      "id": "frontend/src/views/Settings.vue:RouterLink:12",
       "source": "frontend/src/views/Settings.vue",
-      "line": 19,
+      "line": 11,
       "platforms": [
         "web",
         "mobile-web"
@@ -59252,9 +59517,9 @@
       "source_excerpt": "<router-link class=\"setup-link\" to=\"/setup\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:button:18",
+      "id": "frontend/src/views/Settings.vue:button:16",
       "source": "frontend/src/views/Settings.vue",
-      "line": 23,
+      "line": 15,
       "platforms": [
         "web",
         "mobile-web"
@@ -59293,9 +59558,9 @@
       "source_excerpt": "<button v-for=\"n in group.pages\" :key=\"n.id\" :class=\"{ on: active === n.id }\" :aria-current=\"active === n.id ? 'page' : undefined\" @click=\"go(n.id)\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:AppIcon:19",
+      "id": "frontend/src/views/Settings.vue:AppIcon:17",
       "source": "frontend/src/views/Settings.vue",
-      "line": 24,
+      "line": 16,
       "platforms": [
         "web",
         "mobile-web"
@@ -59342,9 +59607,9 @@
       "source_excerpt": "<AppIcon :name=\"n.icon\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:29",
+      "id": "frontend/src/views/Settings.vue:JzButton:27",
       "source": "frontend/src/views/Settings.vue",
-      "line": 33,
+      "line": 25,
       "platforms": [
         "web",
         "mobile-web"
@@ -59383,9 +59648,9 @@
       "source_excerpt": "<JzButton @click=\"loadSettings\" type=\"button\" icon=\"refresh\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:summary:32",
+      "id": "frontend/src/views/Settings.vue:summary:30",
       "source": "frontend/src/views/Settings.vue",
-      "line": 37,
+      "line": 29,
       "platforms": [
         "web",
         "mobile-web"
@@ -59449,9 +59714,9 @@
       "source_excerpt": "<summary class=\"overview-task-summary\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:AppIcon:35",
+      "id": "frontend/src/views/Settings.vue:AppIcon:33",
       "source": "frontend/src/views/Settings.vue",
-      "line": 37,
+      "line": 29,
       "platforms": [
         "web",
         "mobile-web"
@@ -59486,9 +59751,9 @@
       "source_excerpt": "<AppIcon name=\"forward\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:40",
+      "id": "frontend/src/views/Settings.vue:JzButton:38",
       "source": "frontend/src/views/Settings.vue",
-      "line": 38,
+      "line": 30,
       "platforms": [
         "web",
         "mobile-web"
@@ -59527,9 +59792,9 @@
       "source_excerpt": "<JzButton @click=\"loadStats\" type=\"button\" icon=\"refresh\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:RouterLink:45",
+      "id": "frontend/src/views/Settings.vue:RouterLink:43",
       "source": "frontend/src/views/Settings.vue",
-      "line": 41,
+      "line": 33,
       "platforms": [
         "web",
         "mobile-web"
@@ -59562,9 +59827,9 @@
       "source_excerpt": "<router-link :to=\"{ path: '/settings', query: { sec: row.pending ? 'sec-pending' : 'sec-sync', library: row.library_id } }\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:RouterLink:50",
+      "id": "frontend/src/views/Settings.vue:RouterLink:48",
       "source": "frontend/src/views/Settings.vue",
-      "line": 45,
+      "line": 37,
       "platforms": [
         "web",
         "mobile-web"
@@ -59597,9 +59862,9 @@
       "source_excerpt": "<router-link :to=\"{ path: '/settings', query: { sec: 'sec-pending', library: row.library_id } }\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:RouterLink:56",
+      "id": "frontend/src/views/Settings.vue:RouterLink:54",
       "source": "frontend/src/views/Settings.vue",
-      "line": 53,
+      "line": 45,
       "platforms": [
         "web",
         "mobile-web"
@@ -59652,9 +59917,9 @@
       "source_excerpt": "<router-link v-for=\"item in group.pages\" :key=\"item.id\" :to=\"pageTarget(item.id)\" class=\"settings-directory-link\" @click=\"rememberScroll\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:AppIcon:57",
+      "id": "frontend/src/views/Settings.vue:AppIcon:55",
       "source": "frontend/src/views/Settings.vue",
-      "line": 54,
+      "line": 46,
       "platforms": [
         "web",
         "mobile-web"
@@ -59701,9 +59966,9 @@
       "source_excerpt": "<AppIcon :name=\"item.icon\" :size=\"21\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:AppIcon:59",
+      "id": "frontend/src/views/Settings.vue:AppIcon:57",
       "source": "frontend/src/views/Settings.vue",
-      "line": 54,
+      "line": 46,
       "platforms": [
         "web",
         "mobile-web"
@@ -59738,9 +60003,9 @@
       "source_excerpt": "<AppIcon name=\"forward\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:RouterLink:61",
+      "id": "frontend/src/views/Settings.vue:RouterLink:59",
       "source": "frontend/src/views/Settings.vue",
-      "line": 57,
+      "line": 49,
       "platforms": [
         "web",
         "mobile-web"
@@ -59773,9 +60038,9 @@
       "source_excerpt": "<router-link to=\"/setup\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:AppIcon:62",
+      "id": "frontend/src/views/Settings.vue:AppIcon:60",
       "source": "frontend/src/views/Settings.vue",
-      "line": 57,
+      "line": 49,
       "platforms": [
         "web",
         "mobile-web"
@@ -59810,9 +60075,9 @@
       "source_excerpt": "<AppIcon name=\"plus\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:RouterLink:63",
+      "id": "frontend/src/views/Settings.vue:RouterLink:61",
       "source": "frontend/src/views/Settings.vue",
-      "line": 57,
+      "line": 49,
       "platforms": [
         "web",
         "mobile-web"
@@ -59845,9 +60110,9 @@
       "source_excerpt": "<router-link :to=\"browseReturn\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:summary:65",
+      "id": "frontend/src/views/Settings.vue:summary:63",
       "source": "frontend/src/views/Settings.vue",
-      "line": 59,
+      "line": 51,
       "platforms": [
         "web",
         "mobile-web"
@@ -59884,9 +60149,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/views/Settings.vue:summary:93",
+      "id": "frontend/src/views/Settings.vue:summary:91",
       "source": "frontend/src/views/Settings.vue",
-      "line": 79,
+      "line": 71,
       "platforms": [
         "web",
         "mobile-web"
@@ -59923,9 +60188,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:113",
+      "id": "frontend/src/views/Settings.vue:JzButton:111",
       "source": "frontend/src/views/Settings.vue",
-      "line": 86,
+      "line": 78,
       "platforms": [
         "web",
         "mobile-web"
@@ -59962,9 +60227,9 @@
       "source_excerpt": "<JzButton @click=\"go('sec-index')\" type=\"button\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:button:115",
+      "id": "frontend/src/views/Settings.vue:button:113",
       "source": "frontend/src/views/Settings.vue",
-      "line": 90,
+      "line": 82,
       "platforms": [
         "web",
         "mobile-web"
@@ -60002,9 +60267,9 @@
       "source_excerpt": "<button @click=\"go('sec-libraries')\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:AppIcon:117",
+      "id": "frontend/src/views/Settings.vue:AppIcon:115",
       "source": "frontend/src/views/Settings.vue",
-      "line": 90,
+      "line": 82,
       "platforms": [
         "web",
         "mobile-web"
@@ -60039,9 +60304,9 @@
       "source_excerpt": "<AppIcon name=\"library\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:button:119",
+      "id": "frontend/src/views/Settings.vue:button:117",
       "source": "frontend/src/views/Settings.vue",
-      "line": 91,
+      "line": 83,
       "platforms": [
         "web",
         "mobile-web"
@@ -60079,9 +60344,9 @@
       "source_excerpt": "<button @click=\"go('sec-libtools')\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:AppIcon:121",
+      "id": "frontend/src/views/Settings.vue:AppIcon:119",
       "source": "frontend/src/views/Settings.vue",
-      "line": 91,
+      "line": 83,
       "platforms": [
         "web",
         "mobile-web"
@@ -60116,9 +60381,9 @@
       "source_excerpt": "<AppIcon name=\"organize\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:summary:130",
+      "id": "frontend/src/views/Settings.vue:summary:128",
       "source": "frontend/src/views/Settings.vue",
-      "line": 103,
+      "line": 95,
       "platforms": [
         "web",
         "mobile-web"
@@ -60155,9 +60420,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:135",
+      "id": "frontend/src/views/Settings.vue:JzButton:133",
       "source": "frontend/src/views/Settings.vue",
-      "line": 105,
+      "line": 97,
       "platforms": [
         "web",
         "mobile-web"
@@ -60196,9 +60461,9 @@
       "source_excerpt": "<JzButton @click=\"loadProviders\" type=\"button\" icon=\"refresh\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:141",
+      "id": "frontend/src/views/Settings.vue:JzButton:139",
       "source": "frontend/src/views/Settings.vue",
-      "line": 110,
+      "line": 102,
       "platforms": [
         "web",
         "mobile-web"
@@ -60238,9 +60503,9 @@
       "source_excerpt": "<JzButton v-if=\"!p.available\" @click=\"resetProvider(p.name)\" :disabled=\"!!busy\" type=\"button\" icon=\"refresh\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:summary:143",
+      "id": "frontend/src/views/Settings.vue:summary:141",
       "source": "frontend/src/views/Settings.vue",
-      "line": 111,
+      "line": 103,
       "platforms": [
         "web",
         "mobile-web"
@@ -60277,9 +60542,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/views/Settings.vue:summary:147",
+      "id": "frontend/src/views/Settings.vue:summary:145",
       "source": "frontend/src/views/Settings.vue",
-      "line": 114,
+      "line": 106,
       "platforms": [
         "web",
         "mobile-web"
@@ -60316,9 +60581,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:150",
+      "id": "frontend/src/views/Settings.vue:JzButton:148",
       "source": "frontend/src/views/Settings.vue",
-      "line": 115,
+      "line": 107,
       "platforms": [
         "web",
         "mobile-web"
@@ -60357,9 +60622,9 @@
       "source_excerpt": "<JzButton @click=\"go('sec-matching')\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:RouterLink:151",
+      "id": "frontend/src/views/Settings.vue:RouterLink:149",
       "source": "frontend/src/views/Settings.vue",
-      "line": 117,
+      "line": 109,
       "platforms": [
         "web",
         "mobile-web"
@@ -60420,9 +60685,9 @@
       "source_excerpt": "<router-link class=\"settings-task-link\" :to=\"pageTarget('sec-maintenance')\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:AppIcon:153",
+      "id": "frontend/src/views/Settings.vue:AppIcon:151",
       "source": "frontend/src/views/Settings.vue",
-      "line": 117,
+      "line": 109,
       "platforms": [
         "web",
         "mobile-web"
@@ -60457,9 +60722,9 @@
       "source_excerpt": "<AppIcon name=\"forward\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:select:160",
+      "id": "frontend/src/views/Settings.vue:select:158",
       "source": "frontend/src/views/Settings.vue",
-      "line": 126,
+      "line": 118,
       "platforms": [
         "web",
         "mobile-web"
@@ -60496,9 +60761,9 @@
       "source_excerpt": "<select id=\"source-library\" v-model.number=\"chainLibId\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:input:164",
+      "id": "frontend/src/views/Settings.vue:input:162",
       "source": "frontend/src/views/Settings.vue",
-      "line": 127,
+      "line": 119,
       "platforms": [
         "web",
         "mobile-web"
@@ -60535,9 +60800,9 @@
       "source_excerpt": "<input type=\"checkbox\" :checked=\"chainSel.includes(name)\" @change=\"toggleChain(name, $event.target.checked)\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:169",
+      "id": "frontend/src/views/Settings.vue:JzButton:167",
       "source": "frontend/src/views/Settings.vue",
-      "line": 131,
+      "line": 123,
       "platforms": [
         "web",
         "mobile-web"
@@ -60577,9 +60842,9 @@
       "source_excerpt": "<JzButton :disabled=\"index === 0\" :aria-label=\"'上移 ' + CHAIN_LABELS[name]\" @click=\"moveChain(index, -1)\" type=\"button\" icon=\"arrow-up\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:170",
+      "id": "frontend/src/views/Settings.vue:JzButton:168",
       "source": "frontend/src/views/Settings.vue",
-      "line": 131,
+      "line": 123,
       "platforms": [
         "web",
         "mobile-web"
@@ -60619,9 +60884,9 @@
       "source_excerpt": "<JzButton :disabled=\"index === chainSel.length - 1\" :aria-label=\"'下移 ' + CHAIN_LABELS[name]\" @click=\"moveChain(index, 1)\" type=\"button\" icon=\"arrow-down\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:174",
+      "id": "frontend/src/views/Settings.vue:JzButton:172",
       "source": "frontend/src/views/Settings.vue",
-      "line": 136,
+      "line": 128,
       "platforms": [
         "web",
         "mobile-web"
@@ -60678,9 +60943,9 @@
       "source_excerpt": "<JzButton class=\"primary\" @click=\"saveChain\" :disabled=\"savingChain || chainLibId == null || !chainSel.length\" type=\"button\" variant=\"primary\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:175",
+      "id": "frontend/src/views/Settings.vue:JzButton:173",
       "source": "frontend/src/views/Settings.vue",
-      "line": 136,
+      "line": 128,
       "platforms": [
         "web",
         "mobile-web"
@@ -60719,9 +60984,9 @@
       "source_excerpt": "<JzButton @click=\"chainSel = [...DEFAULT_CHAIN]\" type=\"button\" icon=\"undo\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:176",
+      "id": "frontend/src/views/Settings.vue:JzButton:174",
       "source": "frontend/src/views/Settings.vue",
-      "line": 136,
+      "line": 128,
       "platforms": [
         "web",
         "mobile-web"
@@ -60760,9 +61025,9 @@
       "source_excerpt": "<JzButton v-if=\"chainDirty\" @click=\"discardChain\" type=\"button\" icon=\"edit\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:179",
+      "id": "frontend/src/views/Settings.vue:JzButton:177",
       "source": "frontend/src/views/Settings.vue",
-      "line": 139,
+      "line": 131,
       "platforms": [
         "web",
         "mobile-web"
@@ -60801,9 +61066,9 @@
       "source_excerpt": "<JzButton @click=\"go('sec-libraries')\" type=\"button\" icon=\"plus\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:summary:181",
+      "id": "frontend/src/views/Settings.vue:summary:179",
       "source": "frontend/src/views/Settings.vue",
-      "line": 141,
+      "line": 133,
       "platforms": [
         "web",
         "mobile-web"
@@ -60840,9 +61105,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/views/Settings.vue:input:186",
+      "id": "frontend/src/views/Settings.vue:input:184",
       "source": "frontend/src/views/Settings.vue",
-      "line": 145,
+      "line": 137,
       "platforms": [
         "web",
         "mobile-web"
@@ -60879,9 +61144,9 @@
       "source_excerpt": "<input id=\"matching-query\" v-model=\"chainQuery\" :placeholder=\"chainLibrary.kind === 'tv' ? '例如：三体' : '例如：阿凡达'\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:189",
+      "id": "frontend/src/views/Settings.vue:JzButton:187",
       "source": "frontend/src/views/Settings.vue",
-      "line": 147,
+      "line": 139,
       "platforms": [
         "web",
         "mobile-web"
@@ -60921,9 +61186,9 @@
       "source_excerpt": "<JzButton :disabled=\"chainDirty || savingChain || testingChain || !chainQuery.trim()\" type=\"submit\" icon=\"search\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:190",
+      "id": "frontend/src/views/Settings.vue:JzButton:188",
       "source": "frontend/src/views/Settings.vue",
-      "line": 147,
+      "line": 139,
       "platforms": [
         "web",
         "mobile-web"
@@ -60960,9 +61225,9 @@
       "source_excerpt": "<JzButton type=\"button\" @click=\"go('sec-tmdb')\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:input:201",
+      "id": "frontend/src/views/Settings.vue:input:199",
       "source": "frontend/src/views/Settings.vue",
-      "line": 159,
+      "line": 151,
       "platforms": [
         "web",
         "mobile-web"
@@ -61008,9 +61273,9 @@
       "source_excerpt": "<input id=\"imdb-path\" v-model=\"imdbPath\" class=\"wide-input\" placeholder=\"留空使用服务器预设路径\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:203",
+      "id": "frontend/src/views/Settings.vue:JzButton:201",
       "source": "frontend/src/views/Settings.vue",
-      "line": 160,
+      "line": 152,
       "platforms": [
         "web",
         "mobile-web"
@@ -61048,9 +61313,9 @@
       "source_excerpt": "<JzButton @click=\"doImportImdb\" :disabled=\"!!busy\" type=\"button\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:204",
+      "id": "frontend/src/views/Settings.vue:JzButton:202",
       "source": "frontend/src/views/Settings.vue",
-      "line": 160,
+      "line": 152,
       "platforms": [
         "web",
         "mobile-web"
@@ -61087,9 +61352,9 @@
       "source_excerpt": "<JzButton v-if=\"busy === 'imdb'\" @click=\"cancelImportImdb\" type=\"button\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:RouterLink:209",
+      "id": "frontend/src/views/Settings.vue:RouterLink:207",
       "source": "frontend/src/views/Settings.vue",
-      "line": 167,
+      "line": 159,
       "platforms": [
         "web",
         "mobile-web"
@@ -61150,9 +61415,9 @@
       "source_excerpt": "<router-link class=\"settings-task-link\" :to=\"pageTarget('sec-token')\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:AppIcon:213",
+      "id": "frontend/src/views/Settings.vue:AppIcon:211",
       "source": "frontend/src/views/Settings.vue",
-      "line": 167,
+      "line": 159,
       "platforms": [
         "web",
         "mobile-web"
@@ -61187,9 +61452,9 @@
       "source_excerpt": "<AppIcon name=\"forward\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:RouterLink:214",
+      "id": "frontend/src/views/Settings.vue:RouterLink:212",
       "source": "frontend/src/views/Settings.vue",
-      "line": 168,
+      "line": 160,
       "platforms": [
         "web",
         "mobile-web"
@@ -61250,9 +61515,9 @@
       "source_excerpt": "<router-link class=\"settings-task-link\" :to=\"pageTarget('sec-maintenance')\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:AppIcon:216",
+      "id": "frontend/src/views/Settings.vue:AppIcon:214",
       "source": "frontend/src/views/Settings.vue",
-      "line": 168,
+      "line": 160,
       "platforms": [
         "web",
         "mobile-web"
@@ -61287,9 +61552,9 @@
       "source_excerpt": "<AppIcon name=\"forward\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:input:225",
+      "id": "frontend/src/views/Settings.vue:input:223",
       "source": "frontend/src/views/Settings.vue",
-      "line": 176,
+      "line": 168,
       "platforms": [
         "web",
         "mobile-web"
@@ -61327,9 +61592,9 @@
       "source_excerpt": "<input id=\"access-token\" :disabled=\"busy === 'auth'\" v-model=\"authForm.token\" type=\"password\" minlength=\"8\" pattern=\"[ -~]{8,}\" required placeholder=\"至少 8 位英文、数字或半角符号\" title=\"请使用至少"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:227",
+      "id": "frontend/src/views/Settings.vue:JzButton:225",
       "source": "frontend/src/views/Settings.vue",
-      "line": 177,
+      "line": 169,
       "platforms": [
         "web",
         "mobile-web"
@@ -61384,9 +61649,9 @@
       "source_excerpt": "<JzButton class=\"primary\" type=\"submit\" :disabled=\"!!busy || !s\" variant=\"primary\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:228",
+      "id": "frontend/src/views/Settings.vue:JzButton:226",
       "source": "frontend/src/views/Settings.vue",
-      "line": 177,
+      "line": 169,
       "platforms": [
         "web",
         "mobile-web"
@@ -61426,9 +61691,9 @@
       "source_excerpt": "<JzButton v-if=\"s?.jzmedia_token_source === 'db'\" type=\"button\" @click=\"armDisableAuth = true\" :disabled=\"!!busy\" icon=\"delete\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:229",
+      "id": "frontend/src/views/Settings.vue:JzButton:227",
       "source": "frontend/src/views/Settings.vue",
-      "line": 177,
+      "line": 169,
       "platforms": [
         "web",
         "mobile-web"
@@ -61466,9 +61731,9 @@
       "source_excerpt": "<JzButton v-if=\"authForm.token\" :disabled=\"!!busy\" @click=\"authForm.token = ''; authMsg = ''\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:233",
+      "id": "frontend/src/views/Settings.vue:JzButton:231",
       "source": "frontend/src/views/Settings.vue",
-      "line": 179,
+      "line": 171,
       "platforms": [
         "web",
         "mobile-web"
@@ -61506,9 +61771,9 @@
       "source_excerpt": "<JzButton @click=\"armDisableAuth = false\" :disabled=\"!!busy\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:234",
+      "id": "frontend/src/views/Settings.vue:JzButton:232",
       "source": "frontend/src/views/Settings.vue",
-      "line": 179,
+      "line": 171,
       "platforms": [
         "web",
         "mobile-web"
@@ -61546,9 +61811,9 @@
       "source_excerpt": "<JzButton @click=\"saveAuth(true)\" :loading=\"busy === 'auth'\" variant=\"danger\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:summary:237",
+      "id": "frontend/src/views/Settings.vue:summary:235",
       "source": "frontend/src/views/Settings.vue",
-      "line": 181,
+      "line": 173,
       "platforms": [
         "web",
         "mobile-web"
@@ -61585,9 +61850,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/views/Settings.vue:input:244",
+      "id": "frontend/src/views/Settings.vue:input:242",
       "source": "frontend/src/views/Settings.vue",
-      "line": 186,
+      "line": 178,
       "platforms": [
         "web",
         "mobile-web"
@@ -61624,9 +61889,9 @@
       "source_excerpt": "<input id=\"font-size\" type=\"range\" :min=\"DISPLAY_FIELDS.fontSize.min\" :max=\"DISPLAY_FIELDS.fontSize.max\" :step=\"DISPLAY_FIELDS.fontSize.step\" v-model.number=\"prefs.fontSize\" @input"
     },
     {
-      "id": "frontend/src/views/Settings.vue:input:248",
+      "id": "frontend/src/views/Settings.vue:input:246",
       "source": "frontend/src/views/Settings.vue",
-      "line": 187,
+      "line": 179,
       "platforms": [
         "web",
         "mobile-web"
@@ -61663,9 +61928,9 @@
       "source_excerpt": "<input id=\"poster-size\" type=\"range\" :min=\"DISPLAY_FIELDS.posterMin.min\" :max=\"DISPLAY_FIELDS.posterMin.max\" :step=\"DISPLAY_FIELDS.posterMin.step\" v-model.number=\"prefs.posterMin\" "
     },
     {
-      "id": "frontend/src/views/Settings.vue:select:252",
+      "id": "frontend/src/views/Settings.vue:select:250",
       "source": "frontend/src/views/Settings.vue",
-      "line": 188,
+      "line": 180,
       "platforms": [
         "web",
         "mobile-web"
@@ -61702,9 +61967,9 @@
       "source_excerpt": "<select id=\"tv-updates-preference\" v-model=\"prefs.tvUpdates\" @change=\"saveDisplay\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:257",
+      "id": "frontend/src/views/Settings.vue:JzButton:255",
       "source": "frontend/src/views/Settings.vue",
-      "line": 189,
+      "line": 181,
       "platforms": [
         "web",
         "mobile-web"
@@ -61743,9 +62008,9 @@
       "source_excerpt": "<JzButton @click=\"resetDisplay\" type=\"button\" icon=\"undo\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:RouterLink:261",
+      "id": "frontend/src/views/Settings.vue:RouterLink:259",
       "source": "frontend/src/views/Settings.vue",
-      "line": 194,
+      "line": 186,
       "platforms": [
         "web",
         "mobile-web"
@@ -61806,9 +62071,9 @@
       "source_excerpt": "<router-link class=\"settings-task-link\" :to=\"pageTarget('sec-maintenance')\">"
     },
     {
-      "id": "frontend/src/views/Settings.vue:AppIcon:263",
+      "id": "frontend/src/views/Settings.vue:AppIcon:261",
       "source": "frontend/src/views/Settings.vue",
-      "line": 194,
+      "line": 186,
       "platforms": [
         "web",
         "mobile-web"
@@ -61843,9 +62108,9 @@
       "source_excerpt": "<AppIcon name=\"forward\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/views/Settings.vue:summary:266",
+      "id": "frontend/src/views/Settings.vue:summary:264",
       "source": "frontend/src/views/Settings.vue",
-      "line": 197,
+      "line": 189,
       "platforms": [
         "web",
         "mobile-web"
@@ -61882,9 +62147,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/views/Settings.vue:summary:269",
+      "id": "frontend/src/views/Settings.vue:summary:267",
       "source": "frontend/src/views/Settings.vue",
-      "line": 198,
+      "line": 190,
       "platforms": [
         "web",
         "mobile-web"
@@ -61921,9 +62186,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/views/Settings.vue:JzButton:276",
+      "id": "frontend/src/views/Settings.vue:JzButton:274",
       "source": "frontend/src/views/Settings.vue",
-      "line": 199,
+      "line": 191,
       "platforms": [
         "web",
         "mobile-web"

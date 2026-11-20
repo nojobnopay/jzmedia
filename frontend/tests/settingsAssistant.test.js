@@ -8,7 +8,7 @@ async function mount(t, request, extra = {}) {
   const oldDocument = globalThis.document, oldWindow = globalThis.window
   globalThis.document = { activeElement: {}, body: {} }
   globalThis.window = { matchMedia: () => ({ matches: false }) }
-  const component = await loadSfc(new URL('../src/components/SettingsAssistantDialog.vue', import.meta.url), {
+  const component = await loadSfc(new URL('../src/components/AssistantChatDialog.vue', import.meta.url), {
     vue: { ...Vue, vModelText: {}, vModelSelect: {} },
     '../api.js': { api: request },
     '../assistantArtwork.js': { projectorArtwork: { idle: 'idle.webp', talk: 'talk.webp' } },
@@ -21,7 +21,7 @@ async function mount(t, request, extra = {}) {
     refreshLibraries: () => {}, settingsVersion: 0, ...extra })
   const ui = renderHarness(component, props)
   t.after(() => { ui.app.unmount(); globalThis.document = oldDocument; globalThis.window = oldWindow })
-  const textbox = () => ui.find(el => el.type === 'input' && el.props.id === 'settings-question')
+  const textbox = () => ui.find(el => el.type === 'input' && ['settings-question', 'assistant-question'].includes(el.props.id))
   const ask = text => {
     textbox().props['onUpdate:modelValue'](text)
     return ui.find(el => el.type === 'form').props.onSubmit({ preventDefault() {} })
@@ -40,12 +40,12 @@ test('settings check failure offers a retry and manual; refreshing saved configu
     return state
   })
   assert.match(ui.text(), /暂时无法读取智能辅助配置/)
-  assert.equal(ui.textbox(), undefined)
+  assert.ok(ui.textbox())
   retry = true
   await ui.find(el => el.type === 'button' && nodeText(el) === '重试').props.onClick()
   await flush()
   assert.match(ui.text(), /还缺少 API Key/)
-  assert.equal(ui.textbox(), undefined)
+  assert.ok(ui.textbox())
   state = { enabled: true, provider: 'compatible', api_key_set: false }
   ui.props.settingsVersion++
   await flush()
@@ -100,7 +100,7 @@ test('changing the active target or saving a new model invalidates an actionable
   await flush()
   assert.match(ui.text(), /尚未启用/)
   assert.doesNotMatch(ui.text(), /确认应用/)
-  assert.equal(ui.textbox(), undefined)
+  assert.ok(ui.textbox())
 })
 
 test('a local fallback keeps its answer and rechecks whether another client disabled the service', async t => {
@@ -116,8 +116,55 @@ test('a local fallback keeps its answer and rechecks whether another client disa
   await flush()
   assert.match(ui.text(), /手册里的设置方法/)
   assert.match(ui.text(), /尚未启用/)
-  assert.equal(ui.textbox(), undefined)
+  assert.ok(ui.textbox())
   assert.deepEqual(calls, ['GET', 'POST', 'GET'])
+})
+
+test('settings can answer locally before model credentials are configured', async t => {
+  const calls = []
+  const ui = await mount(t, async (path, options) => {
+    calls.push(path)
+    if (path === '/api/ai/settings') return { enabled: true, provider: 'deepseek', api_key_set: false }
+    assert.equal(JSON.parse(options.body).section, 'sec-ai')
+    return { answer: '嗨，我是小映！', mode: 'social', reaction: 'wave', topics: [] }
+  })
+  assert.match(ui.text(), /还缺少 API Key/)
+  await ui.ask('你好')
+  assert.match(ui.text(), /嗨，我是小映/)
+  assert.deepEqual(calls, ['/api/ai/settings', '/api/ai/settings-assistant'])
+})
+
+test('browsing shares only completed question and answer text across channels and renders no settings actions', async t => {
+  const calls = [], pending = deferred()
+  const start = { id: 8, question: '你好', answer: '嗨，我是小映！', mode: 'social', reaction: 'wave' }
+  const ui = await mount(t, async (path, options) => {
+    assert.equal(path, '/api/ai/assistant')
+    assert.equal(options.headers['X-Viewing-Mode'], 'private')
+    calls.push({ body: JSON.parse(options.body), signal: options.signal })
+    if (calls.length === 2) return pending.promise
+    return { answer: '从继续观看找到那一集。', mode: 'local', reaction: null,
+      topics: [{ id: 'display', section: 'sec-display', title: '管理设置' }],
+      suggestion: { kind: 'display', field: 'fontSize', value: 18 } }
+  }, { channel: 'movie', channelLabel: '电影', viewingMode: 'private', history: [start],
+    'onUpdate:history': value => { ui.props.history = value } })
+  assert.deepEqual(calls, [])
+  await ui.ask('怎么继续播放？')
+  assert.deepEqual(calls[0].body, { question: '怎么继续播放？', channel: 'movie', history: [
+    { question: start.question, answer: start.answer },
+  ] })
+  assert.equal(ui.props.history.at(-1).id, 9)
+  assert.match(ui.text(), /本地回答/)
+  assert.doesNotMatch(ui.text(), /管理设置|确认应用/)
+  const old = ui.ask('上一频道的问题')
+  ui.props.channel = 'tv'
+  await flush()
+  assert.equal(calls[1].signal.aborted, true)
+  pending.resolve({ mode: 'ai', answer: '迟到的回复。' })
+  await old
+  assert.doesNotMatch(ui.text(), /迟到的回复/)
+  await ui.ask('在剧集也可以吗？')
+  assert.equal(calls[2].body.channel, 'tv')
+  assert.equal(calls[2].body.history.length, 2)
 })
 
 test('example chips prefill an editable draft; a composition Enter does not submit a model request', async t => {

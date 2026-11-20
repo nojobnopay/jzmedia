@@ -8,6 +8,7 @@ import * as relatedCatalog from '../src/onlineRelated.js'
 import * as state from '../src/onlineState.js'
 import * as cache from '../src/onlineCache.js'
 import { clearOnlineBrowse, onlineBrowseMemory, onlineBrowseScope } from '../src/onlineBrowse.js'
+import { assistantPage } from '../src/assistantPage.js'
 
 const SOURCE_A = 'src_' + '1'.repeat(32), SOURCE_B = 'src_' + '2'.repeat(32)
 const sources = { enabled: true, items: [{ id: SOURCE_A, name: '来源 A', provider: 'maccms' }, { id: SOURCE_B, name: '来源 B', provider: 'maccms' }] }
@@ -1486,6 +1487,23 @@ function recordRow(source = sources.items[0], extra = {}) {
 }
 function recordsOpen(ui) { return ui.find(node => node.props['data-online-records-open'] !== undefined) }
 function recordsTab(ui, tab) { return ui.find(node => node.props['data-online-library-section'] === tab) }
+
+test('the online continue tip uses this device’s existing records and opens the continue tab', async t => {
+  const pending = deferred()
+  const { route } = await setup(t, async path => path.endsWith('/sources') ? taxonomySources() : categoryRows(path), {
+    stateRequest: async () => pending.promise,
+  })
+  assert.equal(assistantPage.value.tips.some(tip => tip.id === 'online-continue'), false)
+  pending.resolve({ items: [recordRow()], total: 1, offset: 0, scope_token: SCOPE })
+  await flush()
+  const tip = assistantPage.value.tips.find(item => item.id === 'online-continue')
+  assert.ok(tip)
+  await tip.run()
+  await flush()
+  assert.equal(route.query.view, 'records')
+  assert.equal(route.query.tab, 'continue')
+  assert.equal(assistantPage.value.blocked, true)
+})
 
 test('continue shelf and full records own separate requests and a slow shelf cannot cancel favorites', async t => {
   const pending = deferred(), record = recordRow()

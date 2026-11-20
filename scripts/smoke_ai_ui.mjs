@@ -57,10 +57,13 @@ const settings = { enabled: false, provider: 'deepseek', base_url: 'https://api.
   api_key_set: false, api_key_source: 'unset', api_key_masked: '',
   usage: { date: '2026-10-02', requests: 0, input_tokens: 0, output_tokens: 0 } }
 const requests = [], unexpected = [], errors = []
+const viewingSession = { mode: 'normal', enabled: false, management_unlocked: false, generation: 0, expires_at: 0 }
 const assistantTopics = JSON.parse(await readFile(path.join(project, 'docs/settings-assistant-topics.json'), 'utf8'))
 const assistantEndpoint = '/api/ai/settings-assistant'
+const browseAssistantEndpoint = '/api/ai/assistant'
 const ruleWrites = () => requests.filter(r => r.method === 'PUT' && r.path.endsWith('/matching-rules'))
 let beforeMatchingWrite, expectedConflictPath, beforeAssistantReply
+let suggestedSeries = []
 const socialExamples = [
   { question: '你叫什么名字？', answer: '我叫小映，是 jzmedia 的小放映机。', reaction: 'wave' },
   { question: '你好啊', answer: '你好呀，我是小映！', reaction: 'wave' },
@@ -76,7 +79,7 @@ function assistantReply(body) {
   if (social) return { mode: 'social', answer: social.answer, reaction: social.reaction, topics: [], suggestion: null }
   const font = body.question.includes('字体')
   const protection = body.question.includes('密码')
-  const local = !settings.enabled
+  const local = !settings.enabled || (!settings.api_key_set && settings.provider !== 'compatible')
   const topic = assistantTopics.find(item => item.id === (protection ? 'protection' : font ? 'display' : 'matching'))
   const { id, title, page, anchor, section } = topic
   const suggestion = font ? { kind: 'display', field: 'fontSize', delta: 2 }
@@ -145,6 +148,14 @@ async function mockApi(route) {
     await beforeAssistantReply?.()
     return response(route, assistantReply(body))
   }
+  if (key === browseAssistantEndpoint && method === 'POST') {
+    assert.deepEqual(Object.keys(body).sort(), ['channel', 'history', 'question'])
+    assert.ok(['movie', 'tv', 'online', 'collections', 'settings'].includes(body.channel))
+    const social = socialExamples.find(item => item.question === body.question)
+    return response(route, social
+      ? { mode: 'social', answer: social.answer, reaction: social.reaction }
+      : { mode: settings.enabled && viewingSession.mode === 'normal' ? 'ai' : 'local', answer: '模拟回答：' + body.question, reaction: null })
+  }
   if (/^\/api\/libraries\/\d+\/matching-rules$/.test(key) && method === 'PUT') {
     const library = libraries.find(item => item.id === Number(key.split('/').at(-2)))
     assert.ok(library, 'A matching rule requires a known fixture library')
@@ -199,7 +210,12 @@ async function mockApi(route) {
     return response(route, { items, source: items.length ? 'local' : null, kind: library.kind,
       library_id: library.id, chain: JSON.parse(library.metadata_providers), elapsed_ms: 12 })
   }
-  if (key === '/api/viewing/session') return response(route, { mode: 'normal', enabled: false, management_unlocked: false, generation: 0, expires_at: 0 })
+  if (key === '/api/viewing/session' || key === '/api/viewing/activity') return response(route, viewingSession)
+  if (key === '/api/viewing/mode' && method === 'POST') {
+    assert.ok(['normal', 'children'].includes(body.mode))
+    Object.assign(viewingSession, { mode: body.mode, generation: viewingSession.generation + 1 })
+    return response(route, viewingSession)
+  }
   if (key === '/api/onboarding') return response(route, { show_welcome: false, status: 'completed' })
   if (key === '/api/settings') return response(route, { tmdb_configured: false, tmdb_language: 'zh-CN', libraries: [] })
   if (key === '/api/cache-settings') return response(route, { data_warning_gb: 20, transcode_cache_gb: 10, preview_cache_gb: 10 })
@@ -224,10 +240,10 @@ async function mockApi(route) {
     { items: [], page: 1, page_count: 1, total: 0, categories: [] })
   if (key === '/api/health') return response(route, { ffmpeg: true })
   if (key === '/api/facets' || key === '/api/tv/facets') return response(route, facets)
-  if (key === '/api/search') return response(route, list([movie]))
+  if (key === '/api/search') return response(route, list(url.searchParams.get('q') === '模拟无匹配片名' ? [] : [movie]))
   if (key === '/api/tv/shows') return response(route, list([show]))
   if (key === '/api/tv/updates' && method === 'GET') return response(route, { items: [], checked_at: 0, error: '' })
-  if (key === '/api/collections/suggest') return response(route, { items: [], topups: [], coverage: { unchecked: 0, standalone: 0 } })
+  if (key === '/api/collections/suggest') return response(route, { items: suggestedSeries, topups: [], coverage: { unchecked: 0, standalone: 0 } })
   if (key === '/api/collections/suggest/backfill/status') return response(route, { state: 'idle', done: 0, total: 0, failed: [] })
   if (key === '/api/collections' || /\/(recent-played|similar)$/.test(key)) return response(route, list([]))
   if (key === '/api/search/suggest' || key === '/api/tv/suggest') return response(route, { items: [], persons: [] })
@@ -243,6 +259,11 @@ async function mockApi(route) {
   if (key === '/api/movies/101/files') return response(route, { items: [] })
   if (key === '/api/stream/versions') return response(route, { versions: [], best_version_id: 101 })
   if (key === '/api/stream/progress') return response(route, { position: 0 })
+  if (key === '/api/stream/307/previews') return response(route, { state: 'missing' })
+  if (key === '/api/cast/current') return response(route, { session: null })
+  if (key === '/api/stream/307/decide' && method === 'POST') return response(route, {
+    method: 'direct', direct_url: '/demo-playback.mp4', media: { width: 640, height: 360, audio: [], subs: [] },
+  })
   if (key === '/api/tmdb/search' || key === '/api/tv/search') return response(route, list([
     { title: '普通搜索候选', name: '普通搜索候选', year: 1995, tmdb_id: 123, source: 'tmdb' },
   ]))
@@ -265,6 +286,11 @@ async function mockApi(route) {
 // HTTP mocks also serve ordinary browsers in --demo. No request is proxied.
 async function serveMock(req, res, base) {
   const pathname = new URL(req.url, base).pathname
+  if (pathname === '/demo-playback.mp4') {
+    res.writeHead(200, { 'Content-Type': 'video/mp4' })
+    res.end(await readFile(path.join(project, 'docs/assets/videos/organizing.mp4')))
+    return true
+  }
   const demoPoster = /^\/posters\/ai-demo-([0-2])\.webp$/.exec(pathname)
   if (demoPoster) {
     res.writeHead(200, { 'Content-Type': 'image/svg+xml' })
@@ -323,6 +349,311 @@ async function checkDiscoveryLayouts(panel) {
     assert.equal(layout.firstRow, width <= 700 ? 1 : 2)
     assert.ok(layout.top < 844, 'First work is visible on submission')
   }
+}
+
+async function checkGlobalAssistant(go) {
+  await page.setViewportSize(desktop)
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.clock.install()
+  await go('/collections')
+  const nav = page.getByRole('navigation', { name: '主导航' })
+  const channel = name => nav.getByRole('link', { name, exact: true }).click()
+  const launcher = page.getByRole('button', { name: '打开小映', exact: true })
+  const panel = page.getByRole('complementary', { name: '小映', exact: true })
+    .or(page.getByRole('dialog', { name: '小映', exact: true }))
+  const bubble = page.locator('.assistant-tip-bubble')
+  const manual = panel.getByRole('checkbox', { name: '只在点开时提示' })
+  const aiCalls = () => requests.filter(request => request.path.startsWith('/api/ai/')).length
+  const before = aiCalls()
+  const captureChannel = async name => {
+    if (assistantOnly) await page.screenshot({ path: path.join(project, 'output/playwright/settings-assistant', name + '.png') })
+  }
+
+  await page.getByRole('heading', { name: '还没有合集' }).waitFor()
+  await launcher.waitFor()
+  await page.clock.fastForward(6_000)
+  await bubble.filter({ hasText: /合集/ }).waitFor()
+  assert.equal(await page.locator('.assistant-launcher').count(), 1)
+  assert.equal(await launcher.getAttribute('aria-expanded'), 'false', 'A tip leaves the chat closed')
+  await captureChannel('collections-tip')
+  await channel('电影')
+  await bubble.waitFor({ state: 'hidden' })
+  await page.getByRole('combobox', { name: '搜索电影' }).fill('模拟无匹配片名')
+  await page.getByRole('button', { name: '搜索电影', exact: true }).click()
+  await page.getByRole('heading', { name: '没有符合条件的影片' }).waitFor()
+  await page.clock.fastForward(7_000)
+  assert.equal(await bubble.isVisible(), false, 'A second eligible channel respects the shared cool-down')
+  await launcher.click()
+  await panel.getByText(/描述你记得的情节/).waitFor()
+  await panel.getByRole('link', { name: /查看本页帮助/ }).waitFor()
+  await panel.getByRole('button', { name: '打开智能搜索' }).click()
+  await page.getByRole('textbox', { name: '智能找片' }).waitFor()
+  assert.equal(await bubble.isVisible(), false)
+
+  await channel('剧集')
+  await page.locator('[data-browse-id="' + show.id + '"]').waitFor()
+  await launcher.click()
+  await panel.getByText(/连载状态/).waitFor()
+  await manual.check()
+  await page.keyboard.press('Escape')
+  await panel.waitFor({ state: 'hidden' })
+  await channel('在线')
+  await page.getByRole('button', { name: '我的记录', exact: true }).waitFor()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await launcher.click()
+  await panel.getByText(/本设备的「我的记录」/).waitFor()
+  assert.equal(await manual.isChecked(), true)
+  const bounds = await panel.boundingBox()
+  assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 391, 'Phone assistant stays inside the viewport')
+  await captureChannel('online-mobile')
+  await panel.getByRole('button', { name: '查看我的收藏' }).click()
+  await page.getByRole('heading', { name: '我的记录' }).waitFor()
+  await panel.waitFor({ state: 'hidden' })
+
+  suggestedSeries = [{ collection_tmdb_id: 55, collection_name: '模拟系列', members: [movie], member_count: 1 }]
+  await channel('合集')
+  await page.reload()
+  await page.locator('summary').filter({ hasText: '推荐与可补齐合集' }).waitFor()
+  await page.clock.fastForward(7_000)
+  assert.equal(await bubble.isVisible(), false, 'Manual-only preference survives a reload with an eligible tip')
+  await launcher.click()
+  assert.equal(await manual.isChecked(), true)
+  await panel.getByRole('button', { name: '查看系列推荐' }).waitFor()
+  suggestedSeries = []
+  await manual.uncheck()
+  await page.keyboard.press('Escape')
+  await panel.waitFor({ state: 'hidden' })
+  await channel('剧集')
+  await launcher.waitFor()
+  const gesture = page.locator('.assistant-launcher:is([data-motion="ambient-wave"], [data-motion="ambient-frown"])')
+  await page.clock.fastForward(106_000)
+  await gesture.waitFor()
+  const firstGesture = await gesture.getAttribute('data-motion')
+  assert.equal(await bubble.isVisible(), false, 'An idle gesture gets the screen to itself')
+  await page.getByRole('heading', { name: '剧集', exact: true }).click()
+  await page.locator('.assistant-launcher[data-motion="idle"]').waitFor()
+  await page.clock.fastForward(106_000)
+  await gesture.waitFor()
+  assert.notEqual(await gesture.getAttribute('data-motion'), firstGesture, 'Consecutive gestures use different expressions')
+  await page.clock.fastForward(3_000)
+  await page.clock.fastForward(240_000)
+  await page.locator('.assistant-launcher[data-motion="ambient-sleep"]').waitFor()
+  const sortButton = page.getByRole('button', { name: /当前[升降]序，切换为[升降]序/ })
+  assert.ok(await sortButton.evaluate(button => {
+    const rect = button.getBoundingClientRect()
+    return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+  }), 'On a phone the projector clears the sorting controls, including at a previously saved position')
+  await captureChannel('sleep-mobile')
+  await page.getByRole('heading', { name: '剧集', exact: true }).click()
+  await page.locator('.assistant-launcher[data-motion="idle"]').waitFor()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.locator('.assistant-launcher[data-motion="still"]').waitFor()
+  await page.clock.fastForward(240_000)
+  assert.equal(await launcher.getAttribute('data-motion'), 'still', 'Reduced motion also suppresses sleep')
+  assert.equal(aiCalls(), before, 'Channel tips, gestures and opening existing tools never call the model')
+  console.log('PASS 全局小映四频道、跨页冷却、手机布局与静音持久化、空闲打瞌睡、唤醒及减少动态效果')
+  await compareAssistantPanels(go)
+  await checkChannelChat(go)
+}
+
+async function checkChannelChat(go) {
+  await page.setViewportSize(desktop)
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  const launcher = page.getByRole('button', { name: '打开小映', exact: true })
+  const panel = page.getByRole('complementary', { name: '小映', exact: true })
+    .or(page.getByRole('dialog', { name: '小映', exact: true }))
+  const chatRequests = () => requests.filter(item => item.path === browseAssistantEndpoint)
+  const managementRequests = () => requests.filter(item => item.path === '/api/ai/settings' || item.path === assistantEndpoint)
+  const ask = async (question, channel, expectedHistory) => {
+    const prior = chatRequests().length
+    await panel.getByRole('textbox').fill(question)
+    await panel.getByRole('button', { name: '发送', exact: true }).click()
+    const reply = socialExamples.find(item => item.question === question)
+    const answer = reply?.answer || '模拟回答：' + question
+    await panel.getByText(answer, { exact: true }).last().waitFor()
+    const body = chatRequests().at(-1).body
+    assert.equal(chatRequests().length, prior + 1)
+    assert.equal(body.channel, channel)
+    assert.equal(body.question, question)
+    if (expectedHistory) assert.deepEqual(body.history, expectedHistory)
+    if (reply?.reaction) await panel.locator('.assistant-turn').last()
+      .locator('.assistant-avatar[data-pose="' + reply.reaction + '"]').waitFor()
+    return { question, answer }
+  }
+  const openFrom = async (parent, question, channel) => {
+    const trigger = parent.getByRole('button', { name: '问小映', exact: true })
+    await trigger.click()
+    assert.equal(await panel.getAttribute('aria-modal'), 'true')
+    await ask(question, channel)
+    await panel.getByRole('textbox').press('Escape')
+    await panel.waitFor({ state: 'hidden' })
+    assert.ok(await parent.isVisible(), 'The underlying dialog remains open')
+    await page.waitForFunction(el => el === document.activeElement, await trigger.elementHandle())
+  }
+  await go('/')
+  await page.locator('[data-browse-id="' + movie.id + '"]').waitFor()
+  const before = managementRequests().length
+  const history = []
+  const nav = page.getByRole('navigation', { name: '主导航' })
+  for (const [channel, label, question] of [
+    ['movie', '电影', '跳个舞'], ['tv', '剧集', '刚才让你做了什么？'],
+    ['collections', '合集', '没有模型也能问合集怎么用吗？'], ['online', '在线', '在线记录在哪里？'],
+  ]) {
+    if (channel !== 'movie') await nav.getByRole('link', { name: label, exact: true }).click()
+    if (channel === 'online') await page.setViewportSize({ width: 390, height: 844 })
+    const prior = chatRequests().length
+    await launcher.click()
+    assert.equal(chatRequests().length, prior, 'Opening a channel does not send a chat request')
+    if (history.length) await panel.getByText(history.at(-1).answer, { exact: true }).waitFor()
+    settings.enabled = channel !== 'collections'
+    const turn = await ask(question, channel, history)
+    history.push(turn)
+    if (channel === 'collections') await panel.getByText('本地回答', { exact: true }).waitFor()
+    if (channel === 'online') {
+      assert.ok(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'Mobile chat fits its panel')
+      await panel.getByRole('textbox').press('Escape')
+    }
+  }
+  assert.equal(managementRequests().length, before, 'Channel chat never reads model settings or calls the management assistant')
+  await page.setViewportSize(desktop)
+  await nav.getByRole('link', { name: '电影', exact: true }).click()
+  const library = page.getByRole('combobox', { name: '切换媒体库' })
+  await library.selectOption('2')
+  await page.waitForURL(url => url.searchParams.get('media') === '2')
+  await launcher.click()
+  assert.equal(await panel.getByText(history.at(-1).answer, { exact: true }).count(), 0)
+  await ask('现在是新媒体库吗？', 'movie', [])
+  await panel.getByRole('textbox').press('Escape')
+  await page.getByRole('button', { name: '全部筛选', exact: true }).click()
+  const filters = page.locator('.browse-filters-dialog')
+  await openFrom(filters, '怎么操作这个筛选面板？', 'movie')
+  await filters.getByRole('button', { name: '取消并关闭筛选' }).click()
+
+  await go('/tv/201/s/2/e/307')
+  await page.getByRole('button', { name: '播放', exact: true }).click()
+  const player = page.locator('.player-dlg')
+  await page.waitForFunction(() => document.querySelector('.player-video')?.readyState >= 2)
+  await player.locator('.pv-wrap').hover()
+  await player.getByRole('button', { name: '全屏', exact: true }).click()
+  await page.waitForFunction(() => !!document.fullscreenElement)
+  await player.locator('.pv-wrap').hover()
+  await openFrom(player, '播放时怎么设置字幕？', 'tv')
+  if (await page.evaluate(() => !!document.fullscreenElement)) {
+    await player.locator('.pv-wrap').hover()
+    await player.getByRole('button', { name: '退出全屏', exact: true }).click()
+  }
+  await player.getByRole('button', { name: '关闭播放器' }).click()
+  await player.waitFor({ state: 'hidden' })
+
+  viewingSession.enabled = true
+  await go('/')
+  await launcher.click()
+  await ask('刚才的普通模式问题', 'movie', [])
+  await panel.getByRole('textbox').press('Escape')
+  await page.getByRole('button', { name: '普通模式', exact: true }).click()
+  const modes = page.getByRole('dialog', { name: '观看模式' })
+  await modes.getByRole('button', { name: /^儿童模式/ }).click()
+  await page.getByRole('button', { name: '儿童模式', exact: true }).waitFor()
+  await launcher.click()
+  await ask('这里的影片怎么找？', 'movie', [])
+  await panel.getByText('本地回答', { exact: true }).waitFor()
+  assert.equal(await panel.getByText('刚才的普通模式问题', { exact: true }).count(), 0)
+  await panel.getByRole('textbox').press('Escape')
+  await page.getByRole('button', { name: '儿童模式', exact: true }).click()
+  await modes.getByRole('button', { name: /^普通模式/ }).click()
+  const auth = page.getByRole('dialog', { name: '退出儿童模式' })
+  await auth.getByLabel('保护密码').waitFor()
+  assert.equal(await launcher.isVisible(), false, 'Authentication takes precedence over the assistant')
+  assert.equal(await auth.getByRole('button', { name: '问小映', exact: true }).count(), 0)
+  await auth.getByLabel('保护密码').fill('demo-credential')
+  await auth.getByRole('button', { name: '确认', exact: true }).click()
+  await page.getByRole('button', { name: '普通模式', exact: true }).waitFor()
+  await launcher.click()
+  await ask('返回普通模式', 'movie', [])
+  viewingSession.enabled = false
+  console.log('PASS 四频道提问和跨页追问、表演、手机对话、切库清空、筛选与全屏播放器内提问、观看模式隔离')
+}
+
+// Read the rendered surfaces so a channel-specific rule or a missing color
+// variable cannot silently replace the shared chat appearance.
+function panelAppearance(panel) {
+  return panel.evaluate(root => {
+    const styles = (element, names) => {
+      const style = getComputedStyle(element)
+      return Object.fromEntries(names.map(name => [name, style[name]]))
+    }
+    return {
+      shell: styles(root, ['backgroundColor', 'borderColor', 'borderRadius', 'backdropFilter', 'boxShadow']),
+      header: styles(root.querySelector('.jz-dialog-header'), ['padding', 'borderBottomColor']),
+      title: styles(root.querySelector('h2'), ['color', 'fontSize', 'fontWeight']),
+      context: styles(root.querySelector('.assistant-context'), ['color', 'fontSize']),
+      avatar: styles(root.querySelector('.assistant-avatar'), ['width', 'height']),
+      bubble: styles(root.querySelector('.assistant-bubble'), ['backgroundColor', 'padding', 'borderRadius']),
+      shortcut: styles(root.querySelector('.assistant-starters button'), ['backgroundColor', 'borderColor', 'borderRadius']),
+    }
+  })
+}
+
+async function compareAssistantPanels(go) {
+  Object.assign(settings, { enabled: true, api_key_set: true })
+  const directory = path.join(project, 'output/playwright/assistant-panel/after')
+  if (assistantOnly) await mkdir(directory, { recursive: true })
+  for (const viewport of [desktop, { width: 390, height: 844 }, { width: 320, height: 720 }]) {
+    await page.setViewportSize(viewport)
+    let reference
+    for (const [channel, route] of [['settings', '/settings'], ['movie', '/']]) {
+      const isSettings = channel === 'settings'
+      await go(route)
+      if (!isSettings) await page.locator('[data-browse-id="' + movie.id + '"]').waitFor()
+      const launcher = page.getByRole('button', { name: isSettings ? '问设置助手' : '打开小映', exact: true })
+      await launcher.focus()
+      await launcher.press('Home')
+      await launcher.click()
+      const role = viewport.width <= 700 ? 'dialog' : 'complementary'
+      const panel = page.getByRole(role, { name: isSettings ? '设置助手' : '小映', exact: true })
+      await panel.getByRole('heading', { name: '小映', exact: true }).waitFor()
+      await panel.getByRole('group', { name: '小映回复' }).first().waitFor()
+      await panel.getByText(isSettings ? /片场的小放映机/ : /描述你记得的情节/).waitFor()
+      const dock = panel.getByRole('combobox', { name: '停靠位置' })
+      assert.equal(await dock.inputValue(), 'top-right')
+      const appearance = await panelAppearance(panel)
+      if (isSettings) {
+        reference = appearance
+        assert.ok(reference.shell.backdropFilter.includes('blur('))
+      } else {
+        assert.deepEqual(appearance, reference, 'Browsing and settings share the chat appearance at ' + viewport.width)
+        await panel.locator('.assistant-context').filter({ hasText: '电影' }).waitFor()
+        await panel.getByRole('link', { name: /查看本页帮助/ }).waitFor()
+      }
+      assert.ok(await panel.evaluate(el => {
+        const rect = el.getBoundingClientRect(), body = el.querySelector('.jz-dialog-body')
+        return rect.left >= -1 && rect.right <= innerWidth + 1 && rect.top >= -1 && rect.bottom <= innerHeight + 1 &&
+          body.clientHeight > 0 && body.scrollWidth <= body.clientWidth + 1
+      }), 'Chat content is readable within the viewport at ' + viewport.width)
+      if (assistantOnly) await page.screenshot({ path: path.join(directory, channel + '-' + viewport.width + '.png'), animations: 'disabled' })
+      if (!isSettings) {
+        await dock.selectOption('bottom-left')
+        await page.waitForFunction(() => document.querySelector('.assistant-launcher').getBoundingClientRect().left < innerWidth / 2)
+      }
+      await panel.getByRole('button', { name: isSettings ? '关闭设置助手' : '收起小映' }).click()
+      await panel.waitFor({ state: 'hidden' })
+    }
+  }
+  await go('/m/' + movie.id)
+  await page.locator('.movie-detail h1').waitFor()
+  const launcher = page.getByRole('button', { name: '打开小映', exact: true })
+  await launcher.focus()
+  await launcher.press('ArrowRight')
+  await page.waitForFunction(() => document.querySelector('.assistant-launcher').getBoundingClientRect().left > innerWidth / 2)
+  await launcher.press('Enter')
+  const detailPanel = page.getByRole('dialog', { name: '小映', exact: true })
+  await detailPanel.waitFor()
+  assert.equal(await detailPanel.getByRole('list', { name: '本页提示' }).count(), 0)
+  assert.equal(await detailPanel.getByRole('link', { name: /查看本页帮助/ }).getAttribute('href'), '/help/user-guide/movies.html')
+  await page.keyboard.press('Escape')
+  await detailPanel.waitFor({ state: 'hidden' })
+  assert.ok(await launcher.evaluate(el => el === document.activeElement), 'Closing the detail helper returns keyboard focus')
+  console.log('PASS 1440/390/320px 设置与浏览小映的玻璃外壳、标题、停靠位置、头像、回复气泡和快捷按钮一致')
 }
 
 async function checkSettingsAssistant(go) {
@@ -688,19 +1019,21 @@ async function checkSettingsAssistant(go) {
   const sends = requests.filter(r => r.path === assistantEndpoint).length
   await dialog.getByText('去配置智能辅助', { exact: true }).waitFor()
   await dialog.getByRole('link', { name: /配置教程/ }).waitFor()
-  assert.equal(await dialog.getByRole('textbox').count(), 0)
+  await ask('你好啊')
+  await dialog.getByText(socialExamples.find(example => example.question === '你好啊').answer, { exact: true }).waitFor()
   await dialog.getByText('去配置智能辅助', { exact: true }).click()
   await page.waitForURL(url => url.searchParams.get('sec') === 'sec-ai')
   await page.getByLabel('服务商', { exact: true }).waitFor()
   Object.assign(settings, { enabled: true, api_key_set: false })
   await open()
   await dialog.getByText('去配置智能辅助', { exact: true }).waitFor()
-  assert.equal(await dialog.getByRole('textbox').count(), 0, 'Hosted provider needs a saved key')
+  await ask('怎么调整字体？')
+  await dialog.getByText('回答来自本版手册', { exact: true }).waitFor()
   await dialog.getByRole('button', { name: /关闭/ }).first().click()
   settings.provider = 'compatible'
   await open()
   await dialog.getByRole('textbox').waitFor()
-  assert.equal(requests.filter(r => r.path === assistantEndpoint).length, sends)
+  assert.equal(requests.filter(r => r.path === assistantEndpoint).length, sends + 2)
   assert.equal(await proposal.count(), 0)
   assert.equal(ruleWrites().length, 4)
   await page.keyboard.press('Escape')
@@ -851,7 +1184,7 @@ async function runSmoke() {
       if (/^\/assets\/[\w.-]+$/.test(pathname)) file = path.join(output, pathname)
       else if (['/favicon.svg', '/favicon.ico', '/favicon-16x16.png', '/favicon-32x32.png',
         '/apple-touch-icon.png', '/logo.svg', '/icon-512.png'].includes(pathname)) file = path.join(output, pathname)
-      else if (/^\/(?:settings|online|tv(?:\/\d+)?|m\/\d+)?\/?$/.test(pathname)) file = path.join(output, 'index.html')
+      else if (/^\/(?:settings|collections|online|tv(?:\/\d+(?:\/s\/\d+\/e\/\d+)?)?|m\/\d+)?\/?$/.test(pathname)) file = path.join(output, 'index.html')
       else { res.writeHead(404); res.end('This isolated demo only serves its UI fixtures'); return }
       const contentType = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
         '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2' }[path.extname(file)] || 'application/octet-stream'
@@ -902,7 +1235,12 @@ async function runSmoke() {
   await checkSettingsAssistant(go)
   assert.deepEqual(unexpected, [])
   assert.deepEqual(errors, [])
-  if (assistantOnly) return
+  if (assistantOnly) {
+    await checkGlobalAssistant(go)
+    assert.deepEqual(unexpected, [])
+    assert.deepEqual(errors, [])
+    return
+  }
   await go('/settings?sec=sec-ai')
   const config = page.locator('.ai-settings')
   await config.getByRole('button', { name: '配置与测试服务' }).click()
@@ -1132,6 +1470,9 @@ async function runSmoke() {
   assert.equal(requests.some(r => r.method !== 'GET' && /organize|scan|delete/.test(r.path)), false)
   console.log('PASS 390px 布局与运行时；所有 API/模型响应均为模拟，未访问真实后端、媒体或云服务')
   if (capture) await captureDocs(go)
+  await checkGlobalAssistant(go)
+  assert.deepEqual(unexpected, [])
+  assert.deepEqual(errors, [])
   }
 }
 

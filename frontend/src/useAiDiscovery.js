@@ -48,11 +48,11 @@ export function useAiDiscovery({ kind, mediaId, ordinaryQuery, selection, route,
       input?.focus({ preventScroll: true })
     })
   }
-  function open() {
+  function open({ reveal = false } = {}) {
     if (state.open || !allowed()) return
     clearAiDiscovery()
     Object.assign(state, fresh(), { open: true, draft: ordinaryQuery.value, wallTop: globalThis.window?.scrollY || 0 })
-    focusInput()
+    focusInput(reveal)
   }
   function close(restore = true) {
     const top = state.wallTop

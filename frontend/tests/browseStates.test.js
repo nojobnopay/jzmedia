@@ -3,11 +3,12 @@ import assert from 'node:assert/strict'
 import * as Vue from 'vue'
 import { loadSfc } from './helpers/loadSfc.js'
 import { renderHarness, flush, deferred, nodeText } from './helpers/renderHarness.js'
+import { assistantPage } from '../src/assistantPage.js'
 
 const vue = { ...Vue, vShow: {}, vModelText: {}, vModelSelect: {}, vModelCheckbox: {} }
 const event = extra => ({ preventDefault() {}, stopPropagation() {}, ...extra })
 
-async function collections(t) {
+async function collections(t, mode = 'normal') {
   const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null } })
   t.after(() => {
@@ -19,6 +20,7 @@ async function collections(t) {
   let media = 7, changed, unsubscribed = false
   const component = await loadSfc(new URL('../src/views/Collections.vue', import.meta.url), {
     vue,
+    '../viewing.js': { isChildren: Vue.ref(mode === 'children'), viewing: Vue.reactive({ mode }) },
     '../api.js': { posterUrl: path => path, api: path => {
       if (path.startsWith('/api/collections/suggest')) return Promise.resolve({})
       const request = { path, ...deferred() }
@@ -87,6 +89,31 @@ test('collections discard a previous library response and clean the library list
   assert.doesNotMatch(ui.text(), /旧媒体库请求失败|合集加载失败/)
   ui.app.unmount()
   assert.equal(ui.unsubscribed, true)
+})
+
+test('the collection tip waits for a loaded library and opens the name form without creating anything', async t => {
+  const ui = await collections(t)
+  assert.equal(assistantPage.value.channel, 'collections')
+  assert.deepEqual(assistantPage.value.tips, [])
+  ui.libraryReady.resolve()
+  await flush()
+  ui.requests[0].resolve({ items: [] })
+  await flush()
+  const tip = assistantPage.value.tips.find(item => item.id === 'collections-create')
+  assert.equal(tip.manualOnly, false)
+  await tip.run()
+  assert.equal(assistantPage.value.blocked, true)
+  assert.equal(ui.find(node => node.props['aria-controls'] === 'collection-create').props['aria-expanded'], true)
+  assert.equal(ui.requests.length, 1)
+})
+
+test('children receive a read-only search tip for visible collections', async t => {
+  const ui = await collections(t, 'children')
+  ui.libraryReady.resolve()
+  await flush()
+  ui.requests[0].resolve({ items: [{ id: 1, name: '动物世界', member_count: 1 }] })
+  await flush()
+  assert.deepEqual(assistantPage.value.tips.map(tip => tip.id), ['collections-search'])
 })
 
 test('shared search toolbar connects keyboard selection to combobox options and preserves input/composition events', async t => {
