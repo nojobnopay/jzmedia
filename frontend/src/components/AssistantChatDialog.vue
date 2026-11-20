@@ -11,9 +11,10 @@
           <slot name="welcome" /><slot name="preferences" />
         </div>
       </div>
-      <div v-if="!browse && !turns.length && !transient && readiness === 'ready'" class="assistant-welcome">
+      <div v-if="!browse && !turns.length && !transient && (readiness === 'ready' || section === 'sec-online')" class="assistant-welcome">
         <SettingsAssistantReply>
-          <p class="assistant-answer">你好，我是小映，片场的小放映机。设置遇到难题可以问我，也可以喊我跳支舞。</p>
+          <p v-if="section === 'sec-online'" class="assistant-answer">哪个来源播不了？告诉我来源名称，我可以检查接口和播放线路。你也可以直接让我准备换址方案，核对后再保存。</p>
+          <p v-else class="assistant-answer">你好，我是小映，片场的小放映机。设置遇到难题可以问我，也可以喊我跳支舞。</p>
         </SettingsAssistantReply>
         <div class="assistant-starters" role="group" aria-label="填入示例问题">
           <JzButton v-for="example in examples" :key="example" size="compact" @click="prefill(example)">
@@ -47,8 +48,11 @@
             <p>{{ turn.error }}</p><HelpLink :page="browse ? guide : 'user-guide/settings'" :label="browse ? '查看本页帮助' : '打开设置手册'" />
           </div>
           <template v-else>
-            <p class="assistant-answer">{{ turn.answer }}</p>
-            <small v-if="turn.mode === 'local'" class="assistant-source">{{ browse ? '本地回答' : '回答来自本版手册' }}</small>
+            <p class="assistant-answer">{{ turn.diagnosisAnswer && activeDiagnosis !== turn.id ? turn.diagnosisAnswer : turn.answer }}</p>
+            <div v-if="browse && turn.reviewSource && viewingMode === 'normal' && i === conversation.length - 1" class="assistant-starters">
+              <JzButton size="compact" @click="emit('review-source', turn.question)">在设置中预览换址</JzButton>
+            </div>
+            <small v-if="turn.mode === 'local'" class="assistant-source">{{ browse || turn.localSourceChange || turn.diagnosis ? '本地回答' : '回答来自本版手册' }}</small>
             <ul v-if="!browse && turn.topics.length" class="assistant-topics" :inert="applying">
               <li v-for="topic in turn.topics" :key="topic.id">
                 <HelpLink :page="topic.page" :anchor="topic.anchor" :label="topic.title" icon="help" />
@@ -59,7 +63,13 @@
             </ul>
           </template>
         </SettingsAssistantReply>
-        <SettingsAssistantSuggestion v-if="!browse && turn.suggestion && i === conversation.length - 1"
+        <AssistantOnlineDiagnosis v-if="activeDiagnosis === turn.id && !turn.error"
+          :ref="el => { diagnosisCard = el }" :question="turn.question" :template-id="turn.diagnosisTemplate"
+          :context="turnContext" :needs-unlock="needsDiagnosisUnlock" :access="onlineSources"
+          @busy="setApplying" @summary="turn.diagnosisAnswer = $event" @unlock="emit('unlock-diagnosis', $event)" @replay="emit('replay', $event)" />
+        <AssistantSourceMigration v-else-if="!browse && turn.suggestion?.kind === 'online_source' && i === conversation.length - 1"
+          :suggestion="turn.suggestion" :access="onlineSources" @busy="setApplying" />
+        <SettingsAssistantSuggestion v-else-if="!browse && turn.suggestion && i === conversation.length - 1"
           :suggestion="turn.suggestion" :libraries="libraries" :libraries-ready="librariesReady"
           :libraries-error="librariesError" :refresh-libraries="refreshLibraries" :dirty-libraries="dirtyLibraries"
           :rules-busy="rulesBusy" :after-navigation="afterNavigation" @busy="setApplying"
@@ -89,15 +99,18 @@ import JzButton from './JzButton.vue'
 import AssistantPanel from './AssistantPanel.vue'
 import SettingsAssistantLink from './SettingsAssistantLink.vue'
 import SettingsAssistantSuggestion from './SettingsAssistantSuggestion.vue'
+import AssistantOnlineDiagnosis from './AssistantOnlineDiagnosis.vue'
+import AssistantSourceMigration from './AssistantSourceMigration.vue'
 
 const props = defineProps({
   channel: String, channelLabel: String, guide: String, viewingMode: { type: String, default: 'normal' },
+  initialSourceRequest: String, initialDiagnosisQuestion: String, initialDiagnosisContext: Object, diagnosisContext: Object, needsDiagnosisUnlock: Boolean,
   section: String, libraries: Array, librariesReady: Boolean, librariesError: String, refreshLibraries: Function,
-  dirtyLibraries: Array, rulesBusy: Boolean,
+  dirtyLibraries: Array, rulesBusy: Boolean, onlineSources: Object,
   docked: Boolean, corner: { type: String, default: 'bottom-right' },
   contextKey: { type: String, default: '' }, settingsVersion: { type: Number, default: 0 },
 })
-const emit = defineEmits(['close', 'rules-saved', 'display-saved', 'configure', 'motion', 'busy', 'update:corner'])
+const emit = defineEmits(['close', 'rules-saved', 'display-saved', 'configure', 'motion', 'busy', 'update:corner', 'review-source', 'unlock-diagnosis', 'replay'])
 // The browser host owns completed browsing turns across routes. Settings keeps
 // its own thread in this dialog, with its grants and explicit write confirmations.
 const turns = defineModel('history', { type: Array, default: () => [] })
@@ -111,9 +124,12 @@ const privacyText = computed(() => {
 const pages = new Map([...SETTINGS_PAGES, ...SETTINGS_TASK_PAGES].map(page => [page.id, page.label]))
 const target = sec => ({ path: '/settings', query: { sec } })
 const question = ref(''), latest = ref(null), input = ref(null), panel = ref(null)
-const examples = ['怎么调整匹配优先级？', '帮我把字体调大一点']
+const examples = computed(() => props.section === 'sec-online' ? ['为什么在线资源无法播放了？', '帮我更新量子资源接口', '去哪里找视频源？']
+  : ['怎么调整匹配优先级？', '帮我把字体调大一点'])
 const reactions = new Set(['wave', 'smile', 'cry', 'dance'])
 const thread = ref(null), showPageTips = ref(false)
+const activeDiagnosis = ref(null), diagnosisCard = ref(null), turnContext = ref(null)
+let resumingDiagnosis = false
 const transient = ref(null)
 const conversation = computed(() => transient.value ? [...turns.value, transient.value] : turns.value)
 function prefill(text) {
@@ -148,6 +164,7 @@ function discardSuggestion() {
   if (!browse.value && turns.value.length) turns.value.at(-1).suggestion = null
 }
 function invalidate() {
+  activeDiagnosis.value = null; resumingDiagnosis = false
   controller?.abort()
   asking.value = false
   if (transient.value && !question.value) question.value = transient.value.question
@@ -160,10 +177,21 @@ watch([() => props.section, () => props.contextKey, () => props.channel], () => 
   invalidate()
   showPageTips.value = false
 }, { flush: 'sync' })
+watch(() => [props.diagnosisContext?.source_id, props.diagnosisContext?.item_id, props.diagnosisContext?.external_id,
+  props.diagnosisContext?.episode_id, props.diagnosisContext?.line_id, props.diagnosisContext?.cache_only].join('|'),
+  () => { if (!resumingDiagnosis && (asking.value || activeDiagnosis.value != null)) invalidate() }, { flush: 'sync' })
+watch(() => props.needsDiagnosisUnlock, invalidate, { flush: 'sync' })
 watch(() => props.settingsVersion, () => { invalidate(); loadStatus() })
 onMounted(async () => {
   const previouslyFocused = document.activeElement
   if (!browse.value) void loadStatus()
+  if (props.initialDiagnosisQuestion && props.viewingMode === 'normal') {
+    question.value = props.initialDiagnosisQuestion
+    void ask(true)
+  } else if (!browse.value && props.section === 'sec-online' && props.initialSourceRequest) {
+    question.value = props.initialSourceRequest
+    void ask()
+  }
   await nextTick()
   if (!panel.value?.canFocus() || !window.matchMedia('(pointer: fine) and (min-width: 701px)').matches) return
   if (document.activeElement === previouslyFocused || panel.value.element?.contains(document.activeElement)) {
@@ -208,9 +236,22 @@ function keepLatest(el, index) {
   if (el && index === conversation.value.length - 1) latest.value = el
 }
 
-async function ask() {
+async function ask(resume = false) {
   const text = question.value.trim()
   if (!text || asking.value || applying.value || compositionEnterTimer !== undefined) return
+  const reply = text.replace(/[。！!？?\s]+$/u, '')
+  const agrees = /^(同意|我同意|确认|好的|可以|同意修改|确认修改|确认更新|可以修改)$/.test(reply)
+  if (turns.value.at(-1)?.diagnosis && (agrees || /^(取消|不同意|先不改|不改了|不用了|算了)$/.test(reply))) {
+    question.value = ''
+    if (diagnosisCard.value) diagnosisCard.value.handleReply(agrees)
+    else transient.value = { id: turns.value.at(-1).id + 1, question: text, answer: '目前没有等待确认的方案，请重新描述播放问题。', topics: [] }
+    return
+  }
+  activeDiagnosis.value = null
+  const live = props.diagnosisContext, saved = props.initialDiagnosisContext
+  resumingDiagnosis = resume === true && !!saved && (saved.source_id !== live?.source_id || saved.item_id !== live?.item_id ||
+    saved.episode_id !== live?.episode_id || saved.line_id !== live?.line_id)
+  turnContext.value = resumingDiagnosis ? saved : live
   asking.value = true
   showPageTips.value = false
   transient.value = { id: (turns.value.at(-1)?.id ?? 0) + 1, question: text }
@@ -234,10 +275,16 @@ async function ask() {
     if (typeof result?.answer !== 'string' || !result.answer.trim() || !['ai', 'social', 'local'].includes(result.mode)
       || (!browse.value && !Array.isArray(result.topics))) throw new Error('未收到有效回复。')
     const social = result.mode === 'social'
+    const localSourceChange = !browse.value && result.mode === 'local' && result.suggestion?.kind === 'online_source'
+    const diagnosis = result.mode === 'local' && result.diagnose_online === true && props.viewingMode === 'normal'
+    if (diagnosis) activeDiagnosis.value = transient.value.id
+    const modelSuggestion = !browse.value && result.mode === 'ai' && ['display', 'matching'].includes(result.suggestion?.kind)
     const reaction = social && reactions.has(result.reaction) ? result.reaction : null
     turns.value = [...turns.value, { id: transient.value.id, question: text, answer: result.answer, mode: result.mode, reaction,
+      diagnosis, diagnosisTemplate: diagnosis ? result.diagnosis_template_id : undefined,
+      reviewSource: !diagnosis && browse.value && props.viewingMode === 'normal' && result.mode === 'local' && result.open_settings === 'online_source',
       topics: social || browse.value ? [] : result.topics.filter(topic => pages.has(topic.section)),
-      suggestion: !browse.value && result.mode === 'ai' ? result.suggestion : null }]
+      localSourceChange, suggestion: !diagnosis && (localSourceChange || modelSuggestion) ? result.suggestion : null }]
     arrivingId.value = transient.value.id
     arrivalTimer = setTimeout(endArrival, reaction ? 2000 : 1200)
     transient.value = null

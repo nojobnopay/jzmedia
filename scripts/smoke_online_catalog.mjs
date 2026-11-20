@@ -19,11 +19,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_catalog.mjs [--demo] [--case page-resolver|matrix|catalogue|discovery|loading|loading-feedback|image-cache|categories|related|detail|detail-recovery|metadata-recovery|refresh-strategy|hosts|network-config|all]')
+    console.log('Usage: node scripts/smoke_online_catalog.mjs [--demo] [--case page-resolver|matrix|catalogue|discovery|loading|loading-feedback|image-cache|categories|related|detail|detail-recovery|metadata-recovery|refresh-strategy|hosts|source-migration|network-config|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['page-resolver', 'matrix', 'catalogue', 'discovery', 'loading', 'loading-feedback', 'image-cache', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'refresh-strategy', 'hosts', 'network-config', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['page-resolver', 'matrix', 'catalogue', 'discovery', 'loading', 'loading-feedback', 'image-cache', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'refresh-strategy', 'hosts', 'source-migration', 'network-config', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-catalog-'))
 const output = path.join(root, 'output/playwright/online-catalog')
 const dist = path.join(work, 'dist')
@@ -2250,6 +2250,76 @@ async function hostRepair() {
   }
   await backendChildren('after-host-repair')
 }
+async function sourceMigration() {
+  const oldApi = 'cj.lziapi.com', newApi = 'lzzyapi.com'
+  const oldMedia = 'v.lzcdn28.com', newMedia = 'v.cdnlz28.com', oldPoster = 'p.lztutu.com'
+  const endpoint = host => 'https://' + host + '/api.php/provide/vod/'
+  for (const width of [1440, 390, 320]) {
+    phase = { name: 'source-migration-' + width, expectedHttp: false }
+    const { context, page } = await newPage(width)
+    try {
+      const name = '隔离域名迁移 ' + width
+      const created = await call(page, 'POST', '/api/online/sources', { name, provider: 'maccms', enabled: false,
+        api_base_url: endpoint(oldApi), allowed_hosts: [oldMedia, oldPoster, 'custom.example'] })
+      assert.equal(created.status, 201)
+      const sourcePath = '/api/online/sources/' + created.body.id
+      await navigate(page, '/settings')
+      const guide = page.getByRole('link', { name: /去哪里找视频源/ })
+      const guidePath = '/help/user-guide/watch-online.html#online-source-directory'
+      assert.equal(await guide.getAttribute('href'), guidePath)
+      const edit = page.getByRole('button', { name: '编辑 ' + name, exact: true })
+      const form = page.locator('[data-online-source-form]')
+      const changes = form.locator('[data-online-host-migration]')
+      const save = form.getByRole('button', { name: '保存来源', exact: true })
+      const changeEndpoint = async () => {
+        assert.equal(await guide.getAttribute('href'), guidePath)
+        await form.getByLabel('接口地址', { exact: true }).fill(endpoint(newApi))
+        await changes.locator('input[value="' + oldMedia + '"]').waitFor()
+        assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), 3)
+      }
+
+      await edit.click()
+      await changeEndpoint()
+      // A concurrent administrator can change the saved source after the preview.
+      // The browser's failed save must leave both their edit and the original hosts intact.
+      assert.equal((await call(page, 'PATCH', sourcePath, { priority: 77 })).status, 200)
+      phase.expectedHttp = true
+      const conflict = page.waitForResponse(res => res.url().endsWith(sourcePath) && res.request().method() === 'PATCH')
+      await save.click()
+      assert.equal((await conflict).status(), 409)
+      const reload = page.getByRole('button', { name: '放弃草稿并重新加载', exact: true })
+      await reload.waitFor()
+      phase.expectedHttp = false
+      const afterConflict = (await call(page, 'GET', sourcePath)).body
+      assert.equal(afterConflict.priority, 77)
+      assert.equal(afterConflict.api_base_url, endpoint(oldApi))
+      assert.deepEqual(afterConflict.allowed_hosts, created.body.allowed_hosts)
+      await reload.click()
+      await changeEndpoint()
+      await changes.locator('input[value="' + oldPoster + '"]').uncheck()
+      await form.screenshot({ path: path.join(output, 'source-migration-' + width + '.png') })
+      const outside = await form.evaluate(element => [...element.querySelectorAll('*')]
+        .filter(child => child.getBoundingClientRect().right > innerWidth + 1)
+        .map(child => [child.tagName, child.id || child.className, Math.round(child.getBoundingClientRect().right)]))
+      assert.deepEqual(outside, [], 'Source editor controls fit the viewport')
+      if (width <= 700) {
+        const heights = await changes.locator('label, a').evaluateAll(controls =>
+          controls.map(control => control.getBoundingClientRect().height))
+        assert.ok(heights.every(height => height >= 43.5), 'Host choices and notice links have phone touch targets')
+      }
+      await save.click()
+      await edit.waitFor()
+      const saved = (await call(page, 'GET', sourcePath)).body
+      assert.equal(saved.api_base_url, endpoint(newApi))
+      assert.equal(saved.priority, 77)
+      assert.deepEqual([...saved.allowed_hosts].sort(), [newApi, newMedia, oldPoster, 'custom.example'].sort())
+      passed({ case: phase.name, selectionPreserved: true, staleSaveRejected: true })
+    } finally {
+      await closeContext(context)
+    }
+  }
+}
+
 async function networkConfiguration() {
   async function alignedFields(page, selectors, label) {
     const controls = await page.evaluate(selectors => selectors.map(selector => {
@@ -2690,6 +2760,7 @@ try {
         '--autoplay-policy=no-user-gesture-required'] })
     report.browser = { version: browser.version(), executable: chromium.executablePath() }
     await setup()
+    if (selectedCase === 'all' || selectedCase === 'source-migration') await sourceMigration()
     if (selectedCase === 'all' || selectedCase === 'network-config') await networkConfiguration()
     if (selectedCase === 'all' || selectedCase === 'page-resolver') await pageResolver()
     if (selectedCase === 'all' || selectedCase === 'hosts') await hostRepair()
@@ -2711,8 +2782,8 @@ try {
     assert.ok(!report.finalMetrics.origin_calls.some(call => call.app_credentials), 'Application credentials never reach the source')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'api'), 'The API uses its own network-purpose client')
     if (selectedCase === 'metadata-recovery') assert.ok(!report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Metadata recovery never requests media')
-    else if (!['discovery', 'loading', 'loading-feedback', 'image-cache', 'categories', 'network-config'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
-    if (selectedCase === 'network-config') assert.ok(!report.finalMetrics.client_calls.some(call => call.purpose === 'media'),
+    else if (!['discovery', 'loading', 'loading-feedback', 'image-cache', 'categories', 'network-config', 'source-migration'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
+    if (['network-config', 'source-migration'].includes(selectedCase)) assert.ok(!report.finalMetrics.client_calls.some(call => call.purpose === 'media'),
       'Network configuration checks never request source media')
     else assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'image'), 'Posters use their image-purpose client')
     assert.deepEqual(report.errors, [], 'No browser runtime, Vue or unexpected console errors')

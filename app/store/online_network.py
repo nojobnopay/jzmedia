@@ -219,19 +219,23 @@ def get_source_network_policy(source_id: str) -> dict:
 def update_source_network_policy(source_id: str, changes: dict) -> dict:
     patch = SourceNetworkPatch.model_validate(changes).model_dump(mode="json", exclude_unset=True)
     with _connection(write=True) as connection:
-        current = _source_policy(connection, source_id)
-        candidate = SourceNetworkPolicy.model_validate({**current["policy"], **patch}).model_dump(mode="json")
-        for value in candidate.values():
-            _validate_rule(connection, value)
-        if not patch:
-            return current
-        revision = current["revision"] + 1
-        connection.execute(
-            "INSERT INTO online_network_policies(source_id,rules_json,revision,updated_at) VALUES(?,?,?,?)"
-            " ON CONFLICT(source_id) DO UPDATE SET rules_json=excluded.rules_json,"
-            "revision=excluded.revision,updated_at=excluded.updated_at",
-            (source_id, json.dumps(candidate), revision, int(time.time())),
-        )
+        return _update_source_policy(connection, source_id, patch)
+
+
+def _update_source_policy(connection, source_id, patch):
+    current = _source_policy(connection, source_id)
+    candidate = SourceNetworkPolicy.model_validate({**current["policy"], **patch}).model_dump(mode="json")
+    for value in candidate.values():
+        _validate_rule(connection, value)
+    if not patch:
+        return current
+    revision = current["revision"] + 1
+    connection.execute(
+        "INSERT INTO online_network_policies(source_id,rules_json,revision,updated_at) VALUES(?,?,?,?)"
+        " ON CONFLICT(source_id) DO UPDATE SET rules_json=excluded.rules_json,"
+        "revision=excluded.revision,updated_at=excluded.updated_at",
+        (source_id, json.dumps(candidate), revision, int(time.time())),
+    )
     return {"source_id": source_id, "policy": candidate, "revision": revision}
 
 
@@ -256,6 +260,23 @@ def load_online_network_state(source_id: str) -> dict:
     """Read one consistent server-only snapshot, including referenced ciphertext."""
     with _connection(snapshot=True) as connection:
         return online_network_snapshot(connection, source_id)
+
+
+def verified_source_operator(source_id: str, api_base_url: str) -> str | None:
+    """Keep the operator identity of an endpoint previously verified and accepted on this server."""
+    with _connection() as connection:
+        row = connection.execute(
+            "SELECT value FROM app_settings WHERE key=? AND EXISTS "
+            "(SELECT 1 FROM online_sources WHERE id=? AND api_base_url=?)",
+            ("online_operator:" + source_id, source_id, api_base_url)).fetchone()
+    return row["value"] if row else None
+
+
+def save_verified_operator(connection, source_id, operator_id):
+    connection.execute(
+        "INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+        ("online_operator:" + source_id, operator_id, int(time.time())))
 
 
 def online_network_snapshot(connection, source_id: str) -> dict:

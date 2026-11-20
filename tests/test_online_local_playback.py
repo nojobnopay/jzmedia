@@ -80,6 +80,7 @@ def create(local):
 def test_source_disabled_local_descriptor_and_full_head_ranges(local):
     descriptor = create(local)
     assert descriptor["processing"] == "passthrough"
+    assert "cached" not in descriptor
     assert "cache_id" not in descriptor and "storage" not in descriptor
     url = descriptor["media_url"]
     response = local.client.get(url)
@@ -342,3 +343,11 @@ def test_unknown_local_manifest_reference_is_corrupt(local):
     response = local.client.get(create(local)["media_url"])
     assert response.status_code == 409 and "media.example" not in response.text
     assert local.marked == [local.id]
+
+
+def test_browser_can_request_cache_origin_without_changing_legacy_descriptor(local):
+    response = local.client.post("/api/online/sessions", json=local.identity,
+                                 headers={"X-Online-Playback-Context": "cache"})
+    assert response.status_code == 201, response.text
+    assert response.json()["cached"] is True
+    assert "cache_id" not in response.json()

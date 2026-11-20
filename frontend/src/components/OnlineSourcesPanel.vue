@@ -13,10 +13,13 @@
       <section v-show="!taskActive || editorOpen" class="card-block online-source-task">
         <div v-show="!taskActive" class="section-heading"><h3 ref="listHeading" tabindex="-1">视频源</h3><JzButton icon="plus" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editSource()">添加来源</JzButton></div>
         <p v-show="!taskActive" class="hint">选择来源或填写接口。新增来源默认启用，保存后可测试目录。</p>
+        <HelpLink page="user-guide/watch-online" anchor="online-source-directory" label="去哪里找视频源？" />
         <EmptyState v-if="!sources.length && !taskActive" state="empty" title="还没有视频源" text="添加自己的 MacCMS JSON 来源，或选择开放样例目录。" />
         <div v-show="!taskActive" class="online-source-list"><article v-for="source in sources" :key="source.id" class="online-source-row" :data-online-source-row="source.id"><div><h4>{{ source.name }}</h4><p>{{ source.provider === 'open_catalog' ? '开放样例目录' : 'MacCMS JSON' }} · {{ source.enabled ? '已启用' : '已停用' }} · 优先级 {{ source.priority }}</p><p v-if="sourceChecks[source.id]" role="status">{{ sourceChecks[source.id] }}</p></div><div class="online-source-actions"><JzButton :aria-label="'测试来源 ' + source.name" :loading="testingSource === source.id" :disabled="!!testingSource || hostChecking || saving || networkSaving || profilesBusy || hostApplying || !settings.enabled || !source.enabled" @click="testSource(source)">测试来源</JzButton><JzButton icon="edit" :aria-label="'编辑 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editSource(source)">编辑</JzButton><JzButton icon="link" :aria-label="'网络 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editNetwork(source)">网络</JzButton></div></article></div>
         <p v-if="!taskActive && sources.length && !settings.enabled" class="hint">先启用上方的在线点播，再测试已启用来源。</p>
-        <form v-if="editorOpen" class="online-source-editor" data-online-source-form @submit.prevent="saveSource">
+        <EmptyState v-if="editorOpen && snapshotLoading" state="loading" title="正在读取来源配置" />
+        <EmptyState v-else-if="editorOpen && snapshotError" state="error" title="无法读取来源配置" text="请核对连接与管理权限。" retry @retry="reloadSource" />
+        <form v-else-if="editorOpen" class="online-source-editor" data-online-source-form @submit.prevent="saveSource">
           <template v-if="!editingId">
             <JzField id="online-source-template" label="选择视频源" hint="选择来源会预填配置；不会自动添加其他来源或联系上游。"><template #default="field"><select :id="field.id" v-model="templateId" :disabled="saving || profilesLocked" :aria-describedby="field.describedby" @change="applyTemplate"><option value="">自定义接口</option><option v-for="item in sourceTemplates" :key="item.id" :value="item.id">{{ item.name }}</option></select></template></JzField>
             <p v-if="templatesLoading" class="hint online-loading-label" role="status"><Spinner :size="16" />正在加载来源目录…</p>
@@ -31,10 +34,14 @@
             <JzField id="online-source-priority" label="来源优先级" hint="数值越小越靠前；不代表已验证可直连。"><template #default="field"><input :id="field.id" v-model.number="form.priority" type="number" min="0" max="1000" required :disabled="saving || profilesLocked" :aria-describedby="field.describedby" /></template></JzField>
             <label class="online-source-check" for="online-source-enabled"><input id="online-source-enabled" v-model="form.enabled" type="checkbox" :disabled="saving || profilesLocked" />启用此来源</label>
           </div>
+          <p v-if="migrationPending" role="status" class="hint online-loading-label"><Spinner :size="16" />正在预览主机变更…</p>
+          <p v-else-if="migrationError" class="online-source-feedback is-error" role="alert">{{ migrationError }} <JzButton size="compact" @click="retryMigration">重新预览</JzButton></p>
+          <OnlineHostChanges v-if="migrationReport?.changes.length" v-model="migrationSelected" :changes="migrationReport.changes" :disabled="saving || profilesLocked" />
           <details v-if="form.provider === 'maccms'"><summary>接口兼容设置</summary><div class="online-source-fields"><JzField id="online-search-action" label="搜索 action"><template #default="field"><select :id="field.id" v-model="form.search_action" :disabled="saving || profilesLocked"><option value="list">list（标准）</option><option value="detail">detail</option><option value="videolist">videolist</option></select></template></JzField><JzField id="online-detail-action" label="详情 action"><template #default="field"><select :id="field.id" v-model="form.detail_action" :disabled="saving || profilesLocked"><option value="detail">detail（标准）</option><option value="videolist">videolist</option></select></template></JzField></div></details>
           <p v-else class="hint">开放样例用于验证播放能力。影片详情保留发布者、原项目和许可说明。</p>
           <p v-if="formError" class="online-source-feedback is-error" role="alert">{{ formError }}</p>
-          <SettingsFormActions :dirty="sourceDirty" :busy="saving" label="来源配置"><JzButton type="submit" variant="primary" :loading="saving" :disabled="profilesLocked || !form.name.trim() || !form.api_base_url.trim()">保存来源</JzButton><JzButton :disabled="saving || profilesLocked" @click="requestCloseTask">取消</JzButton></SettingsFormActions>
+          <p v-if="sourceConflict" class="online-source-feedback is-error" role="alert">来源已被其他操作修改，请重新加载最新配置后再编辑。 <JzButton size="compact" :disabled="profilesLocked" @click="reloadSource">放弃草稿并重新加载</JzButton></p>
+          <SettingsFormActions :dirty="sourceDirty" :busy="saving" label="来源配置"><JzButton type="submit" variant="primary" :loading="saving" :disabled="profilesLocked || sourceConflict || migrationBlocked || !form.name.trim() || !form.api_base_url.trim()">保存来源</JzButton><JzButton :disabled="saving || profilesLocked" @click="requestCloseTask">取消</JzButton></SettingsFormActions>
         </form>
       </section>
       <section v-if="hostSource" class="card-block online-host-check" data-online-host-check>
@@ -96,16 +103,19 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api.js'
+import { safeHomepage, sourceHostDraft, useOnlineHostMigration } from '../useOnlineHostMigration.js'
 import { OPEN_CATALOG_BASE, choiceNetworkRule, networkRuleChoice, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
 import { SOURCE_NETWORK_PURPOSES, emptyOnlineSourceForm, resolveSourceNetworkChoice,
   networkChoiceSummary, proxyProfilePayload } from '../onlineSourceNetwork.js'
 import { useSettingsDraft } from '../settingsDrafts.js'
 import EmptyState from './EmptyState.vue'
+import HelpLink from './HelpLink.vue'
 import JzButton from './JzButton.vue'
 import JzField from './JzField.vue'
 import SettingsFormActions from './SettingsFormActions.vue'
 import { useSettingsTaskNavigation } from '../useSettingsTaskNavigation.js'
 import Spinner from './Spinner.vue'
+import OnlineHostChanges from './OnlineHostChanges.vue'
 import OnlineProxyProfiles from './OnlineProxyProfiles.vue'
 import '../styles/online.css'
 import '../styles/online-source.css'
@@ -115,6 +125,11 @@ const emptyForm = emptyOnlineSourceForm
 const loading = ref(true), loadError = ref(''), settings = ref({ enabled: false }), sources = ref([]), profiles = ref([]), applicationDefault = ref(null)
 const toggling = ref(false), saving = ref(false), networkSaving = ref(false), message = ref(''), messageError = ref(false)
 const editorOpen = ref(false), editingId = ref(''), form = ref(emptyForm()), formError = ref(''), savedForm = ref('')
+const baseline = ref(''), snapshotLoading = ref(false), snapshotError = ref(false), sourceConflict = ref(false)
+let snapshotController = null
+function conflict() { sourceConflict.value = true; baseline.value = '' }
+const { report: migrationReport, selected: migrationSelected, pending: migrationPending, error: migrationError,
+  blocked: migrationBlocked, retry: retryMigration } = useOnlineHostMigration({ api, sourceId: editingId, baseline, form, onConflict: conflict })
 const sourceTemplates = ref([]), templateId = ref(''), templatesLoading = ref(false), templatesError = ref(false)
 const testingSource = ref(''), sourceChecks = ref({})
 const route = useRoute()
@@ -133,10 +148,7 @@ let disposed = false, generation = 0, networkGeneration = 0, sourceTestGeneratio
 let hostController = null, lastHostLink = ''
 const controllers = new Set()
 const selectedTemplate = computed(() => sourceTemplates.value.find(item => item.id === templateId.value))
-const templateHomepage = computed(() => {
-  try { const url = new URL(selectedTemplate.value?.homepage); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : '' }
-  catch { return '' }
-})
+const templateHomepage = computed(() => safeHomepage(selectedTemplate.value?.homepage))
 const proxyProfiles = computed(() => profiles.value.filter(item => item.mode === 'proxy'))
 const baseChoice = computed(() => resolveSourceNetworkChoice(networkChoices.value, 'default', applicationDefault.value?.rule).choice)
 const selectedProxy = computed(() => profiles.value.find(item => 'profile:' + item.id === baseChoice.value))
@@ -154,6 +166,24 @@ function networkSnapshot() { return JSON.stringify({ choices: networkChoices.val
 const sourceDirty = computed(() => editorOpen.value && savedForm.value !== JSON.stringify(form.value)
   || !!networkSource.value && savedNetwork.value !== networkSnapshot())
 const dirty = computed(() => sourceDirty.value || profilesDirty.value)
+const assistantBlockReason = computed(() => dirty.value ? '在线视频源设置有未保存的修改，请先保存或放弃草稿。'
+  : loading.value || saving.value || networkSaving.value || hostApplying.value || profilesBusy.value || toggling.value
+    ? '请等待当前视频源操作完成。' : '')
+function reflectSourceUpdate(source) {
+  sources.value = [...sources.value.filter(item => item.id !== source.id), source].sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name))
+  delete sourceChecks.value[source.id]
+}
+function assistantSourceSaved(source) {
+  reflectSourceUpdate(source)
+  if (hostSource.value?.id === source.id) { invalidateHostResult(); hostSource.value = source }
+  if (networkTarget.value?.id === source.id && !sourceDirty.value) void editNetwork(source)
+  if (editingId.value === source.id) {
+    if (sourceDirty.value) conflict()
+    else void reloadSource()
+  }
+}
+const assistantSourceId = computed(() => (editorOpen.value && editingId.value) || networkTarget.value?.id || hostSource.value?.id || '')
+defineExpose({ assistantBlockReason, assistantSourceSaved, assistantSourceId })
 const taskActive = computed(() => editorOpen.value || !!networkTarget.value || !!hostSource.value)
 const taskTitle = computed(() => editorOpen.value ? (editingId.value ? '编辑来源' : '添加来源') : networkTarget.value ? '来源网络' : '检查媒体主机')
 const taskScope = computed(() => (editorOpen.value ? form.value.name : networkTarget.value?.name || hostSource.value?.name) || '此服务的在线点播')
@@ -330,18 +360,37 @@ async function toggleEnabled() {
   } catch { if (!disposed) feedback('保存失败，请重新加载核对在线点播状态。', true) }
   finally { if (!disposed) toggling.value = false }
 }
-function editSource(source = null) {
+async function editSource(source = null) {
   if (saving.value || networkSaving.value || profilesLocked.value || hostApplying.value) return
+  cancelEditor()
   cancelHostCheck()
   networkGeneration++; cancelNetwork()
-  editingId.value = source?.id || ''; formError.value = ''
-  templateId.value = ''
-  form.value = source ? { name: source.name, provider: source.provider, api_base_url: source.api_base_url,
-    hosts: source.allowed_hosts.join('\n'), enabled: source.enabled, priority: source.priority,
-    search_action: source.provider_options?.search_action || 'list', detail_action: source.provider_options?.detail_action || 'detail' } : emptyForm()
-  savedForm.value = JSON.stringify(form.value); editorOpen.value = true
-  if (!source && !sourceTemplates.value.length) loadTemplates()
+  editingId.value = source?.id || ''
+  savedForm.value = JSON.stringify(form.value)
+  editorOpen.value = true
+  if (!source) {
+    if (!sourceTemplates.value.length) void loadTemplates()
+    return
+  }
+  const current = new AbortController()
+  snapshotController = current
+  snapshotLoading.value = true
+  try {
+    const latest = await api('/api/online/sources/' + source.id, { signal: current.signal })
+    if (current.signal.aborted) return
+    if (latest.id !== source.id || !/^[a-f0-9]{64}$/.test(latest.configuration_fingerprint || '')) throw new Error()
+    form.value = { name: latest.name, provider: latest.provider, api_base_url: latest.api_base_url,
+      hosts: latest.allowed_hosts.join('\n'), enabled: latest.enabled, priority: latest.priority,
+      search_action: latest.provider_options?.search_action || 'list', detail_action: latest.provider_options?.detail_action || 'detail' }
+    savedForm.value = JSON.stringify(form.value)
+    baseline.value = latest.configuration_fingerprint
+  } catch {
+    if (!current.signal.aborted) snapshotError.value = true
+  } finally {
+    if (snapshotController === current) { snapshotLoading.value = false; snapshotController = null }
+  }
 }
+function reloadSource() { return editSource({ id: editingId.value }) }
 function providerChanged() {
   if (form.value.provider === 'open_catalog') {
     form.value.api_base_url = OPEN_CATALOG_BASE
@@ -349,24 +398,33 @@ function providerChanged() {
     if (!form.value.name.trim()) form.value.name = '开放样例目录'
   } else { form.value.api_base_url = ''; form.value.hosts = '' }
 }
-function cancelEditor() { editorOpen.value = false; editingId.value = ''; templateId.value = ''; formError.value = ''; form.value = emptyForm(); savedForm.value = '' }
+function cancelEditor() {
+  snapshotController?.abort(); snapshotController = null
+  baseline.value = ''; snapshotLoading.value = false; snapshotError.value = false; sourceConflict.value = false
+  editorOpen.value = false; editingId.value = ''; templateId.value = ''; formError.value = ''; form.value = emptyForm(); savedForm.value = ''
+}
 async function saveSource() {
-  if (saving.value || profilesLocked.value || hostApplying.value) return
+  if (!editorOpen.value || saving.value || profilesLocked.value || hostApplying.value || snapshotLoading.value
+    || snapshotError.value || sourceConflict.value || migrationBlocked.value) return
   invalidateHostResult()
   sourceTestGeneration++
   saving.value = true; formError.value = ''
   const id = editingId.value
   try {
-    const values = { name: form.value.name.trim(), api_base_url: form.value.api_base_url.trim(),
-      allowed_hosts: [...new Set(form.value.hosts.split(/[\s,]+/).filter(Boolean))], enabled: form.value.enabled,
+    const values = { name: form.value.name.trim(), ...sourceHostDraft(form.value), enabled: form.value.enabled,
       priority: form.value.priority, provider_options: { search_action: form.value.search_action, detail_action: form.value.detail_action } }
     if (!id) values.provider = form.value.provider
+    if (id && migrationReport.value) values.host_migration = {
+      expected_fingerprint: migrationReport.value.expected_fingerprint, selected_old_hosts: migrationSelected.value,
+    }
     const source = await request('/api/online/sources' + (id ? '/' + id : ''), { method: id ? 'PATCH' : 'POST', body: JSON.stringify(values) })
     if (disposed) return
-    sources.value = [...sources.value.filter(value => value.id !== source.id), source].sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name))
-    delete sourceChecks.value[source.id]
+    reflectSourceUpdate(source)
     cancelEditor(); feedback('来源已保存；尚未验证上游连通性。')
-  } catch { if (!disposed) formError.value = '保存失败，请检查名称、接口、允许主机和字段格式；若请求超时，请刷新后核对是否已经保存。' }
+  } catch (failure) {
+    if (!disposed && failure?.status === 409) conflict()
+    else if (!disposed) formError.value = '保存失败，请检查名称、接口、允许主机和字段格式；若请求超时，请刷新后核对是否已经保存。'
+  }
   finally { if (!disposed) saving.value = false }
 }
 async function editNetwork(source) {
@@ -430,7 +488,7 @@ async function saveNetwork() {
 watch(hostExternalId, invalidateHostResult, { flush: 'sync' })
 watch(() => [route?.query?.sec, route?.query?.source, route?.query?.item, loading.value, sources.value, dirty.value, saving.value, networkSaving.value, profilesBusy.value, hostApplying.value], syncHostLink, { immediate: true, flush: 'post' })
 onMounted(load)
-onUnmounted(() => { disposed = true; generation++; networkGeneration++; hostGeneration++; controllers.forEach(controller => controller.abort()); controllers.clear() })
+onUnmounted(() => { disposed = true; generation++; networkGeneration++; hostGeneration++; snapshotController?.abort(); controllers.forEach(controller => controller.abort()); controllers.clear() })
 </script>
 
 <style scoped>

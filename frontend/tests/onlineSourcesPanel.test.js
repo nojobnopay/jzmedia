@@ -5,6 +5,7 @@ import { loadSfc } from './helpers/loadSfc.js'
 import { renderHarness, nodeText, flush, deferred } from './helpers/renderHarness.js'
 
 const SOURCE = 'src_' + '1'.repeat(32), PROFILE = 'np_' + '2'.repeat(32)
+const BASELINE = 'a'.repeat(64), PREVIEW = 'b'.repeat(64)
 const inherit = () => ({ mode: 'inherit', profile_id: null })
 const policy = () => Object.fromEntries(['default', 'api', 'media', 'image', 'subtitle', 'subscription'].map(key => [key, inherit()]))
 const element = (ui, id) => ui.find(node => node.props.id === id)
@@ -14,7 +15,8 @@ async function field(ui, id, value) { element(ui, id).props['onUpdate:modelValue
 async function submit(ui, attr) { await ui.find(node => node.type === 'form' && attr in node.props).props.onSubmit({ preventDefault() {} }); await flush() }
 
 async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail = false, policyFailures = 0, catalogGate = null,
-  routeQuery = {}, hostCheckGate = null, hostApplyGate = null, hostApplyFailures = 0, hostReport = null, extraSources = [], profileGate = null } = {}) {
+  routeQuery = {}, hostCheckGate = null, hostApplyGate = null, hostApplyFailures = 0, hostReport = null, extraSources = [], profileGate = null,
+  readSource, previewMigration, patchSource } = {}) {
   const requests = [], source = { id: SOURCE, name: '演示来源', provider: 'maccms', api_base_url: 'https://api.example/',
     allowed_hosts: ['api.example'], enabled: true, priority: 100, provider_options: {} }
   const sourceList = [source, ...extraSources.map(item => ({ ...source, ...item }))]
@@ -25,6 +27,11 @@ async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail 
     requests.push({ path, method: options.method || 'GET', body, signal: options.signal })
     if (path === '/api/online/settings') return { enabled: true }
     if (path === '/api/online/sources') return options.method === 'POST' ? { ...body, id: SOURCE } : { items: sourceList }
+    if (path.endsWith('/host-migration-preview')) return previewMigration ? previewMigration(body) : { expected_fingerprint: PREVIEW, changes: [] }
+    if (path === '/api/online/sources/' + SOURCE) {
+      if (options.method === 'PATCH') return patchSource ? patchSource(body) : { ...source, ...body }
+      return readSource ? readSource(source) : { ...source, configuration_fingerprint: BASELINE }
+    }
     if (path.endsWith('/host-check')) return hostCheckGate ? hostCheckGate.promise : hostReport || {
       source_id: path.split('/')[4], external_id: body.external_id,
       missing_hosts: ['cdn.extra.example', 'images.extra.example'], allowed_hosts: ['api.example'],
@@ -66,6 +73,124 @@ async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail 
   t.after(() => ui.app.unmount())
   await flush()
   return { ui, requests, route, get draft() { return draft } }
+}
+
+const renamedHosts = [
+  { kind: 'api', old_host: 'api.example', new_host: 'new.example', notice_url: '' },
+  { kind: 'media', old_host: 'old-cdn.example', new_host: 'new-cdn.example', notice_url: 'https://notice.example/move' },
+]
+const choices = ui => ui.all().filter(node => node.type === 'input' && renamedHosts.some(change => change.old_host === node.props.value))
+const renamedDraft = source => ({ ...source, allowed_hosts: ['api.example', 'old-cdn.example', 'keep.example'], configuration_fingerprint: BASELINE })
+
+test('source directory help is available while listing, adding and editing', async t => {
+  const { ui } = await mount(t)
+  function helpVisible() {
+    const link = ui.find(node => node.type === 'a' && node.props.href === '/help/user-guide/watch-online.html#online-source-directory')
+    assert.ok(link)
+    assert.match(nodeText(link), /去哪里找视频源？/)
+  }
+  helpVisible()
+  await click(ui, '添加来源'); helpVisible()
+  await click(ui, '取消')
+  await click(ui, '编辑 演示来源'); helpVisible()
+})
+
+test('editing previews a debounced host migration and saves the draft and selected choices in one patch', async t => {
+  const { ui, requests } = await mount(t, { readSource: renamedDraft, previewMigration: body => ({
+    expected_fingerprint: PREVIEW, changes: body.api_base_url.startsWith('https://new.example/') ? renamedHosts : [],
+  }) })
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  await click(ui, '编辑 演示来源')
+  await field(ui, 'online-source-api', 'https://n.example/')
+  await field(ui, 'online-source-api', 'https://new.example/')
+  await submit(ui, 'data-online-source-form')
+  assert.equal(button(ui, '保存来源').props.disabled, true)
+  assert.equal(requests.some(call => call.method === 'PATCH'), false)
+  t.mock.timers.tick(250); await flush()
+  const previews = requests.filter(call => call.path.endsWith('/host-migration-preview'))
+  assert.equal(previews.length, 2)
+  assert.deepEqual(previews.at(-1).body, { api_base_url: 'https://new.example/', expected_fingerprint: BASELINE,
+    allowed_hosts: ['api.example', 'old-cdn.example', 'keep.example'] })
+  assert.equal(choices(ui).length, 2)
+  assert.match(ui.text(), /新的接口地址始终生效/)
+  assert.ok(ui.find(node => node.type === 'a' && node.props.href === 'https://notice.example/move'))
+  choices(ui)[0].props['onUpdate:modelValue'](['old-cdn.example'])
+  await field(ui, 'online-source-hosts', 'api.example\nold-cdn.example\nkeep.example\ncustom.example')
+  t.mock.timers.tick(250); await flush()
+  await submit(ui, 'data-online-source-form')
+  const patch = requests.find(call => call.method === 'PATCH')
+  assert.deepEqual(patch.body.host_migration, { expected_fingerprint: PREVIEW, selected_old_hosts: ['old-cdn.example'] })
+  assert.deepEqual(patch.body.allowed_hosts, ['api.example', 'old-cdn.example', 'keep.example', 'custom.example'])
+  assert.equal(patch.body.api_base_url, 'https://new.example/')
+})
+
+test('closing drafts aborts both snapshot and preview requests and ignores late replies', async t => {
+  const snapshot = deferred(), preview = deferred()
+  let reads = 0
+  const { ui, requests, draft } = await mount(t, { readSource: source => ++reads === 1 ? snapshot.promise : renamedDraft(source),
+    previewMigration: () => preview.promise })
+  const opening = button(ui, '编辑 演示来源').props.onClick(); await flush()
+  await click(ui, '返回视频源列表')
+  assert.equal(requests.find(call => call.path.endsWith(SOURCE)).signal.aborted, true)
+  snapshot.resolve({}); await opening
+  await click(ui, '编辑 演示来源')
+  const read = requests.find(call => call.path.endsWith('/host-migration-preview'))
+  await field(ui, 'online-source-api', 'https://new.example/')
+  assert.equal(read.signal.aborted, true)
+  draft.discard(); await flush()
+  preview.resolve({ expected_fingerprint: PREVIEW, changes: renamedHosts }); await flush()
+  assert.equal(choices(ui).length, 0)
+  assert.equal(requests.some(call => call.method === 'PATCH'), false)
+})
+
+test('a failed preview keeps the draft editable and retries without saving', async t => {
+  let attempts = 0
+  const { ui, requests } = await mount(t, { previewMigration() {
+    if (++attempts === 1) throw Object.assign(new Error('private response'), { status: 503 })
+    return { expected_fingerprint: PREVIEW, changes: [] }
+  } })
+  await click(ui, '编辑 演示来源')
+  assert.match(ui.text(), /无法预览主机变更/)
+  assert.equal(ui.text().includes('private response'), false)
+  await field(ui, 'online-source-name', '暂存名字')
+  await submit(ui, 'data-online-source-form')
+  assert.equal(requests.some(call => call.method === 'PATCH'), false)
+  await click(ui, '重新预览')
+  assert.equal(button(ui, '保存来源').props.disabled, false)
+  await submit(ui, 'data-online-source-form')
+  assert.equal(requests.find(call => call.method === 'PATCH').body.name, '暂存名字')
+})
+
+for (const failureAt of ['preview', 'save']) {
+  test('a concurrent edit during ' + failureAt + ' preserves the draft until an explicit reload', async t => {
+    let revision = 0
+    const stale = () => { throw Object.assign(new Error('private details'), { status: 409 }) }
+    const { ui, requests } = await mount(t, {
+      readSource: source => ({ ...renamedDraft(source), name: revision ? '其他管理员保存的名字' : source.name,
+        configuration_fingerprint: revision ? 'c'.repeat(64) : BASELINE }),
+      previewMigration: body => failureAt === 'preview' && body.api_base_url === 'https://new.example/'
+        ? stale() : { expected_fingerprint: PREVIEW, changes: body.api_base_url === 'https://new.example/' ? renamedHosts : [] },
+      patchSource: stale,
+    })
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    await click(ui, '编辑 演示来源')
+    await field(ui, 'online-source-name', '我的草稿')
+    await field(ui, 'online-source-api', 'https://new.example/')
+    t.mock.timers.tick(250); await flush()
+    if (failureAt === 'save') {
+      await submit(ui, 'data-online-source-form')
+      assert.deepEqual(requests.find(call => call.method === 'PATCH').body.host_migration.selected_old_hosts, ['api.example', 'old-cdn.example'])
+    }
+    assert.match(ui.text(), /来源已被其他操作修改/)
+    assert.equal(button(ui, '保存来源').props.disabled, true)
+    assert.equal(requests.filter(call => call.method === 'PATCH').length, failureAt === 'save' ? 1 : 0)
+    revision++
+    await click(ui, '放弃草稿并重新加载')
+    assert.match(ui.text(), /其他管理员保存的名字/)
+    assert.equal(requests.filter(call => call.path.endsWith('/host-migration-preview')).at(-1).body.expected_fingerprint, 'c'.repeat(64))
+    assert.equal(choices(ui).length, 0)
+    assert.equal(button(ui, '保存来源').props.disabled, false)
+  })
 }
 
 test('source directory pre-fills an enabled source; directory failure leaves custom creation available', async t => {

@@ -88,7 +88,7 @@
         <LibrariesPanel ref="librariesRef" @changed="onLibrariesChanged" />
       </div>
 
-      <div v-if="visited.has('sec-online')" v-show="active === 'sec-online'" id="sec-online"><OnlineSourcesPanel /></div>
+      <div v-if="visited.has('sec-online')" v-show="active === 'sec-online'" id="sec-online" :inert="assistantSourceSaving"><OnlineSourcesPanel ref="onlinePanel" /></div>
 
       <div v-if="visited.has('sec-tmdb')" v-show="active === 'sec-tmdb'" id="sec-tmdb">
         <TmdbSettingsPanel :settings="s" @saved="s = $event" />
@@ -496,10 +496,18 @@ const librariesError = ref('')
 const loadError = ref('')
 let navigationGeneration = 0
 let disposed = false
+const onlinePanel = ref(null), assistantSourceSaving = ref(false)
+const assistantSources = {
+  get blocked() { return onlinePanel.value?.assistantBlockReason || '' },
+  setBusy(value) { assistantSourceSaving.value = value },
+  saved(source) { onlinePanel.value?.assistantSourceSaved(source) },
+}
 useSettingsAssistantHost({
   get dialogProps() {
     return {
       section: active.value,
+      onlineSources: assistantSources,
+      diagnosisContext: active.value === 'sec-online' && onlinePanel.value?.assistantSourceId ? { source_id: onlinePanel.value.assistantSourceId } : null,
       contextKey: assistantContext.value,
       settingsVersion: assistantSettingsVersion.value,
       libraries: libList.value,

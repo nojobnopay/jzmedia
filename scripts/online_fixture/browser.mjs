@@ -130,7 +130,7 @@ import ${JSON.stringify(path.join(root, 'frontend/src/styles/settings.css'))};
 import { createMemoryHistory, createRouter } from ${JSON.stringify(path.join(root, 'frontend/node_modules/vue-router/dist/vue-router.mjs'))};
 import Online from ${JSON.stringify(path.join(root, 'frontend/src/views/Online.vue'))};
 import Sources from ${JSON.stringify(path.join(root, 'frontend/src/components/OnlineSourcesPanel.vue'))};
-const router = createRouter({history:createMemoryHistory(), routes:[{path:'/online',component:Online},{path:'/settings',component:{render:()=>h('div',{class:'settings-layout',style:{display:'block',padding:'20px 0'}},[h('div',{class:'settings-main'},[h(Sources)])])}},{path:'/:pathMatch(.*)*',redirect:'/online'}]});
+const router = createRouter({history:createMemoryHistory(), routes:[{path:'/online',component:Online},{path:'/settings',component:{render:()=>h('div',{class:'settings-layout',style:{display:'block',paddingBlock:'20px'}},[h('div',{class:'settings-main'},[h(Sources)])])}},{path:'/:pathMatch(.*)*',redirect:'/online'}]});
 router.push('/online').then(() => createApp(Preview).use(router).mount('#app'));` : "createApp(Preview).mount('#app');"}`
   const result = await build({ root: path.join(root, 'frontend'), configFile: false, envFile: false,
     publicDir: app ? path.join(root, 'frontend/public') : false,

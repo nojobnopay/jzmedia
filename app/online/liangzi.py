@@ -15,7 +15,7 @@ from tree_sitter import Language, Parser
 import tree_sitter_javascript
 
 from ..network.client import create_online_client, NetworkRequestError
-from ..network.guard import NetworkOperation, NetworkOperationError, current_operation, operation_context
+from ..network.guard import NetworkOperationError, child_operation, current_operation
 from ..network.policy import NetworkPolicyError
 from ..network.targets import TargetPolicy, TargetPolicyError
 from .providers import ProviderError
@@ -279,39 +279,17 @@ def extract_media_url(body, page_url, targets):
         raise ProviderError("provider_page_invalid") from None
 
 
-class _ChildCancellation:
-    def __init__(self, operation):
-        self.operation = operation
-
-    def shutdown(self, _how):
-        self.operation.abort()
-
-
 @contextmanager
 def _page_operation(parent):
-    if parent is not None:
-        parent.check()
-    deadline = time.monotonic() + MAX_PAGE_SECONDS
-    child = NetworkOperation(min(parent.deadline, deadline) if parent is not None else deadline)
-    cancellation = _ChildCancellation(child)
-    try:
-        if parent is not None:
-            parent.bind_socket(cancellation)
-        with operation_context(child):
-            try:
-                yield child
-            except NetworkRequestError:
-                # Socket shutdown may surface as a generic request failure.
-                # Check before close() so a healthy child is not mistaken for
-                # cancellation, and the independent ten-second timeout wins.
-                if parent is not None:
-                    parent.check()
-                child.check()
-                raise
-    finally:
-        if parent is not None:
-            parent.release_socket(cancellation)
-        child.close()
+    with child_operation(parent, time.monotonic() + MAX_PAGE_SECONDS) as child:
+        try:
+            yield child
+        except NetworkRequestError:
+            # A socket shutdown may surface as a generic request failure.
+            if parent is not None:
+                parent.check()
+            child.check()
+            raise
 
 
 def _html_response(response):

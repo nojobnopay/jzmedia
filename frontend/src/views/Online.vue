@@ -129,7 +129,7 @@
         <OnlineCacheView v-if="pageView === 'cache'" v-show="cacheVisible" ref="cacheView" :active="cacheVisible && safeMode" @back="showBrowse" @detail="openCacheItem" @changed="refreshDetailCache" @status="cacheStatus" />
     </template>
     <OnlineHostDialog v-if="hostDialog && safeMode && !playing" :key="hostDialog.key" :source-id="hostDialog.source" :external-id="hostDialog.externalId" :title="hostDialog.title" :source-name="hostDialog.sourceName" :current="hostDialogCurrent" :refresh="refreshHostDetail" @close="closeHostDialog" />
-    <OnlinePlayerModal v-if="playing" :key="playing.key" :online-identity="playing.identity" :title="playing.title" :initial-position="playing.position" :cache-only="playing.local" :prepare-session="playing.prepareSession" @close="playing.close" @progress="playing.progress" @ended="playing.ended" />
+    <OnlinePlayerModal v-if="playing" ref="onlinePlayer" :key="playing.key" :online-identity="playing.identity" :title="playing.title" :initial-position="playing.position" :cache-only="playing.local" :prepare-session="playing.prepareSession" @close="playing.close" @failure="playing.failure" @progress="playing.progress" @ended="playing.ended" />
     <OnlineCacheDialog v-if="cacheDialog && detail && selectedLine && safeMode" :key="detail.item.id + lineId" :detail="detail" :line="selectedLine" :entries="detailCacheEntries" @close="cacheDialog = false" @created="cacheCreated" />
     <JzDialog v-if="networkPrompt && safeMode" title="此集尚未缓存" :busy="starting" @close="networkPrompt = null"><p>“{{ networkPrompt.label }}”没有完整的本地缓存。是否连接视频源在线播放？</p><p v-if="networkError" class="online-cache-error" role="alert">{{ networkError }}</p><template #footer><JzButton :disabled="starting" @click="networkPrompt = null">暂不播放</JzButton><JzButton variant="primary" :loading="starting" :disabled="starting" data-online-cache-network-confirm @click="playFromNetwork">联网播放</JzButton></template></JzDialog>
   </div>
@@ -197,6 +197,7 @@ const checkedTime = computed(() => checkedAt.value ? new Date(checkedAt.value).t
 const results = ref([]), page = ref(1), pageCount = ref(1), total = ref(0), loadedQuery = ref('')
 const detailLoading = ref(false), detailError = ref(''), detail = ref(null), lineId = ref(''), lastDetailId = ref(''), itemState = ref(null)
 const hostDialog = ref(null), hostReminders = createOnlineHostReminders()
+const onlinePlayer = ref(null), lastPlayerFailure = ref(null)
 const playing = ref(null), starting = ref(false), nextLoading = ref(false), stateNotice = ref('')
 const itemStateLoading = ref(false), detailRoot = ref(null), detailTitle = ref(null), episodePicker = ref(null)
 const browseTools = ref(null), libraryRoot = ref(null)
@@ -1316,7 +1317,15 @@ async function play(entry, { automatic = false } = {}) {
     onSaved: value => { if (!disposed && activeRun === run && safeMode.value && itemState.value?.item_id === identity.item_id) itemState.value = { ...itemState.value, last_progress: value, selected_progress: value } },
   })
   activeRun = run
+  lastPlayerFailure.value = null
   playing.value = { key: run.key, identity, local: run.local, title: data.item.title + (data.item.kind === 'tv' ? ' · ' + entry.label : ''), position,
+    failure: (code, cached) => {
+      if (activeRun === run) lastPlayerFailure.value = code ? { view, identity, code, cached, replay: () => {
+        if (!disposed && view === generation && safeMode.value && !playing.value && lineId.value === identity.line_id) {
+          void play(findEntry(detail.value, identity))
+        }
+      } } : null
+    },
     prepareSession: value => activeRun === run && !run.stopping ? run.writer.session(value) : false,
     progress: value => {
       if (activeRun !== run || !sameIdentity(value.identity, identity) || value.first_frame !== true) return
@@ -1529,6 +1538,29 @@ watch(() => [browseVisible.value, safeMode.value, loadingSources.value, searchin
   if (canCheckUpdates()) scheduleAutomaticRefresh()
   else if (!applyingUpdates.value) cancelAutomaticRefresh()
 }, { flush: 'post' })
+function diagnosisContext() {
+  if (!safeMode.value || viewing.mode !== 'normal') return null
+  const current = playing.value, source = current?.identity.source_id || detail.value?.source?.id || sourceId.value
+  if (!source) return null
+  const context = { source_id: source }
+  if (!surfaceVisible.value || current) {
+    context.item_id = current?.identity.item_id || detail.value?.item?.id
+    context.external_id = detail.value?.item?.external_id || lastDetailId.value
+    context.line_id = current?.identity.line_id || selectedLine.value?.id
+    context.episode_id = current?.identity.episode_id
+    context.cache_only = current ? current.local || !!onlinePlayer.value?.cachedPlayback : detailCached.value
+    const last = lastPlayerFailure.value
+    if (last?.view === generation && last.identity.source_id === source &&
+        last.identity.item_id === context.item_id && last.identity.line_id === context.line_id) {
+      context.episode_id = last.identity.episode_id
+      context.error_code = last.code
+      if (last.cached) context.cache_only = true
+      if (!current) context.replay = last.replay
+    }
+  }
+  if (current && onlinePlayer.value) context.replay = onlinePlayer.value.retry
+  return context
+}
 useAssistantPage('online', () => {
   if (!safeMode.value || !browseVisible.value || playing.value || starting.value || nextLoading.value
       || hostDialog.value || categoriesOpen.value || networkPrompt.value || cacheDialog.value) return { blocked: true, tips: [] }
@@ -1548,5 +1580,5 @@ useAssistantPage('online', () => {
     actionLabel: '查看我的收藏', run: () => showRecords('favorites'),
   })
   return { tips }
-})
+}, diagnosisContext)
 </script>

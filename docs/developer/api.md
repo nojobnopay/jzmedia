@@ -66,31 +66,51 @@
 
 ## 在线来源配置
 
-读取候选配置和保存开关、来源配置不会访问上游；只有显式的 `host-check` 检查会读取一项上游目录资料，不请求候选媒体主机。总开关默认关闭；创建来源的 API 省略 `enabled` 时仍默认关闭，网页新增表单会默认提交 `enabled:true`。关闭时仍可管理来源，以便先完成配置。正式网页入口为“在线”，管理入口为“设置 → 在线视频源”；目录与播放分别使用下述独立接口。
+读取模板与保存开关、来源配置均在本地完成。`host-check` 会读取一项上游目录资料，[播放诊断](#online-diagnosis)会根据上下文读取目录、运营方帮助页或媒体样本。总开关默认关闭；创建来源的 API 省略 `enabled` 时仍默认关闭，网页新增表单会默认提交 `enabled:true`。关闭时仍可管理来源，以便先完成配置。正式网页入口为“在线”，管理入口为“设置 → 在线视频源”；目录与播放分别使用下述独立接口。
 
 | 请求 | 行为 |
 |---|---|
 | `GET /api/online/settings` | 返回总开关 `{enabled:false}` |
 | `PATCH /api/online/settings` | 必须提供布尔 `enabled`，持久保存总开关 |
-| `GET /api/online/source-templates` | 返回本地配置建议 `{items:[...]}`；不自动添加、启用或探测来源 |
+| `GET /api/online/source-templates` | 返回本地配置建议 `{items:[...]}`。每项的 `api_base_url` 为模板当前地址，`known_api_urls` 列出已核对的同运营方接口，用于在换址时辨认已有来源 |
 | `POST /api/online/sources/{source_id}/host-check` | 管理员提交 `{external_id}`，只读取一项目录；返回缺失主机、原允许列表、拒绝地址数及配置指纹，不返回播放 URL，也不访问候选媒体 |
 | `POST /api/online/sources/{source_id}/allow-hosts` | 提交 `{hosts,expected_fingerprint}`，在同一事务检查完整来源指纹并只追加主机；冲突返回 409，变更后撤销该来源旧会话 |
+| `POST /api/online/sources/{source_id}/host-migration-preview` | 按草稿接口地址、允许主机和本地已核对的公告预览主机替换，返回待确认的变更与草稿指纹 |
 | `GET /api/online/sources` | 返回 `{items:[...]}`，按优先级、创建时间和 ID 排序 |
 | `POST /api/online/sources` | 创建来源并返回 `201`；返回持久随机 ID |
-| `GET /api/online/sources/{source_id}` | 读取单个来源；不存在返回 `404` |
-| `PATCH /api/online/sources/{source_id}` | 原子更新已提供的字段；可用 `enabled:false` 停用并保留身份 |
+| `GET /api/online/sources/{source_id}` | 读取单个来源及其当前 `configuration_fingerprint`，不存在返回 `404` |
+| `PATCH /api/online/sources/{source_id}` | 原子更新已提供的字段，可一并确认主机迁移；可用 `enabled:false` 停用并保留身份 |
+
+`host-migration-preview` 接收 `{api_base_url,allowed_hosts}`，可用单项 GET 的 `configuration_fingerprint` 作为 `expected_fingerprint` 检查编辑基线。此操作只读取本地配置。返回 `{expected_fingerprint,changes}`，其中每项含 `old_host`、`new_host`、`kind`（`api`、`media` 或 `image`）及 `notice_url`。仅在接口主机变化时生成候选。旧、新地址均为已核对的同一运营方 JSON 接口时，也会按原允许列表及草稿筛选媒体或封面替换。公告链接供管理员核对。
+
+确认时 PATCH 提交与预览相同的 `api_base_url` 和 `allowed_hosts`，另传 `host_migration:{expected_fingerprint,selected_old_hosts}`。此指纹取自**预览响应**；数组可为空，新 API 主机始终加入。只替换勾选的旧主机，来源 ID 与网络规则保留。配置已变更或预览草稿失配返回 `409`，应重新预览；非法主机或候选之外的选择返回 `422`，来源不存在返回 `404`。普通 PATCH 若仅修改接口地址，移除原 API 主机并加入新的主机；若显式提交 `allowed_hosts`，按该列表保存并包含当前 API 主机。整源移除尚无 DELETE 接口。
 
 主机检查与追加还需先通过 `/api/viewing/session` 取得设备身份，并遵循管理授权与已配置的写令牌。网页和电视复用这两个管理接口。`host-check` 提交 `{external_id}`，只通过该来源的 API 网络用途读取一项详情，复用目录期限、取消和并发限制；候选取自该内容的全部线路、分集及海报地址，不做 DNS 或媒体探测，也不展开 HLS 子资源或重定向。量子官方 `liangzi` 线路的已识别网页地址也可作为主机候选，检查不会读取该网页。返回 `source_id`、`external_id`、`missing_hosts`、`allowed_hosts`、`rejected_count` 和 64 位小写十六进制 `configuration_fingerprint`。`allow-hosts` 接收 1–128 个精确主机与该指纹，在同一写事务核对完整来源状态，仅追加用户选择的主机，不覆盖并发编辑；已有主机的无变化追加不撤销会话。指纹过期返回 `409 online_source_changed`，需要重新检查。发生变更时撤销当前来源已有播放会话，配置影响使用该来源的所有设备。
 
 创建来源必须提供 `name`、`provider`、`api_base_url`，提供方支持 `maccms` 与固定开放样例 `open_catalog`。可选 `allowed_hosts` 为精确主机名列表，自动包含 API 主机，不支持通配符；`enabled` 默认 `false`，`priority` 为 0–1000 的整数、默认 100，数值越小越优先。地址只接受无内嵌账号密码、查询参数或片段的 HTTP(S) 基础地址；保存时只检查结构和字面地址，不发 DNS 或网络请求。实际读取执行[公网目标与头部策略](playback.md#在线远程读取)，保存成功不代表来源已经可播放。
 
-来源模板包含 `id/name/provider/api_base_url/allowed_hosts/provider_options/description/homepage/network_note/status`。`status` 为 `unverified` 或 `api_observed`；后者仅说明已有有界 API 读取记录，不表示媒体可播放或当前服务器直连可用。此接口沿用其它来源管理 GET 的鉴权和 `no-store`，候选及验证范围见[来源选择](../user-guide/watch-online.md#online-source-add)。管理员选定模板后仍须调用正常创建接口；模板不是自动订阅或允许任意目标的入口。
+来源模板包含 `id/name/provider/api_base_url/allowed_hosts/provider_options/description/homepage/network_note/status`。`status` 为 `unverified` 或 `api_observed`；后者仅说明已有有界 API 读取记录，不表示媒体可播放或当前服务器直连可用。此接口沿用其它来源管理 GET 的鉴权和 `no-store`，候选及验证范围见[来源目录](../user-guide/watch-online.md#online-source-directory)。管理员选定模板后仍须调用正常创建接口；模板不是自动订阅或允许任意目标的入口。
 
 `provider_options` 为严格对象，`search_action` 可选 `list/detail/videolist`、默认 `list`，`detail_action` 可选 `detail/videolist`、默认 `detail`。更新时提交该对象会整体替换，未提供的子项恢复默认；省略对象则保留原值。MacCMS 据此选择 Provide JSON 的 `ac` 参数；开放样例忽略这两个兼容选项。开放样例使用固定基础地址与媒体主机，见[配置参考](../getting-started/configuration.md#在线视频源)。
 
 更新时省略字段保持原值，显式 `null`、未知字段、修改 `provider` 或无效地址返回 `422`，本次其它字段也不保存。停用来源或修改其 `api_base_url`、`allowed_hosts`、`provider_options` 会撤销相关活动会话；仅改名或优先级不撤销。验证错误不回显提交的地址或凭据。上述全部管理接口（包括 GET）均校验已配置的访问令牌，保护启用时还需管理解锁；令牌未配置时保持现有局域网开放行为。配置响应使用 `Cache-Control: no-store`。
 
 稳定身份见[在线数据模型](data.md#在线来源与稳定身份)，播放描述的同源路径与处理约束见[在线播放描述](playback.md#在线播放描述)。
+
+### 播放诊断与方案确认 {#online-diagnosis}
+
+使用已取得观看设备身份及管理权限的请求。客户端在播放上下文中携带原节目、线路、分集的标识，在来源选择后发起检查。来源的 API 与媒体分别使用各自已配置的网络规则。
+
+| 请求 | 行为 |
+|---|---|
+| `POST /api/online/sources/{source_id}/diagnosis` | 提交 `question`，可附 `external_id`、`item_id`、`line_id`、`episode_id`、`error_code`、`cache_only`。代理媒体访问失败并且用户同意本轮临时直连测试后，才发送 `compare_direct:true`。响应含 `status`、`answer` 和 `evidence`，有可执行修改时附 `proposal` |
+| `POST /api/online/sources/{source_id}/diagnosis/{proposal_id}/confirm` | 用户同意当前提案后提交空对象。服务端核对授权、来源与网络配置，保存后按原上下文复测。保存回执的 `status` 为 `applied`，`answer` 与 `evidence` 说明本次复测结果 |
+
+证据项含 `tool`、`label`、`outcome`、`detail`、`checked_at`（Unix 秒）。目录检测通过需要收到可解析的 MacCMS 节目数据。服务端在同一 API 出口复查失败后，才考虑已识别的同一运营方发布的候选。运营方网页工具仅从登记的 HTTPS 帮助页和明确的 JSON 栏目读取受限大小的 HTML；证据会给出 `page_url`、栏目说明和读取时间。帮助页不可达或栏目结构变化时，记录采用随版本收录地址的原因。两种出处的候选都必须通过本机检查。
+
+`proposal.kind` 为 `api` 时可核对 `old_url`、`new_url` 和 `changes`。其中仅包含本次验证的 API 主机替换。公告中的播放和封面主机可通过 `host-migration-preview` 单独预览和选择。若有原节目标识，生成诊断提案还需核对节目和所选线路上的媒体样本。代理播放失败且允许临时比对时，只有同一线路直读取样成功才可能生成 `media_direct` 提案，写入目标仅为这个来源的 `media` 网络规则。
+
+客户端展示差异和五分钟有效期 `expires_at`（Unix 秒），仅对当前提案接受同意。设备、提案或配置版本不匹配返回 `409`，需要重新诊断。诊断并发已满可返回 `429`。同一有效提案重复确认返回已保存的回执，复测中的 `verification_status` 为 `pending`。最终回执的 `verification_status` 是复测结果，目录可读或取得媒体字节后，仍应由设备重新播放验证。
 
 ## 在线网络管理
 
@@ -141,11 +161,11 @@
 
 后台读取最多 8 秒，不自动重试，不借用前台连接池；与推荐共用全进程最多一路低优先工作，并计入总共四路、每设备一路的原额度。前台请求取消后台实际 I/O，等待工作退出释放名额后再接管。网页每 15 分钟最多检查一次可见页；先校验当前来源和观看范围，再核对返回的配置摘要，不能把新配置结果暂存到旧缓存。
 
-`capabilities.year_filter` 默认 `false`，当前仅已核对的暴风 `https://bfzyapi.com/api.php/provide/vod/` 与量子主站 JSON `https://cj.lziapi.com/api.php/provide/vod/` HTTPS 接口，在使用默认详情动作 `detail_action=detail` 时声明支持；不扩展到其它域名或接口。`/browse` 的 `year` 可省略或为空，否则必须为 1000–9999 的四位 ASCII 年份，并由来源接口实际过滤，可与 `category_id` 组合，目录翻页保留所选条件；未声明支持的来源返回 `422 online_year_filter_unsupported`，不访问上游。旧 `/search` 契约保持不变，仍不接受分类或年份；支持组合筛选的客户端使用下述搜索会话接口保留关键词与筛选条件。普通目录浏览的年份能力未声明支持时，电视保留状态说明并停用年份操作，网页不显示年份控件。
+`capabilities.year_filter` 默认 `false`，当前仅已核对的暴风 `https://bfzyapi.com/api.php/provide/vod/` 与量子备用 JSON `https://cj.lziapi.com/api.php/provide/vod/` HTTPS 接口，在使用默认详情动作 `detail_action=detail` 时声明支持；不扩展到其它域名或接口。`/browse` 的 `year` 可省略或为空，否则必须为 1000–9999 的四位 ASCII 年份，并由来源接口实际过滤，可与 `category_id` 组合，目录翻页保留所选条件；未声明支持的来源返回 `422 online_year_filter_unsupported`，不访问上游。旧 `/search` 契约保持不变，仍不接受分类或年份；支持组合筛选的客户端使用下述搜索会话接口保留关键词与筛选条件。普通目录浏览的年份能力未声明支持时，电视保留状态说明并停用年份操作，网页不显示年份控件。
 
 分类 `parent_id` 为空表示根；缺失父类、孤儿、自环及环形父链降为根分类，最多 256 类。普通 `/browse` 查询父分类仍按其 ID 原样请求，不隐式聚合子分类。
 
-`capabilities.search_filters` 默认 `false`，声明服务端可通过渐进搜索会话组合关键词、分类及年份。当前仅开放量子主接口 `https://cj.lziapi.com/api.php/provide/vod/`，允许省略尾斜杠或显式使用 443 端口，且要求 `detail_action=detail`、`search_action=list|detail`。未验证域名、路径或动作保持 `false`；旧服务器缺少该字段时按 `false` 处理。未开放的来源创建搜索会话返回 `422 online_search_filter_unsupported`，不访问上游。
+`capabilities.search_filters` 默认 `false`，声明服务端可通过渐进搜索会话组合关键词、分类及年份。当前仅开放量子备用接口 `https://cj.lziapi.com/api.php/provide/vod/`，允许省略尾斜杠或显式使用 443 端口，且要求 `detail_action=detail`、`search_action=list|detail`。未验证域名、路径或动作保持 `false`；旧服务器缺少该字段时按 `false` 处理。未开放的来源创建搜索会话返回 `422 online_search_filter_unsupported`，不访问上游。
 
 搜索会话标识为 `srch_` 加 32 位小写十六进制字符。创建请求的 `q` 必须为非空且最多 100 字符的单行文本；`refresh` 默认 `false`，同一范围与关键词在新鲜期内可复用，`true` 创建新会话。三个接口共用筛选窗口条件：`category_id` 默认空；`category_scope=exact|descendants` 默认 `exact`，后者包含指定分类及其全部后代；`year` 默认空，非空时沿用四位年份格式，匹配元数据开头的合法四位年份，允许地区等后缀。`offset` 是筛选结果中的起始位置，范围 0–5000，默认 0；`limit` 为 1–100，默认 20。GET 使用查询参数，两个 POST 使用 JSON 请求体。
 
@@ -759,12 +779,16 @@ AI 服务默认关闭。所有产生外部调用的入口使用 POST，沿用应
 | `GET /api/ai/settings` | 返回启用状态、服务商、地址、模型、超时、每日上限、`api_key_set/api_key_masked/api_key_source` 和当日 `usage`，不返回完整 Key |
 | `PATCH /api/ai/settings` | 部分更新 `enabled/provider/base_url/model/api_key/timeout_seconds/daily_limit`；完整校验成功才保存，保存后清空 AI 结果缓存 |
 | `POST /api/ai/check` | 使用已保存的有效配置做一次真实 JSON 输出检查；关闭智能辅助时也可显式测试，不使用缓存，计入当日次数 |
-| `POST /api/ai/assistant` | 浏览时显式提问，提交 `{channel, question, history?}`。频道接受 `movie`、`tv`、`collections`、`online` 和 `settings`。问题最多 500 字，历史最多四组 `{question, answer}`。响应含 `mode`（`social`、`ai` 或 `local`）、`answer` 和可为空的 `reaction`。网页通过 `X-Viewing-Mode` 传入提问时的观看模式。服务端核对实际观看权限，儿童和隐私浏览使用本地回复 |
+| `POST /api/ai/assistant` | 浏览时显式提问，提交 `{channel, question, history?}`。频道接受 `movie`、`tv`、`collections`、`online` 和 `settings`。问题最多 500 字，历史最多四组 `{question, answer}`。响应含 `mode`（`social`、`ai` 或 `local`）、`answer` 和可为空的 `reaction`。普通模式下明确请求换址时，本地回复可附 `open_settings: "online_source"`，供网页将当前请求转交设置助手。网页通过 `X-Viewing-Mode` 传入提问时的观看模式。服务端核对实际观看权限，儿童和隐私浏览使用本地回复 |
 | `POST /api/ai/settings-assistant` | 提交 `{question, section?, history?}`。设置答复返回 `answer`、`topics`、`mode` 和可选建议 `suggestion`。教程引用来自本版手册，配置更改须由用户在网页确认。日常互动返回 `mode: "social"`、空 `topics`、`suggestion: null` 和表演动作 `reaction`（`wave`、`smile`、`cry`、`dance` 或 `null`）。设置问题在模型不可用或答复校验失败时返回本地手册说明 |
 | `POST /api/ai/search` | `{q, kind:"movie"\|"tv", media_library_id?, library_id?}`；`q` 最多 500 字符，返回 `filters/summary/warnings` 供用户核对，不执行本地查询 |
 | `POST /api/ai/search/results` | `{q, kind?, kinds?, media_library_id?, library_id?, source?, session_id?, filters?}`。返回有序作品、范围、逐项依据、资料不足和追问标识。会话标识与设备 Cookie、进入页面、观看身份及库范围配套使用 |
 | `POST /api/ai/search/results/refresh` | 提交上次的 `session_id` 及同一页面与库范围，重新核实可见作品和观看状态，恢复返回位置。此请求不调用模型 |
 | `POST /api/ai/match` | `{kind:"movie"\|"tv", id}`；按该行所属视频库查候选，返回 `query/year/candidates/summary/warnings`，不更改绑定或媒体文件 |
+
+设置对话可以在本地识别明确的在线视频源换址请求，返回 `suggestion.kind = "online_source"`。`template_id` 标识内置运营方模板，`api_base_url` 可携带用户指定的公开目录地址，两项均可为空。网页让用户核对已有来源、目标地址和勾选的域名替换，然后沿用管理接口的换址预览和带指纹的 PATCH 提交。聊天响应本身只生成建议。
+
+用户报告在线资源播放故障时，浏览或设置对话可返回 `diagnose_online:true` 及可空的 `diagnosis_template_id`。网页选择来源后调用播放诊断接口。启用模型时，服务端可将症状类别、已有工具结果状态和可选的只读工具名交给模型排序。模型不可用或返回未知工具时，使用本地检查顺序；网络目标和配置提案均由服务端根据实际检测结果生成。[诊断和确认请求](#online-diagnosis)
 
 ### 服务商与配置
 

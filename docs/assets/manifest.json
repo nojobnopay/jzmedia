@@ -2609,11 +2609,11 @@
       "file": "screenshots/online-sources.webp",
       "page": "user-guide/watch-online.md",
       "scene": "在线点播开关与已启用来源列表",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1dc0a6448b2aa5a67e14e886fd1f29b92ab",
+      "verified_at": "2026-11-20",
+      "app_version": "0.41.5",
+      "source_commit": "3654cbbd96abde1c41c71d5cc2cf5c5e2d59633f",
       "source_state": "当前工作区；前端源码及演示数据摘要见下",
-      "source_sha256": "35394f8b618a9f94d390d56d2dd0e0e7e8ae10961979a1cce161dcca47c54afd",
+      "source_sha256": "9a4f59985c20c1d1235b3eceeaa4731a672dd18f7bbbf0d9648b45735f1038f3",
       "source_digest_scope": [
         "frontend/src/**/*"
       ],
@@ -2625,10 +2625,10 @@
       },
       "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
-      "fixture_sha256": "977a21737c322778bb0cc10850e6a447be7085788397a66c5e623c957b317360",
+      "fixture_sha256": "9ebb1bfc6cc424970f8617b27808dc9747177f7295af9a4acf8cbbe0f9519c50",
       "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "bytes": 46974,
-      "sha256": "b701e7e5e94987189dad0cca207938e3f8db3355db47ea19b99f90c887f65143"
+      "bytes": 49856,
+      "sha256": "d6d30e86a42cc6d5116245c59ccde1002b6b68999a67c332f72fd7ea316c2d14"
     },
     {
       "file": "screenshots/ai-settings-go.webp",

@@ -41,16 +41,16 @@ test('identity is stable, exact and detached from caller metadata', () => {
   assert.deepEqual(validateOnlineIdentity(MOVIE), { ...MOVIE, episode_id: null })
 })
 
-test('cache-only playback and renewal keep the local-only header while an explicit network play omits it', async () => {
+test('session creation requests cache context and keeps the local-only constraint on cached playback and renewal', async () => {
   const calls = []
   const player = client({ request: async (path, options) => { calls.push({ path, options }); return descriptor() } })
   const controller = createOnlinePlaybackController({ client: player })
   await controller.begin(MOVIE, { cacheOnly: true })
   await controller.begin(MOVIE, { cacheOnly: true })
   await controller.begin(MOVIE)
-  assert.equal(calls[0].options.headers['X-Online-Cache-Only'], 'true')
-  assert.equal(calls[1].options.headers['X-Online-Cache-Only'], 'true')
-  assert.equal(calls[2].options.headers, undefined)
+  const context = { 'X-Online-Playback-Context': 'cache' }
+  const cacheOnly = { ...context, 'X-Online-Cache-Only': 'true' }
+  assert.deepEqual(calls.map(call => call.options.headers), [cacheOnly, cacheOnly, context])
   assert.deepEqual(JSON.parse(calls[0].options.body), validateOnlineIdentity(MOVIE))
   await controller.close()
 })
@@ -266,4 +266,13 @@ test('only one bounded initial HLS alignment is recoverable without changing the
   }
   assert.equal(canRecoverOnlineStartupGap(null), false)
   assert.equal(new OnlinePlaybackError('invalid_online_descriptor').message.includes('http'), false)
+})
+
+
+test('the optional descriptor cache flag distinguishes a cached session opened from normal browsing', () => {
+  const read = extra => validateOnlineDescriptor(descriptor(SID_A, MOVIE, extra), MOVIE, { now: () => NOW })
+  assert.equal(read({ cached: true }).cached, true)
+  assert.equal(read({ cached: false }).cached, false)
+  assert.equal(Object.hasOwn(read({}), 'cached'), false)
+  assert.throws(() => read({ cached: 'yes' }), error => error.code === 'invalid_online_descriptor')
 })

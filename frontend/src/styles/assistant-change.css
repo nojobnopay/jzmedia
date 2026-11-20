@@ -1,0 +1,18 @@
+.assistant-change { margin: -6px 0 0 35px; padding: 12px; border: 1px solid var(--chat-line); border-radius: 5px 14px 14px; background: rgb(29 29 34 / 88%); color: var(--jz-text); line-height: 1.5; }
+.assistant-change h4, .assistant-change strong { display: flex; align-items: center; gap: 7px; margin: 0; font-size: var(--jz-font-m); font-weight: 650; }
+.assistant-change h4 svg { color: var(--jz-text-dim); }
+.assistant-change > label, .assistant-change .hint { display: block; margin: 5px 0; color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+.assistant-change select, .assistant-change input[type="url"] { display: block; width: 100%; min-width: 0; box-sizing: border-box; }
+.assistant-change dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 9px 0 12px; padding: 8px 10px; border-radius: 8px; background: rgb(255 255 255 / 5%); font-size: var(--jz-font-m); }
+.assistant-change dt { color: var(--jz-text-dim); }
+.assistant-change dd { margin: 0; overflow-wrap: anywhere; }
+.assistant-change dd:last-child { font-weight: 600; }
+.assistant-change p { margin: 8px 0; }
+.assistant-actions, .assistant-change.finished { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 10px; }
+.assistant-actions .jz-button { min-height: 34px; padding: 6px 12px; border-radius: 9px; }
+.assistant-change a { color: var(--chat-link); }
+.assistant-change.finished { padding-block: 9px; }
+.assistant-change.finished strong svg { color: var(--jz-success); }
+@media (max-width: 700px), (pointer: coarse) {
+  .assistant-actions .jz-button { min-height: 44px; }
+}

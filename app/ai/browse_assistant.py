@@ -8,6 +8,7 @@ from pydantic import Field
 from .assistant_common import UNVERIFIED_LINK, Answer, Question, StrictModel, Turn, contains_private_text
 from .assistant_persona import ENCORE_QUESTION, ENCORES, Reaction, social_intent, stage_cue
 from .client import MAX_INPUT_BYTES, AiUnavailable, call_json, discard_cached
+from .online_source_intent import diagnosis_intent, online_source_request
 
 
 class BrowseQuestion(StrictModel):
@@ -106,6 +107,17 @@ def _local(body, mode, tips, reason):
 
 
 def reply(body: BrowseQuestion, mode: str):
+    if mode == "normal" and body.channel != "settings":
+        diagnosis = diagnosis_intent(body.question, online_context=body.channel == "online")
+        if diagnosis:
+            return {"mode": "local", "answer": "我来检查来源和播放线路。", "reaction": None, **diagnosis}
+        request = online_source_request(body.question, online_section=body.channel == "online")
+        if request is not None:
+            answer, suggestion = request
+            if suggestion:
+                return {"mode": "local", "answer": "可以。在设置中核对来源和新旧域名，确认后保存。",
+                        "reaction": None, "open_settings": "online_source"}
+            return {"mode": "local", "answer": answer, "reaction": None}
     if contains_private_text(body.question, body.history):
         return {"mode": "local", "answer": "这段对话可能包含凭据、地址或文件路径。可以省略具体值，直接告诉我你想做什么。", "reaction": None}
     intent = social_intent(body.question)

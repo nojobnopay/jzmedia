@@ -23,6 +23,7 @@ EpisodeId = Annotated[str, StringConstraints(min_length=35, max_length=35,
 LineId = Annotated[str, StringConstraints(min_length=35, max_length=35,
                                        pattern=r"^ln_[0-9a-f]{32}$")]
 Provider = Literal["maccms", "open_catalog"]
+Fingerprint = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
@@ -162,6 +163,44 @@ class OnlineSourceCreate(_Contract):
         return self
 
 
+class HostMigrationPreviewRequest(_Contract):
+    api_base_url: str = Field(max_length=2048)
+    allowed_hosts: list[str] = Field(max_length=128)
+    expected_fingerprint: Fingerprint | None = None
+
+    @field_validator("api_base_url")
+    @classmethod
+    def normalize_url(cls, value):
+        return validate_api_base_url(value)
+
+    @field_validator("allowed_hosts")
+    @classmethod
+    def normalize_hosts(cls, values):
+        return OnlineSourceCreate.normalize_hosts(values)
+
+
+class HostMigrationChange(_Contract):
+    old_host: str
+    new_host: str
+    kind: Literal["api", "media", "image"]
+    notice_url: str
+
+
+class HostMigrationPreview(_Contract):
+    expected_fingerprint: Fingerprint
+    changes: list[HostMigrationChange]
+
+
+class HostMigrationSelection(_Contract):
+    expected_fingerprint: Fingerprint
+    selected_old_hosts: list[str] = Field(max_length=128)
+
+    @field_validator("selected_old_hosts")
+    @classmethod
+    def normalize_hosts(cls, values):
+        return OnlineSourceCreate.normalize_hosts(values)
+
+
 class OnlineSourcePatch(_Contract):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     api_base_url: str | None = Field(default=None, max_length=2048)
@@ -169,6 +208,7 @@ class OnlineSourcePatch(_Contract):
     enabled: bool | None = None
     priority: int | None = Field(default=None, ge=0, le=1000)
     provider_options: OnlineProviderOptions | None = None
+    host_migration: HostMigrationSelection | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -197,6 +237,10 @@ class OnlineSource(OnlineSourceCreate):
     id: SourceId
     created_at: int = Field(ge=0)
     updated_at: int = Field(ge=0)
+
+
+class OnlineSourceDetail(OnlineSource):
+    configuration_fingerprint: Fingerprint
 
 
 class OnlineItem(_Contract):
@@ -269,10 +313,19 @@ class OnlinePlaybackDescriptor(_Contract):
     session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{32,128}$")]
     transport: Literal["mp4", "hls"]
     processing: Literal["passthrough"] = "passthrough"
+    cached: bool | None = None
     seekable: bool
     duration_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     time_offset_seconds: float = Field(default=0.0, ge=0, le=0, allow_inf_nan=False)
     expires_at: int = Field(gt=0)
+
+    @model_serializer(mode="wrap")
+    def serialize_descriptor(self, handler):
+        values = handler(self)
+        # Deployed TV and web clients enforce an exact field allowlist.
+        if self.cached is None:
+            values.pop("cached", None)
+        return values
 
     @field_validator("session_id")
     @classmethod

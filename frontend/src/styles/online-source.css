@@ -29,6 +29,12 @@
 .online-host-list label { display: flex; align-items: center; gap: var(--jz-gap-s); min-height: 44px; }
 .online-host-list input { flex: none; }
 .online-host-list span { min-width: 0; overflow-wrap: anywhere; }
+.online-migration { min-width: 0; margin: var(--jz-gap-m) 0; padding: var(--jz-gap-m); border: 1px solid var(--jz-border); border-radius: var(--jz-radius-s); }
+.online-migration legend { padding-inline: var(--jz-gap-xs); font-weight: 600; }
+.online-migration .online-host-list { margin-bottom: 0; }
+.online-migration li { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--jz-gap-m); }
+.online-migration label { min-width: 0; }
+.online-migration a { display: inline-flex; align-items: center; min-height: var(--jz-touch-target); }
 .online-host-check > a { display: inline-flex; align-items: center; min-height: var(--jz-control-current); margin-top: var(--jz-gap-m); }
 @media (max-width: 700px), (pointer: coarse) {
   .online-proxy-fields, .online-proxy-credentials { grid-template-columns: 1fr; }

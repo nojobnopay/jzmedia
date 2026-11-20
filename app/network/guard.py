@@ -173,6 +173,30 @@ def operation_context(operation):
         _current.reset(token)
 
 
+class _ChildCancellation:
+    def __init__(self, operation):
+        self.operation = operation
+
+    def shutdown(self, _how):
+        self.operation.abort()
+
+
+@contextmanager
+def child_operation(parent, deadline):
+    """Give an optional read a shorter budget while retaining the parent's socket cancellation."""
+    child = NetworkOperation(min(deadline, parent.deadline) if parent is not None else deadline)
+    cancellation = _ChildCancellation(child)
+    try:
+        if parent is not None:
+            parent.bind_socket(cancellation)
+        with operation_context(child):
+            yield child
+    finally:
+        if parent is not None:
+            parent.release_socket(cancellation)
+        child.close()
+
+
 def current_operation():
     return _current.get()
 

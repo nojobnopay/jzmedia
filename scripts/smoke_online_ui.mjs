@@ -96,9 +96,14 @@ function api(url, method, body) {
     if (key === '/api/online/network/profiles/' + settingsProfileId) {
       Object.assign(settingsData.profiles[0], body); return settingsData.profiles[0]
     }
-    const sourceMatch = /^\/api\/online\/sources\/(src_[a-f0-9]{32})(?:\/(network|host-check|allow-hosts))?$/.exec(key)
+    const sourceMatch = /^\/api\/online\/sources\/(src_[a-f0-9]{32})(?:\/(network|host-check|allow-hosts|host-migration-preview))?$/.exec(key)
     if (sourceMatch) {
       const source = settingsData.sources.find(item => item.id === sourceMatch[1]); assert.ok(source)
+      if (!sourceMatch[2] && method === 'GET') return { ...source, configuration_fingerprint: 'a'.repeat(64) }
+      if (sourceMatch[2] === 'host-migration-preview') {
+        assert.equal(body.api_base_url, source.api_base_url)
+        return { expected_fingerprint: 'b'.repeat(64), changes: [] }
+      }
       if (sourceMatch[2] === 'network') {
         if (method === 'PATCH') settingsData.policies[source.id] = body
         return { policy: settingsData.policies[source.id] }

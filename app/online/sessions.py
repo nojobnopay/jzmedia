@@ -135,6 +135,7 @@ class OnlineSession:
     def descriptor(self):
         return OnlinePlaybackDescriptor(identity=self.identity, session_id=self.id,
                                         transport=self.transport, seekable=self.seekable,
+                                        cached=self.cache_id is not None,
                                         duration_seconds=self.duration_seconds, expires_at=self.expires_at)
 
 

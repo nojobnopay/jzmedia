@@ -9,7 +9,7 @@
 只检查仓库内相对路径与 `#锚点`；http(s) 外链、模板变量不检查。
 扫描包含 `.agents/skills/` 下的源 Markdown；其余 agent 本地文件、
 私有记录、依赖与构建产物不参与检查，仓库外符号链接也不读取。
-存在性：链接目标文件必须存在；锚点匹配目标文件的显式 HTML id，
+存在性：链接目标文件必须存在；锚点匹配目标文件的显式 HTML id、VitePress 标题 {#id}，
 或标题生成的近似 GitHub 风格 slug（小写、空格→`-`，去标点，中文保留）。
 此源检查不模拟各阅读器的完整 Markdown 渲染；中文标点、重复标题等
 slug 规则可能不同。稳定入口使用显式 id，公开页面以构建后的 HTML 检查为准。
@@ -28,6 +28,7 @@ from pathlib import Path
 
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
+HEADING_ID_RE = re.compile(r"\s+\{#([^{}\s]+)\}$")
 FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)(.*?)(?<!`)\1(?!`)", re.DOTALL)
 
@@ -127,7 +128,9 @@ def headings_of(path: Path) -> set[str]:
     for line in text.splitlines():
         m = HEADING_RE.match(line)
         if m:
-            out.add(slugify(m.group(2)))
+            title = m.group(2)
+            custom_id = HEADING_ID_RE.search(title)
+            out.add(custom_id.group(1) if custom_id else slugify(title))
     return out
 
 

@@ -58,6 +58,18 @@ def test_offline_conversation_can_follow_a_channel_switch(client):
     assert again["reaction"] == "dance" and again["answer"] != dance["answer"]
 
 
+def test_source_update_from_browsing_hands_off_without_model_or_source_access(client, monkeypatch):
+    monkeypatch.setattr(browse_assistant, "call_json", lambda *args: pytest.fail("unexpected model request"))
+    question = "帮我更新量子资源接口"
+    response = ask(client, question, "online").json()
+    assert response["mode"] == "local" and response["open_settings"] == "online_source"
+    assert "suggestion" not in response and settings.usage()["requests"] == 0
+    protect(client)
+    for mode in ("private", "children"):
+        client.post("/api/viewing/mode", json={"mode": mode, "password": "123456"}).raise_for_status()
+        assert "open_settings" not in ask(client, question, "movie").json()
+
+
 def test_offline_followup_applies_the_subject_to_the_new_channel(client):
     question = "怎么找没看过的电影？"
     movie = ask(client, question).json()

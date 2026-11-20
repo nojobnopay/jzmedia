@@ -51,7 +51,7 @@ async function setup(t, request, { stateRequest, relatedRequest, hostRequest, ca
     './ActionMenu.vue': { default: { setup: (_props, { slots }) => () => Vue.h('div', slots.default?.()) } },
     '../components/OnlinePlayerModal.vue': { default: { props: ['onlineIdentity', 'initialPosition', 'prepareSession', 'cacheOnly'], setup: props => {
       const listeners = Vue.getCurrentInstance().vnode.props
-      const player = { props, ended: identity => listeners.onEnded(identity || props.onlineIdentity),
+      const player = { props, fail: (code, cached) => listeners.onFailure(code, cached), ended: identity => listeners.onEnded(identity || props.onlineIdentity),
         progress: value => listeners.onProgress(value), close: () => listeners.onClose(), session: value => props.prepareSession(value) }
       players.push(player)
       return () => Vue.h('div', { 'data-stub-player': true })
@@ -761,6 +761,32 @@ test('choosing another season replaces a deep-link identity before a later refre
   ui.find(node => node.props['data-online-related-id'] === 'season-3').props.onClick(); await flush()
   assert.deepEqual(navigations.at(-1), { path: '/online', query: { source: SOURCE_A, item: 'season-3' } })
   assert.equal(players.length, 0)
+})
+
+test('the assistant binds a failed episode and forgets it when the viewer selects another line', async t => {
+  const { ui, players } = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/search?') ? rows : multiLineShow())
+  await openShow(ui)
+  const context = () => assistantPage.value.diagnosis
+  assert.equal(context().item_id, ITEM)
+  assert.equal(context().source_id, SOURCE_A)
+  assert.equal(context().episode_id, undefined)
+  selectedEntry(ui).props.onClick(); await flush()
+  players[0].fail('online_decode_unsupported'); await flush()
+  assert.equal(context().episode_id, players[0].props.onlineIdentity.episode_id)
+  assert.equal(context().line_id, LINE)
+  assert.equal(context().cache_only, false)
+  assert.equal(context().error_code, 'online_decode_unsupported')
+  players[0].fail('online_cache_corrupt', true); await flush()
+  assert.equal(context().cache_only, true)
+  players[0].close(); await flush()
+  assert.equal(context().cache_only, true)
+  assert.equal(context().episode_id, players[0].props.onlineIdentity.episode_id)
+  assert.equal(typeof context().replay, 'function')
+  const retry = context().replay
+  await ui.find(node => node.props['data-online-line'] === ALT_LINE).props.onClick(); await flush()
+  assert.equal(context().error_code, undefined)
+  retry(); await flush()
+  assert.equal(players.length, 1)
 })
 
 test('playing an episode aborts pending recommendations before reading selected progress', async t => {

@@ -100,7 +100,7 @@ import '../onlinePlayer.css'
 
 const props = defineProps({ onlineIdentity: { type: Object, required: true }, title: { type: String, default: '' },
   initialPosition: { type: Number, default: 0 }, prepareSession: { type: Function, default: null }, cacheOnly: Boolean })
-const emit = defineEmits(['close', 'progress', 'ended', 'session'])
+const emit = defineEmits(['close', 'progress', 'ended', 'session', 'failure'])
 const dialogEl = ref(null), stageEl = ref(null), videoEl = ref(null)
 const volumeControl = ref(null), quickControls = ref(null)
 const focus = useFocusTrap(ref(true), dialogEl)
@@ -110,7 +110,7 @@ const memory = createOnlineProgressMemory()
 const descriptor = ref(null), transport = ref(''), engine = ref('')
 const videoKey = ref(0), position = ref(0), duration = ref(0), buffered = ref([])
 const paused = ref(true), booting = ref(true), seeking = ref(false), needGesture = ref(false), error = ref('')
-const buffering = ref(false)
+const cachedPlayback = ref(false), failureCode = ref(''), buffering = ref(false)
 const volume = ref(1), muted = ref(false), rate = ref(1), volumeSupported = ref(true)
 const audios = ref([]), subtitles = ref([]), audioIndex = ref(0), subtitleIndex = ref(-1)
 const activePanel = ref(''), panelHeight = ref(240), isFull = ref(false), hint = ref('')
@@ -212,6 +212,9 @@ function stop() {
 function fail(category, message) {
   save(undefined, 'error')
   record(category)
+  failureCode.value = cleanCategory(category)
+  if (failureCode.value.startsWith('online_cache_')) cachedPlayback.value = true
+  emit('failure', failureCode.value, cachedPlayback.value)
   error.value = message
   void stop()
 }
@@ -353,7 +356,9 @@ async function load({ start = position.value, paused: keepPaused = false, recove
   const control = bootController = new AbortController()
   detachMedia()
   descriptor.value = null; transport.value = ''; engine.value = ''
-  error.value = ''; hint.value = ''; booting.value = true; needGesture.value = false
+  cachedPlayback.value = !!props.cacheOnly
+  if (failureCode.value) emit('failure', '')
+  error.value = ''; failureCode.value = ''; hint.value = ''; booting.value = true; needGesture.value = false
   firstFrame.value = false; startupGapRecoveries.value = 0; presentedFrames = 0
   audios.value = []; subtitles.value = []; audioIndex.value = 0; subtitleIndex.value = -1
   buffered.value = []; dragging.value = false; endedOnce = false; diagnosing = false; resumeApplied = false
@@ -376,6 +381,7 @@ async function load({ start = position.value, paused: keepPaused = false, recove
     if (!current(gen, video) || control.signal.aborted) return
     const result = await controller.begin(identity, { signal: control.signal, cacheOnly: props.cacheOnly })
     if (!current(gen, video) || control.signal.aborted) { await client.release(result.session_id); return }
+    cachedPlayback.value = !!props.cacheOnly || result.cached === true
     descriptor.value = result; transport.value = result.transport
     emit('session', { identity: result.identity, session_id: result.session_id })
     // Acquire the progress writer before there can be a decoded frame. Closing
@@ -669,5 +675,5 @@ onBeforeUnmount(() => {
   unlockOrientation()
 })
 onUnmounted(() => { if (import.meta.env.DEV && window.__jzOnlinePlayer === debug) delete window.__jzOnlinePlayer })
-defineExpose({ snapshot, saveFinal: () => { save(undefined, 'close'); return Promise.resolve() } })
+defineExpose({ snapshot, retry, cachedPlayback, saveFinal: () => { save(undefined, 'close'); return Promise.resolve() } })
 </script>

@@ -116,7 +116,9 @@ def test_real_download_publish_disconnect_and_local_playback(transport, clips, t
         monkeypatch.setattr(service, "create_online_client", forbidden)
         monkeypatch.setattr(cache_download, "create_online_client", forbidden)
         monkeypatch.setattr(catalog, "detail", forbidden)
-        online.update_online_source(source["id"], {"enabled": False})
+        migrated = client.patch(f'/api/online/sources/{source["id"]}', json={
+            "api_base_url": "https://replacement.example/api/", "enabled": False})
+        assert migrated.status_code == 200 and migrated.json()["allowed_hosts"] == ["replacement.example"]
         count = len(reads)
         assert client.get("/api/online/cache/items").json()["items"][0]["ready_count"] == 1
         snapshot = client.get(f'/api/online/cache/items/{item["id"]}')

@@ -5,12 +5,17 @@
       :panel-id="settingsChat ? 'settings-assistant-panel' : 'assistant-page-panel'" :label="settingsChat ? '问设置助手' : '打开小映'"
       @toggle="toggle" @position="corner = $event">
       <AssistantChatDialog v-if="settingsChat" key="management" v-bind="settings.dialogProps" :docked="!modal" :corner="corner"
+        :initial-source-request="initialSourceRequest" :viewing-mode="viewingMode"
         @motion="replyMotion = $event" @busy="busy = $event" @close="close" @configure="configure"
         @rules-saved="settings.rulesSaved" @display-saved="settings.displaySaved"
         @update:corner="launcher?.moveToCorner($event)" />
       <AssistantChatDialog v-else :key="scope" v-model:history="history" :channel="channel" :channel-label="channelInfo.label"
-        :guide="guide" :viewing-mode="viewingMode" :docked="!modal" :corner="corner"
-        @motion="replyMotion = $event" @close="close" @update:corner="launcher?.moveToCorner($event)">
+        :guide="guide" :initial-diagnosis-question="initialDiagnosisQuestion" :initial-diagnosis-context="resumedContext" :context-key="route.fullPath"
+        :diagnosis-context="chatDiagnosisContext" :online-sources="inSettings ? settings?.dialogProps.onlineSources : undefined"
+        :needs-diagnosis-unlock="viewing.enabled && !viewing.management_unlocked"
+        @unlock-diagnosis="unlockDiagnosis" @busy="busy = $event" @replay="replay"
+        :viewing-mode="viewingMode" :docked="!modal" :corner="corner"
+        @motion="replyMotion = $event" @close="close" @review-source="reviewSource" @update:corner="launcher?.moveToCorner($event)">
         <template #welcome>
           <ul v-if="tips.length" class="assistant-thread assistant-page-tips" aria-label="本页提示">
             <li v-for="tip in tips" :key="tip.id" class="assistant-welcome">
@@ -33,7 +38,8 @@
 
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { ensureManagement, viewing } from '../viewing.js'
 import { assistantPage } from '../assistantPage.js'
 import { createAssistantRoutine } from '../assistantRoutine.js'
 import { settingsAssistantHost as settings } from '../settingsAssistantHost.js'
@@ -47,11 +53,15 @@ import HelpLink from './HelpLink.vue'
 const AssistantChatDialog = defineAsyncComponent(() => import('./AssistantChatDialog.vue'))
 const props = defineProps({ channel: String, scope: String, blocked: Boolean, viewingMode: String })
 const route = useRoute()
+const router = useRouter()
+const pendingSourceRequest = ref(''), initialSourceRequest = ref('')
+const initialDiagnosisQuestion = ref(''), resumedContext = shallowRef(null)
 const inSettings = computed(() => route.path === '/settings')
 const origin = shallowRef(null)
 const history = ref([])
-const settingsChat = computed(() => !origin.value && inSettings.value && !!settings.value)
+const settingsChat = computed(() => inSettings.value && !!settings.value && (!origin.value || settings.value.dialogProps.section === 'sec-online'))
 const page = computed(() => assistantPage.value?.channel === props.channel ? assistantPage.value : null)
+const chatDiagnosisContext = computed(() => inSettings.value ? settings.value?.dialogProps.diagnosisContext : page.value?.diagnosis)
 const tips = computed(() => origin.value ? [] : page.value?.tips || [])
 const channels = {
   movie: { label: '电影', guide: 'movies' }, tv: { label: '剧集', guide: 'watch-tv' },
@@ -92,6 +102,9 @@ const motion = computed(() => {
 })
 
 function reset() {
+  pendingSourceRequest.value = ''
+  initialDiagnosisQuestion.value = ''; resumedContext.value = null
+  initialSourceRequest.value = ''
   if (open.value) routine.opened()
   open.value = false
   origin.value = null
@@ -126,6 +139,43 @@ async function configure() {
   const host = settings.value
   if (await host?.configure() && settings.value === host && phone.value) close()
 }
+async function unlockDiagnosis(question) {
+  if (props.blocked || props.viewingMode !== 'normal') return
+  const from = route.fullPath, trigger = origin.value, parent = origin.value?.parentElement, context = chatDiagnosisContext.value
+  if (!await ensureManagement()) return
+  await nextTick()
+  if (route.fullPath !== from || props.blocked || props.viewingMode !== 'normal') return
+  if (context) {
+    const { source_id, item_id, external_id, episode_id, line_id, error_code, cache_only } = context
+    resumedContext.value = { source_id, item_id, external_id, episode_id, line_id, error_code, cache_only }
+  }
+  origin.value = trigger?.isConnected ? trigger : parent?.isConnected ? parent.querySelector('[data-assistant-entry]') : null
+  initialDiagnosisQuestion.value = question
+  open.value = true
+}
+function replay(run) {
+  if (busy.value || props.blocked || props.viewingMode !== 'normal' || typeof run !== 'function' || run !== page.value?.diagnosis?.replay) return
+  close()
+  run()
+}
+async function reviewSource(question) {
+  if (props.blocked || props.viewingMode !== 'normal') return
+  const from = route.fullPath
+  if (viewing.enabled && !viewing.management_unlocked && !await ensureManagement()) return
+  if (route.fullPath !== from || props.blocked || props.viewingMode !== 'normal') return
+  const failure = await router.push({ path: '/settings', query: { sec: 'sec-online' } })
+  await nextTick()
+  if (!failure && !props.blocked && props.viewingMode === 'normal' && route.path === '/settings' && route.query.sec === 'sec-online') {
+    pendingSourceRequest.value = question
+  }
+}
+watch([pendingSourceRequest, () => settings.value?.dialogProps.section], ([question, section]) => {
+  if (question && section === 'sec-online' && settingsChat.value && !props.blocked) {
+    initialSourceRequest.value = question
+    pendingSourceRequest.value = ''
+    open.value = true
+  }
+}, { flush: 'post' })
 async function perform(tip) {
   const location = route.fullPath
   const scope = props.scope

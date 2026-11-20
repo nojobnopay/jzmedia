@@ -136,6 +136,20 @@ def test_source_list_reuses_scope_without_reading_markdown(tmp_path, monkeypatch
     assert json.loads(capsys.readouterr().out) == [".agents/skills/demo/SKILL.md", "README.md"]
 
 
+def test_vitepress_custom_heading_ids_replace_the_generated_slug(tmp_path):
+    target = write_doc(tmp_path, "docs/example.md", """# Example
+
+#### 去哪里找片源？ {#source-directory}
+
+Also see {#not-a-heading}.
+
+```md
+## Fenced heading {#not-a-target}
+```
+""")
+    assert links.headings_of(target) == {"example", "source-directory"}
+
+
 def test_explicit_html_ids_work_for_local_and_cross_page_links(tmp_path):
     target = write_doc(tmp_path, "docs/deployment.md", """# Deployment
 

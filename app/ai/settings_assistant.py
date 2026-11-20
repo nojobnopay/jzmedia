@@ -11,6 +11,7 @@ from ..metadata.chain import KNOWN_PROVIDERS
 from .assistant_common import UNVERIFIED_LINK, Answer, Question, StrictModel, Turn, contains_private_text
 from .assistant_persona import ENCORE_QUESTION, ENCORES, Reaction, social_intent, stage_cue
 from .client import MAX_INPUT_BYTES, AiUnavailable, call_json, discard_cached
+from .online_source_intent import diagnosis_intent, online_source_request
 
 
 class SettingsQuestion(StrictModel):
@@ -156,6 +157,13 @@ def _local(topics, reason, *, identified, setup=False):
 
 
 def reply(body: SettingsQuestion):
+    diagnosis = diagnosis_intent(body.question, online_context=body.section == "sec-online")
+    if diagnosis:
+        return {**_response("我来检查来源和播放线路。", [_topic("online-source-diagnosis")]), **diagnosis}
+    online_request = online_source_request(body.question, body.history, online_section=body.section == "sec-online")
+    if online_request:
+        answer, proposal = online_request
+        return _response(answer, [_topic("online-source-migration")], proposal)
     private = contains_private_text(body.question, body.history)
     intent = social_intent(body.question)
     if not private:

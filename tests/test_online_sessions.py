@@ -74,6 +74,7 @@ def test_descriptor_and_reprs_never_expose_upstream_or_owner(registry):
     descriptor = session.descriptor.model_dump()
     assert descriptor["media_url"] == f"/api/online/sessions/{session.id}/media"
     assert descriptor["identity"]["source_id"] == SOURCE
+    assert descriptor["cached"] is False
     assert (descriptor["transport"], descriptor["processing"], descriptor["time_offset_seconds"]) == ("mp4", "passthrough", 0)
     assert descriptor["expires_at"] == 1700000020
     assert session.context is context

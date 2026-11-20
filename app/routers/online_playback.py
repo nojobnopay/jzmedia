@@ -217,6 +217,8 @@ async def create_session(body: OnlinePlaybackIdentity, request: Request):
         if attempt.cancelled.is_set():
             raise service.PlaybackError("online_create_cancelled", 410)
         descriptor = session.descriptor
+        if isinstance(descriptor, OnlinePlaybackDescriptor) and request.headers.get("x-online-playback-context") != "cache":
+            descriptor = descriptor.model_copy(update={"cached": None})
         returned = True
         return descriptor
     finally:

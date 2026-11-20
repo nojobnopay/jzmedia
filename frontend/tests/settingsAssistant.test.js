@@ -278,3 +278,182 @@ test('social replies animate only the latest response and cannot introduce setti
   assert.equal(motions.at(-1), 'reply', 'unknown social reactions use the ordinary reply pose')
   assert.equal(poses('drag').length, 0)
 })
+
+test('a source change card works locally with AI disabled; an AI-generated source suggestion never opens it', async t => {
+  let mode = 'local'
+  const requests = []
+  const ui = await mount(t, async (path, options = {}) => {
+    requests.push([path, options.method || 'GET'])
+    if (path === '/api/ai/settings') return { enabled: false, provider: 'compatible' }
+    if (path === '/api/ai/settings-assistant') return { mode, answer: '请选择来源并核对接口。', topics: [],
+      suggestion: { kind: 'online_source', template_id: 'liangzi', api_base_url: null } }
+    if (path === '/api/online/sources' || path === '/api/online/source-templates') return { items: [] }
+    throw new Error('Unexpected request ' + path)
+  }, { section: 'sec-online' })
+  const card = () => ui.find(el => 'data-assistant-source-migration' in el.props)
+  await ui.ask('帮我更新量子资源接口'); await flush()
+  assert.ok(card())
+  assert.match(ui.text(), /请先在“在线视频源”添加 MacCMS 来源/)
+  mode = 'ai'
+  await ui.ask('帮我更新量子资源接口'); await flush()
+  assert.equal(card(), undefined)
+  assert.equal(requests.filter(([path]) => path === '/api/online/sources').length, 1)
+  assert.ok(!requests.some(([, method]) => method === 'PATCH'))
+})
+
+const diagnosisSource = { id: 'src_a', name: '家庭来源', api_base_url: 'https://old.example/vod' }
+const otherSource = { id: 'src_b', name: '另一个来源', api_base_url: 'https://other.example/vod' }
+const details = { source_id: diagnosisSource.id, item_id: 'itm_a', external_id: '67', episode_id: 'ep_a', line_id: 'ln_a', error_code: 'http_403', cache_only: false }
+const report = { answer: '旧目录两次访问失败，候选接口可以读取原线路。', evidence: [
+  { tool: 'current_catalogue', label: '原目录', outcome: 'failed', detail: 'HTTP 403' },
+  { tool: 'operator_directory', label: '运营方公告', outcome: 'ok', page_url: 'https://example.com/published' },
+], proposal: { kind: 'api', id: 'p1', old_url: diagnosisSource.api_base_url, new_url: 'https://new.example/vod', changes: [
+  { kind: 'api', old_host: 'old.example', new_host: 'new.example' }], expires_at: 4102444800 } }
+const diagnosisQuestion = '为什么在线资源无法播放了？'
+
+async function diagnoseChat(t, { opts = {}, items = [diagnosisSource], diagnose = () => report,
+  confirm = () => ({ status: 'applied', answer: '已经替换原接口并复测', evidence: [] }), chat = {} } = {}) {
+  const calls = []
+  const request = async (path, options = {}) => {
+    const body = options.body && JSON.parse(options.body)
+    calls.push({ path, body, signal: options.signal })
+    if (path === '/api/ai/settings') return { enabled: false, provider: 'compatible' }
+    if (['/api/ai/assistant', '/api/ai/settings-assistant'].includes(path)) return { answer: '正在分析播放问题。', mode: 'local',
+      topics: [], diagnose_online: body.question !== '新话题', ...chat }
+    if (path === '/api/online/sources') return { items }
+    if (path === '/api/online/source-templates') return { items: [{ id: 'liangzi', api_base_url: 'https://new.example/vod', known_api_urls: [diagnosisSource.api_base_url] }] }
+    if (path.endsWith('/confirm')) return confirm()
+    if (path.endsWith('/diagnosis')) return diagnose(body)
+    assert.fail(path)
+  }
+  const ui = await mount(t, request, { channel: 'online', diagnosisContext: details, ...opts })
+  const button = label => ui.find(el => el.type === 'button' && nodeText(el).includes(label))
+  const posts = ending => calls.filter(row => row.path.endsWith(ending) && row.body)
+  return { ...ui, calls, button, posts }
+}
+
+test('browsing uses the active episode, one text confirmation and readback; replay waits for a click', async t => {
+  const inspection = deferred(), write = deferred()
+  let replay = 0
+  const ui = await diagnoseChat(t, { items: [diagnosisSource, otherSource], diagnose: () => inspection.promise,
+    confirm: () => write.promise, opts: { diagnosisContext: { ...details, replay: () => replay++ }, onReplay: run => run() } })
+  await ui.ask(diagnosisQuestion)
+  await flush()
+  assert.match(ui.text(), /我正在帮你分析/)
+  const { source_id, ...bound } = details
+  assert.deepEqual(ui.posts('/diagnosis').map(call => [call.path, call.body]), [
+    ['/api/online/sources/' + source_id + '/diagnosis', { question: diagnosisQuestion, ...bound }],
+  ])
+  inspection.resolve(report); await flush()
+  assert.match(ui.text(), /HTTP 403/)
+  assert.ok(ui.find(el => el.props.href === 'https://example.com/published'))
+  assert.match(ui.text(), /old\.example 换为 new\.example/)
+  const agree = ui.button('同意修改')
+  await ui.ask('同意'); await flush()
+  await agree.props.onClick()
+  await ui.ask('同意')
+  assert.deepEqual(ui.posts('/confirm').map(row => row.body), [{}])
+  assert.equal(ui.posts('/api/ai/assistant').length, 1)
+  write.resolve({ status: 'applied', answer: '已保存并复测目录', evidence: [] }); await flush()
+  assert.match(ui.text(), /已保存并复测/)
+  assert.equal(ui.calls.filter(call => call.path === '/api/online/sources').length, 2)
+  assert.equal(replay, 0)
+  await ui.button('重新播放').props.onClick(); assert.equal(replay, 1)
+})
+
+test('named operators and manual source selection do not carry another source’s episode identifiers', async t => {
+  const duplicate = { ...diagnosisSource, id: 'src_c' }
+  const ui = await diagnoseChat(t, { opts: { channel: undefined, section: 'sec-online', diagnosisContext: { ...details, source_id: otherSource.id } },
+    chat: { diagnosis_template_id: 'liangzi' }, items: [diagnosisSource, otherSource, duplicate] })
+  await ui.ask('为什么量子资源无法播放？'); await flush()
+  assert.equal(ui.posts('/diagnosis').length, 0)
+  ui.find(el => el.props.id === 'assistant-diagnosis-source').props['onUpdate:modelValue'](duplicate.id)
+  await flush()
+  assert.deepEqual(ui.posts('/diagnosis').map(row => row.body), [{ question: '为什么量子资源无法播放？' }])
+  assert.ok(ui.posts('/diagnosis')[0].path.includes(duplicate.id))
+  await ui.ask('取消'); await ui.ask('同意'); await flush()
+  assert.equal(ui.posts('/confirm').length, 0)
+  assert.equal(ui.posts('/api/ai/settings-assistant').length, 1)
+})
+
+test('explicit direct comparison can produce a media-only proposal, and conflicts require fresh diagnosis', async t => {
+  const ui = await diagnoseChat(t, { diagnose: body => body.compare_direct
+    ? { ...report, answer: '代理失败、直连读取成功。', proposal: { kind: 'media_direct', id: 'p1', expires_at: 4102444800 } }
+    : { answer: '媒体出口返回 HTTP 403。', evidence: [], can_compare_direct: true }, confirm: () => { throw Object.assign(new Error(), { status: 409 }) } })
+  await ui.ask(diagnosisQuestion); await flush()
+  assert.equal(ui.posts('/diagnosis')[0].body.compare_direct, undefined)
+  await ui.button('允许临时直连测试本集').props.onClick(); await flush()
+  assert.equal(ui.posts('/diagnosis')[1].body.compare_direct, true)
+  assert.match(ui.text(), /当前播放出口代理新的播放出口直连/)
+  await ui.button('同意修改').props.onClick(); await flush()
+  assert.match(ui.text(), /已变化，请重新诊断/)
+  await ui.ask('同意')
+  assert.equal(ui.posts('/confirm').length, 1)
+  await ui.button('重新诊断').props.onClick(); await flush()
+  assert.equal(ui.posts('/diagnosis').length, 3)
+})
+
+test('locked access, changed contexts and unrelated questions never apply a prior proposal', async t => {
+  const unlocks = []
+  const ui = await diagnoseChat(t, { opts: { needsDiagnosisUnlock: true, onUnlockDiagnosis: q => unlocks.push(q) } })
+  await ui.ask(diagnosisQuestion); await flush()
+  assert.equal(ui.calls.some(row => row.path.startsWith('/api/online/')), false)
+  await ui.button('验证并诊断').props.onClick()
+  assert.deepEqual(unlocks, [diagnosisQuestion])
+  ui.props.needsDiagnosisUnlock = false; await flush()
+  await ui.ask(diagnosisQuestion); await flush()
+  assert.ok(ui.button('同意修改'))
+  ui.props.diagnosisContext = { ...details, episode_id: 'ep_b' }; await flush()
+  assert.equal(ui.button('同意修改'), undefined)
+  await ui.ask('同意'); await flush()
+  assert.equal(ui.posts('/confirm').length, 0)
+  await ui.ask(diagnosisQuestion); await flush()
+  await ui.ask('新话题'); await flush()
+  assert.equal(ui.button('同意修改'), undefined)
+})
+
+test('after explicit unlock a single diagnosis can resume the episode even if the player closed during verification', async t => {
+  const ui = await diagnoseChat(t, { opts: { initialDiagnosisQuestion: diagnosisQuestion, initialDiagnosisContext: details,
+    diagnosisContext: { source_id: otherSource.id } }, items: [diagnosisSource, otherSource] })
+  assert.equal(ui.posts('/diagnosis').length, 1)
+  assert.ok(ui.posts('/diagnosis')[0].path.includes(diagnosisSource.id))
+  assert.equal(ui.posts('/diagnosis')[0].body.episode_id, details.episode_id)
+  await ui.ask(diagnosisQuestion); await flush()
+  assert.ok(ui.posts('/diagnosis')[1].path.includes(otherSource.id))
+  assert.equal(ui.posts('/diagnosis')[1].body.episode_id, undefined)
+})
+
+test('expired proposals, uncommitted source forms and model-generated tool flags cannot write', async t => {
+  let expired = true
+  const access = Vue.reactive({ blocked: '先保存或放弃待编辑的来源。', setBusy() {}, saved() {} })
+  const ui = await diagnoseChat(t, { opts: { onlineSources: access }, diagnose: () => expired
+    ? { ...report, proposal: { ...report.proposal, expires_at: 1 } } : report })
+  await ui.ask(diagnosisQuestion); await flush()
+  assert.equal(ui.button('同意修改'), undefined)
+  assert.match(ui.text(), /方案已过期/)
+  await ui.ask('同意'); await flush()
+  expired = false
+  await ui.button('重新诊断').props.onClick(); await flush()
+  assert.ok(ui.button('同意修改').props.disabled)
+  await ui.ask('同意'); await ui.button('同意修改').props.onClick()
+  assert.equal(ui.posts('/confirm').length, 0)
+  access.blocked = ''
+  await ui.ask('同意'); await flush()
+  assert.equal(ui.posts('/confirm').length, 1)
+  const other = await diagnoseChat(t, { chat: { mode: 'ai' } })
+  await other.ask(diagnosisQuestion); await flush()
+  assert.equal(other.calls.some(row => row.path.startsWith('/api/online/')), false)
+})
+
+test('the settings editor receives the reread source if another edit completed during verification', async t => {
+  const rows = [diagnosisSource], saved = []
+  const latest = { ...diagnosisSource, name: '管理员刚刚更新的名称', api_base_url: report.proposal.new_url }
+  const ui = await diagnoseChat(t, { items: rows, opts: { channel: undefined, section: 'sec-online',
+    onlineSources: { setBusy() {}, saved: row => saved.push(row) } }, confirm: () => {
+    rows[0] = latest
+    return { status: 'applied', answer: '接口已经替换。', source: diagnosisSource, evidence: [] }
+  } })
+  await ui.ask(diagnosisQuestion); await flush()
+  await ui.button('同意修改').props.onClick(); await flush()
+  assert.deepEqual(saved, [latest])
+})

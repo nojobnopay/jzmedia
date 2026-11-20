@@ -95,6 +95,7 @@ MP4 短片的完成标记只表示当前片段完成，不能作为 start=0 全�
 | `identity` | 在线来源和内容的稳定 ID；分集播放必须带分集 ID，可选 `line_id` 指定服务端目录中的线路 |
 | `session_id`、`media_url` | 不透明会话标识，媒体路径由模型计算为 `/api/online/sessions/{session_id}/media`；不接受上游 URL、请求头或本地文件路径 |
 | `transport` | `mp4` 或 `hls`，表示交付协议 |
+| `cached` | 客户端发送 `X-Online-Playback-Context: cache` 时返回，表示此会话是否从服务器已保存的完整缓存读取。旧服务可省略此字段 |
 | `processing` | 当前固定 `passthrough`，不得以在线 HLS 为由标为正在转码 |
 | `seekable`、`duration_seconds` | 是否可跳转；时长未知可为 `null`，已知时须为有限正数 |
 | `time_offset_seconds` | 固定为 0，保留来源时间轴，不套用本地截取会话偏移 |

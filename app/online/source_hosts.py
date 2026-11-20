@@ -5,7 +5,6 @@ selected exact hosts is a separate, compare-and-append configuration operation;
 the existing transport still checks DNS answers and actual public socket peers.
 """
 
-import hashlib
 import ipaddress
 import json
 import re
@@ -20,6 +19,7 @@ from ..store import online as online_store
 from . import catalog, maccms, service
 from .models import OnlineSource, SourceId, normalize_host
 from .providers import ProviderError
+from .source_migration import fingerprint
 
 
 MAX_HOSTS = 128
@@ -70,12 +70,6 @@ class AllowHostsRequest(_Contract):
         if re.fullmatch(r"[0-9a-f]{64}", value) is None:
             raise ValueError("invalid source fingerprint")
         return value
-
-
-def fingerprint(source):
-    """Compare the complete administrator record, including concurrent edits."""
-    return hashlib.sha256(json.dumps(source, sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=False).encode()).hexdigest()
 
 
 def _management(access):

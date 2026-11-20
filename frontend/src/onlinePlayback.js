@@ -9,7 +9,7 @@ const LINE_ID = /^ln_[0-9a-f]{32}$/
 const SESSION_ID = /^[A-Za-z0-9_-]{32,128}$/
 const IDENTITY_KEYS = new Set(['source_id', 'item_id', 'kind', 'episode_id', 'line_id'])
 const DESCRIPTOR_KEYS = new Set(['identity', 'session_id', 'media_url', 'transport', 'processing',
-  'seekable', 'duration_seconds', 'time_offset_seconds', 'expires_at'])
+  'seekable', 'duration_seconds', 'time_offset_seconds', 'expires_at', 'cached'])
 
 export class OnlinePlaybackError extends Error {
   constructor(code) {
@@ -73,6 +73,7 @@ export function validateOnlineDescriptor(value, expectedIdentity, { now = Date.n
     || onlineIdentityKey(identity) !== onlineIdentityKey(expected) || !sid
     || value.media_url !== `/api/online/sessions/${sid}/media`
     || !['mp4', 'hls'].includes(value.transport) || value.processing !== 'passthrough'
+    || Object.hasOwn(value, 'cached') && typeof value.cached !== 'boolean'
     || typeof value.seekable !== 'boolean' || value.time_offset_seconds !== 0
     || duration !== null && (!Number.isFinite(duration) || duration <= 0)
     || !Number.isSafeInteger(expiry) || expiry <= 0 || !Number.isSafeInteger(expiry * 1000)) {
@@ -84,7 +85,8 @@ export function validateOnlineDescriptor(value, expectedIdentity, { now = Date.n
   }
   return Object.freeze({ identity, session_id: sid, media_url: value.media_url,
     transport: value.transport, processing: 'passthrough', seekable: value.seekable,
-    duration_seconds: duration, time_offset_seconds: 0, expires_at: expiry })
+    duration_seconds: duration, time_offset_seconds: 0, expires_at: expiry,
+    ...(value.cached !== undefined ? { cached: value.cached } : {}) })
 }
 
 async function deleteRequest(path, options) {
@@ -140,7 +142,7 @@ export function createOnlinePlaybackClient({ request = api, releaseRequest = del
     let value
     try {
       value = await request('/api/online/sessions', { method: 'POST', signal, timeout: 45000,
-        ...(cacheOnly ? { headers: { 'X-Online-Cache-Only': 'true' } } : {}),
+        headers: { 'X-Online-Playback-Context': 'cache', ...(cacheOnly ? { 'X-Online-Cache-Only': 'true' } : {}) },
         body: JSON.stringify(expected) })
     } catch (error) {
       if (signal?.aborted || disposed) throw new OnlinePlaybackError('online_cancelled')

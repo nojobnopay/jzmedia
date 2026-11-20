@@ -41,6 +41,13 @@ test('the built local index finds real user tasks and excludes unpublished sourc
   const { default: json } = await import(pathToFileURL(path.join(defaultDist, indexFile)).href)
   const index = MiniSearch.loadJSON(json, { fields: ['title', 'titles', 'text'], storeFields: ['title', 'titles'], tokenize, searchOptions })
   for (const query of ['添加电影', '字幕延迟', '没有声音', 'NAS']) assert.ok(index.search(query).length, query)
+  for (const query of ['哪里找片源', '去哪里找视频源']) {
+    assert.match(index.search(query)[0]?.id || '', /\/user-guide\/watch-online\.html#online-source-directory$/, query)
+  }
+  assert.match(index.search('帮我更新量子资源接口')[0]?.id || '', /\/user-guide\/watch-online\.html#online-source-migration$/)
+  for (const query of ['为什么在线资源无法播放', '允许临时直连测试本集']) {
+    assert.match(index.search(query)[0]?.id || '', /\/user-guide\/watch-online\.html#online-source-diagnosis$/, query)
+  }
   const ids = Object.values(JSON.parse(json).documentIds)
   assert.ok(ids.length > 20)
   assert.ok(ids.every(id => !/private|roadmap|assets\/README/.test(id)))

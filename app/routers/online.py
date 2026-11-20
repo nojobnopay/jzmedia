@@ -1,15 +1,16 @@
-"""Online source administration; configuration changes perform no upstream I/O."""
+"""Online source administration, explicit read-only diagnosis and confirmed repairs."""
 
 import hmac
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .. import config
-from ..online import catalog, models, service, source_hosts
+from ..online import catalog, diagnosis_actions, models, service, source_hosts, source_migration
 from ..online.providers import ProviderError
 from ..online.source_templates import SourceTemplateList, list_source_templates
 from ..store import online as online_store
@@ -51,6 +52,9 @@ class OnlineAdminRoute(APIRoute):
             except RequestValidationError:
                 # FastAPI's normal error JSON includes the rejected input.
                 raise _invalid_config() from None
+            except source_migration.SourceChanged:
+                return JSONResponse({"detail": "online_source_changed", "code": "online_source_changed"},
+                                    status_code=409, headers={"Cache-Control": "no-store"})
             except (catalog.CatalogError, service.PlaybackError) as error:
                 return JSONResponse({"detail": error.category, "code": error.category},
                                     status_code=error.status, headers={"Cache-Control": "no-store"})
@@ -68,6 +72,69 @@ router = APIRouter(prefix="/api/online", tags=["online"], route_class=OnlineAdmi
 
 class SourceListResponse(BaseModel):
     items: list[models.OnlineSource]
+
+
+class DiagnosisConfirmation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
+
+
+class DiagnosisRequest(DiagnosisConfirmation):
+    question: str = Field(default="", max_length=500)
+    external_id: str | None = Field(default=None, min_length=1, max_length=128)
+    item_id: models.ItemId | None = None
+    line_id: models.LineId | None = None
+    episode_id: models.EpisodeId | None = None
+    error_code: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9_-]{1,80}$")
+    cache_only: bool = False
+    compare_direct: bool = False
+
+
+class DiagnosticEvidence(BaseModel):
+    tool: str
+    label: str
+    outcome: str
+    detail: str
+    checked_at: int
+    page_url: str | None = None
+
+
+class DiagnosticProposal(BaseModel):
+    id: str
+    expires_at: int
+    kind: Literal["api", "media_direct"]
+    old_url: str | None = None
+    new_url: str | None = None
+    old_label: str | None = None
+    new_label: str | None = None
+    changes: list[models.HostMigrationChange]
+
+
+class DiagnosisResult(BaseModel):
+    status: str
+    answer: str
+    evidence: list[DiagnosticEvidence]
+    proposal: DiagnosticProposal | None
+    can_compare_direct: bool = False
+
+
+class DiagnosisReceipt(BaseModel):
+    status: Literal["applied"]
+    answer: str
+    evidence: list[DiagnosticEvidence]
+    verification_status: str
+    source: models.OnlineSource
+
+
+@router.post("/sources/{source_id}/diagnosis", response_model=DiagnosisResult)
+async def diagnose_source(request: Request, source_id: models.SourceId, body: DiagnosisRequest):
+    from .online_catalog import _read
+    return await _read(request, diagnosis_actions.start, source_id, body.model_dump(exclude_none=True),
+                       deadline_seconds=28)
+
+
+@router.post("/sources/{source_id}/diagnosis/{proposal_id}/confirm", response_model=DiagnosisReceipt)
+def confirm_diagnosis(request: Request, source_id: models.SourceId, proposal_id: str, body: DiagnosisConfirmation):
+    return diagnosis_actions.confirm(service.capture_access(request), source_id, proposal_id)
 
 
 def _missing() -> HTTPException:
@@ -103,12 +170,20 @@ def create_source(body: models.OnlineSourceCreate):
     return online_store.create_online_source(body.model_dump())
 
 
-@router.get("/sources/{source_id}", response_model=models.OnlineSource)
+@router.get("/sources/{source_id}", response_model=models.OnlineSourceDetail)
 def get_source(source_id: str):
     value = online_store.get_online_source(source_id)
     if value is None:
         raise _missing()
-    return value
+    return {**value, "configuration_fingerprint": source_migration.fingerprint(value)}
+
+
+@router.post("/sources/{source_id}/host-migration-preview", response_model=models.HostMigrationPreview)
+def preview_host_migration(source_id: models.SourceId, body: models.HostMigrationPreviewRequest):
+    source = online_store.get_online_source(source_id)
+    if source is None:
+        raise _missing()
+    return source_migration.preview(source, body.api_base_url, body.allowed_hosts, body.expected_fingerprint)
 
 
 @router.patch("/sources/{source_id}", response_model=models.OnlineSource)

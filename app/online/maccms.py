@@ -572,6 +572,11 @@ def detail(source, selected_id):
     selected_id = external_id(selected_id)
     action = source.get("provider_options", {}).get("detail_action", "detail")
     payload = fetch(source, {"ac": action, "ids": selected_id})
+    return detail_from_response(source, selected_id, payload)
+
+
+def detail_from_response(source, selected_id, payload):
+    """Check the requested identity before decoding server-owned playback entries."""
     if not payload["list"]:
         raise ProviderError("provider_not_found")
     if len(payload["list"]) != 1 or external_id(payload["list"][0].get("vod_id")) != selected_id:

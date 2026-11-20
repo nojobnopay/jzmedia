@@ -5,6 +5,7 @@ import json
 import time
 import uuid
 
+from ..online import source_migration
 from ..online.models import (OnlineEpisode, OnlineItem, OnlineSource,
                              OnlineSourceCreate, OnlineSourcePatch,
                              normalize_external_id)
@@ -104,17 +105,27 @@ def update_online_source_with_change(source_id: str, changes: dict) -> tuple[dic
         previous = _source(connection.execute("SELECT * FROM online_sources WHERE id=?", (source_id,)).fetchone())
         if previous is None:
             raise OnlineNotFound("在线来源不存在")
-        if not patch:
-            return previous, False
-        record = OnlineSource.model_validate({**previous, **patch, "updated_at": int(time.time())}).model_dump(mode="json")
-        connection.execute(
-            "UPDATE online_sources SET name=?,api_base_url=?,allowed_hosts=?,enabled=?,priority=?,updated_at=?,provider_options=? WHERE id=?",
-            (record["name"], record["api_base_url"], json.dumps(record["allowed_hosts"]),
-             int(record["enabled"]), record["priority"], record["updated_at"],
-             json.dumps(record["provider_options"]), source_id),
-        )
-        changed = any(previous[key] != record[key]
-                      for key in ("api_base_url", "allowed_hosts", "provider_options", "enabled"))
+        return _update_source(connection, previous, patch)
+
+
+def _update_source(connection, previous, patch):
+    source_id = previous["id"]
+    if not patch:
+        return previous, False
+    selection = patch.pop("host_migration", None)
+    if selection is not None or "api_base_url" in patch:
+        patch["allowed_hosts"] = source_migration.hosts_for_update(previous, patch, selection)
+    record = OnlineSource.model_validate({**previous, **patch, "updated_at": int(time.time())}).model_dump(mode="json")
+    if record["api_base_url"] != previous["api_base_url"]:
+        connection.execute("DELETE FROM app_settings WHERE key=?", ("online_operator:" + source_id,))
+    connection.execute(
+        "UPDATE online_sources SET name=?,api_base_url=?,allowed_hosts=?,enabled=?,priority=?,updated_at=?,provider_options=? WHERE id=?",
+        (record["name"], record["api_base_url"], json.dumps(record["allowed_hosts"]),
+         int(record["enabled"]), record["priority"], record["updated_at"],
+         json.dumps(record["provider_options"]), source_id),
+    )
+    changed = any(previous[key] != record[key]
+                  for key in ("api_base_url", "allowed_hosts", "provider_options", "enabled"))
     return record, changed
 
 

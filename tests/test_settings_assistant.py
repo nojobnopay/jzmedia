@@ -293,3 +293,75 @@ def test_locked_management_and_write_token_also_protect_questions(client, monkey
                                      {"section": "not/a/section"}, {"config": {}}])
 def test_rejects_unbounded_or_unexpected_context(client, extra):
     assert ask(client, "字体设置", **extra).status_code == 422
+
+
+def test_source_change_is_a_local_proposal_and_never_modifies_the_saved_source(client, monkeypatch):
+    monkeypatch.setattr(assistant, "call_json", lambda *args: pytest.fail("source request reached model"))
+    created = client.post("/api/online/sources", json={
+        "provider": "maccms", "name": "自定义收藏名称", "api_base_url": "https://cj.lziapi.com/api.php/provide/vod/"})
+    created.raise_for_status()
+    path = "/api/online/sources/" + created.json()["id"]
+    before = client.get(path).json()
+
+    for question, template_id, url in (
+        ("帮我更新量子资源接口", "liangzi", None),
+        ("帮我把量子换到新接口", "liangzi", None),
+        ("给我把量子源换成最新的", "liangzi", None),
+        ("把暴风资源的接口换到最新的主接口", "baofeng", None),
+        ("请更新非凡API", "feifan", None),
+        ("更换视频源接口", None, None),
+        ("帮我换接口", None, None),
+        ("把接口换成 https://catalog.example/api.php/provide/vod/", None, "https://catalog.example/api.php/provide/vod/"),
+        ("请把量子资源改成 https://CUSTOM.example:443/catalog/", "liangzi", "https://custom.example:443/catalog/"),
+    ):
+        response = ask(client, question, section="sec-online")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["mode"] == "local" and body["topics"][0]["id"] == "online-source-migration"
+        assert body["suggestion"] == {"kind": "online_source", "template_id": template_id, "api_base_url": url}
+        assert "https://" not in body["answer"] and "确认" in body["answer"]
+
+    assert client.get(path).json() == before
+    assert settings.usage()["requests"] == 0
+
+
+def test_playback_failure_links_to_live_diagnosis_help(client, monkeypatch):
+    monkeypatch.setattr(assistant, "call_json", lambda *args: pytest.fail("playback diagnosis intent reached model"))
+    result = ask(client, "为什么量子在线资源无法播放了？").json()
+    assert result["mode"] == "local" and result["diagnose_online"] is True
+    assert result["diagnosis_template_id"] == "liangzi" and result["suggestion"] is None
+    assert result["topics"][0]["id"] == "online-source-diagnosis"
+
+
+@pytest.mark.parametrize("source_request", [
+    "帮我把量子和暴风的接口都更新", "帮我更新量子的备用接口", "帮我更新量子资源的海报地址",
+    "帮我更换视频源接口，从 https://old.example/vod/ 换到最新主接口",
+    "帮我更换视频源接口 https://new.example/vod/ 或 https://other.example/vod/",
+    "帮我把视频源改成 https://name:secret@source.example/vod/",
+    "帮我把视频源改成 https://source.example/vod/?token=secret",
+    "帮我把视频源改成 https://source.example/token/secret/",
+    "帮我把视频源改成 https://source.example/vod/#secret",
+    "帮我把量子资源接口改成 https://lzizy.net/index.php/macrep.html",
+    "帮我把视频源改成 https://source.example/api.php/provide/vod/at/xml/",
+    "帮我把视频源改成 http://127.0.0.1:8000/",
+    "帮我把视频源改成 http://router.lan/catalog",
+    "帮我把视频源改成 http://localhost/catalog",
+    "帮我把视频源改成 ftp://source.example/vod/", "帮我把视频源改成site.example/vod/",
+    "帮我把视频源改成 https://source.example/vod/ 密码是测试密码",
+    "先别改量子资源接口",
+])
+def test_source_change_ambiguity_and_invalid_addresses_stay_local(client, monkeypatch, source_request):
+    monkeypatch.setattr(assistant, "call_json", lambda *args: pytest.fail("private or ambiguous request reached model"))
+    result = ask(client, source_request, section="sec-online").json()
+    assert result["mode"] == "local" and result["suggestion"] is None
+    assert all(value not in str(result) for value in ("source.example", "127.0.0.1", "secret", "测试密码"))
+
+
+def test_source_questions_and_model_suggestions_cannot_open_source_change(client, monkeypatch):
+    sent = mock_model(monkeypatch, "online-source-migration",
+                      {"kind": "online_source", "template_id": "liangzi", "api_base_url": "https://invented.example/"})
+    for question in ("量子接口是多少？", "怎么更换量子资源接口？", "可以更新接口吗？",
+                     "类似修改资源接口的操作小映可以帮忙操作吗？", "帮我改一下设置"):
+        result = ask(client, question).json()
+        assert result["suggestion"] is None and "invented.example" not in str(result)
+    assert sent

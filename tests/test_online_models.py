@@ -167,6 +167,7 @@ def test_playback_descriptor_only_exposes_same_origin_passthrough_contract():
     payload = descriptor.model_dump(mode="json")
     assert payload["media_url"] == f"/api/online/sessions/{SESSION_ID}/media"
     assert payload["processing"] == "passthrough"
+    assert "cached" not in payload
     assert payload["duration_seconds"] == 90.0 and payload["time_offset_seconds"] == 0.0
     assert not {"upstream_url", "headers", "file_path"} & payload.keys()
 

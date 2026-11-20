@@ -5,7 +5,7 @@ from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import hashlib
 import json
 import sqlite3
@@ -200,9 +200,11 @@ def discard_cached(task: str, payload: dict, instruction: str) -> None:
         _cache.pop(key, None)
 
 
-def call_json(task: str, payload: dict, instruction: str) -> dict:
+def call_json(task: str, payload: dict, instruction: str, *, timeout_limit: int | None = None) -> dict:
     """Synchronous API for ordinary FastAPI def routes; validates configuration before cache."""
     current = require_config()
+    if timeout_limit is not None:
+        current = replace(current, timeout_seconds=min(current.timeout_seconds, timeout_limit))
     key = _cache_key(current, task, payload, instruction)
     with _cache_lock:
         saved = _cache.get(key)
