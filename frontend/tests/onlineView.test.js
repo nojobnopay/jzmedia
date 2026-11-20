@@ -1514,6 +1514,80 @@ function recordRow(source = sources.items[0], extra = {}) {
 function recordsOpen(ui) { return ui.find(node => node.props['data-online-records-open'] !== undefined) }
 function recordsTab(ui, tab) { return ui.find(node => node.props['data-online-library-section'] === tab) }
 
+const RECORD_POSTER = `/api/online/catalog/artwork/${SOURCE_A}/${'c'.repeat(32)}`
+function recordArtworkLabels(ui) {
+  return ui.all().filter(node => node.props['data-online-artwork-state'] !== undefined
+    && node.props['aria-label']?.startsWith('续播夹具，')).map(node => node.props['aria-label'])
+}
+
+for (const fromRecords of [false, true]) {
+  test(`opening a detail fills missing record artwork when returning to ${fromRecords ? 'My Records' : 'Continue Watching'}`, async t => {
+    const record = recordRow(), detailRequests = [], libraryReads = []
+    const { ui, route, players } = await setup(t, async path => {
+      if (path.endsWith('/sources')) return taxonomySources()
+      if (!path.includes('/detail?')) return categoryRows(path)
+      detailRequests.push(path)
+      return { ...show(), poster_path: RECORD_POSTER }
+    }, {
+      routeQuery: fromRecords ? { view: 'records', tab: 'history' } : {},
+      stateRequest: async path => {
+        if (!path.includes('/library?')) return itemState()
+        libraryReads.push(new URL(path, 'https://fixture.invalid').searchParams.get('section'))
+        return { items: [{ ...record, poster_path: detailRequests.length ? RECORD_POSTER : '' }], total: 1, offset: 0, scope_token: SCOPE }
+      },
+    })
+    const originalRoute = { ...route.query }
+    const expectedLabels = fromRecords ? 2 : 1
+    const initialReads = libraryReads.length
+    assert.deepEqual(recordArtworkLabels(ui), Array(expectedLabels).fill('续播夹具，暂无海报'))
+    ui.all().filter(node => node.props['data-online-library-detail'] === ITEM).at(-1).props.onClick(); await flush()
+    if (fromRecords) route.query = originalRoute
+    else ui.find(node => node.type === 'button' && nodeText(node) === '返回搜索结果').props.onClick()
+    await flush()
+    assert.equal(detailRequests.length, 1)
+    assert.equal(players.length, 0)
+    assert.deepEqual(libraryReads.slice(initialReads), fromRecords ? ['continue', 'history'] : ['continue'])
+    assert.deepEqual(recordArtworkLabels(ui), Array(expectedLabels).fill('续播夹具，等待加载海报'))
+  })
+}
+
+test('artwork from a different item or source does not trigger a continue refresh', async t => {
+  const sameSource = recordRow(), otherSource = recordRow(sources.items[1])
+  const records = [{ ...sameSource, item: { ...sameSource.item, id: 'itm_' + '7'.repeat(32) } }, otherSource]
+  let reads = 0
+  const { ui } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return { ...taxonomySources(), items: [...taxonomySources().items, sources.items[1]] }
+    return path.includes('/detail?') ? { ...show(), poster_path: RECORD_POSTER } : categoryRows(path)
+  }, { stateRequest: async path => {
+    if (!path.includes('/library?')) return itemState()
+    reads++
+    return { items: records, total: records.length, offset: 0, scope_token: SCOPE }
+  } })
+  ui.find(node => node.props['data-online-result'] === 'movie-1').props.onClick(); await flush()
+  assert.ok(ui.find(node => node.props['data-online-detail'] !== undefined))
+  assert.equal(reads, 1)
+  assert.deepEqual(recordArtworkLabels(ui), ['续播夹具，暂无海报', '续播夹具，暂无海报'])
+})
+
+test('a detail with artwork replaces an in-flight continue read that predates the saved poster', async t => {
+  const pending = deferred(), record = recordRow(), signals = []
+  const { ui } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return taxonomySources()
+    return path.includes('/detail?') ? { ...show(), poster_path: RECORD_POSTER } : categoryRows(path)
+  }, { stateRequest: async (path, options) => {
+    if (!path.includes('/library?')) return itemState()
+    signals.push(options.signal)
+    if (signals.length === 1) return pending.promise
+    return { items: [{ ...record, poster_path: RECORD_POSTER }], total: 1, offset: 0, scope_token: SCOPE }
+  } })
+  ui.find(node => node.props['data-online-result'] === 'movie-1').props.onClick(); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回搜索结果').props.onClick(); await flush()
+  assert.equal(signals.length, 2)
+  assert.equal(signals[0].aborted, true)
+  pending.resolve({ items: [record], total: 1, offset: 0, scope_token: SCOPE }); await flush()
+  assert.deepEqual(recordArtworkLabels(ui), ['续播夹具，等待加载海报'])
+})
+
 test('the online continue tip uses this device’s existing records and opens the continue tab', async t => {
   const pending = deferred()
   const { route } = await setup(t, async path => path.endsWith('/sources') ? taxonomySources() : categoryRows(path), {

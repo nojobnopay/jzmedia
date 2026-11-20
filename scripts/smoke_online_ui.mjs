@@ -133,6 +133,8 @@ function api(url, method, body) {
   if (key === '/api/online/catalog/detail') {
     const entry = metadata.find(entry => entry.item.external_id === query.get('external_id'))
     assert.ok(entry, 'Known isolated detail')
+    const record = state.rows.find(row => row.item.id === entry.item.id)
+    if (record) record.poster_path = entry.poster_path
     const count = entry.item.kind === 'tv' ? 76 : 1
     return { ...entry, lines: [{ id: lineId(entry.index), label: '高清线路', entries: Array.from({ length: count }, (_, index) => ({
       label: count === 1 ? '正片' : `第${index + 1}集`, identity: identity(entry, index + 1), supported: !(captureDocs && state.hostScene), transport: 'mp4', reason: captureDocs && state.hostScene ? 'host_not_allowed' : '',
@@ -475,7 +477,14 @@ try {
     }
     await page.goto('about:blank'); state.delay = ''
     if (!baseline) {
+      state.rows[0].poster_path = ''
       await go(page, base)
+      const savedCard = page.locator(`[data-online-continue-row] [data-online-state-item="${itemId(0)}"]`)
+      await savedCard.getByText('暂无海报', { exact: true }).waitFor()
+      await savedCard.locator('[data-online-library-detail]').click()
+      await page.locator('[data-online-detail]').waitFor()
+      await page.getByRole('button', { name: '返回搜索结果', exact: true }).click()
+      await savedCard.locator('[data-online-artwork-state="ready"] img').waitFor()
       const poster = page.locator('[data-online-result]').nth(12)
       await poster.scrollIntoViewIfNeeded()
       const scroll = await page.evaluate(() => scrollY)
@@ -528,7 +537,7 @@ try {
       await page.locator('.online-refresh-error').waitFor()
       assert.deepEqual(await page.locator('[data-online-result]').evaluateAll(elements => elements.map(element => element.getAttribute('data-online-result'))), before,
         'A failed refresh retains the previous poster wall')
-      report.checks.push({ width, checks: ['continue shelf', 'initial skeleton', 'independent records view', 'browse scroll/focus return', 'browser back/forward', 'cross-source return', 'keyboard action menu', 'cancel favorite', 'browser back restores records page', 'delete last-page history', 'failed refresh preserves content', 'reduced motion', '44px touch targets', 'ask 小映 while preparing playback and return to player'] })
+      report.checks.push({ width, checks: ['continue shelf', 'continue poster recovers after opening detail', 'initial skeleton', 'independent records view', 'browse scroll/focus return', 'browser back/forward', 'cross-source return', 'keyboard action menu', 'cancel favorite', 'browser back restores records page', 'delete last-page history', 'failed refresh preserves content', 'reduced motion', '44px touch targets', 'ask 小映 while preparing playback and return to player'] })
     }
     await context.close()
   }

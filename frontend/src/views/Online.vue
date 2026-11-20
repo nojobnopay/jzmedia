@@ -144,6 +144,7 @@ import { createOnlineCatalogClient, createOnlineRefreshClient, createOnlineHealt
 import { createOnlineRelatedClient, onlineRelatedError } from '../onlineRelated.js'
 import { createOnlineProgressMemory, onlineIdentityKey, validateOnlineIdentity } from '../onlinePlayback.js'
 import { createOnlineStateClient, createOnlineProgressWriter, loadOnlineAutoplay, saveOnlineAutoplay, nextOnlineEpisode, onlineStateError } from '../onlineState.js'
+import { onlineArtworkPath } from '../onlineArtwork.js'
 import { isChildren, registerViewingPlaybackCleanup, viewing } from '../viewing.js'
 import { onlineBrowseMemory, onlineBrowseScope, clearOnlineBrowse, captureOnlinePosition, restoreOnlinePosition, ONLINE_BROWSE_FRESH_MS, ONLINE_BROWSE_NAVIGATION_MS, onlineBrowseResponseEqual } from '../onlineBrowse.js'
 import { onlineCategoryTree, visibleOnlineChannels, onlineCategoryLabel, onlineChannelCategory, visibleOnlineCategories, filterOnlineChannels, validOnlineYear } from '../onlineCategories.js'
@@ -454,7 +455,7 @@ async function playFromNetwork() {
     if (!current(turn) || networkPrompt.value !== wanted || !value) return
     const entry = findEntry(value, wanted.identity)
     if (!entry) { networkError.value = '当前来源已无法播放此集，请选择其他线路。'; return }
-    detail.value = value; detailCached.value = false; networkPrompt.value = null
+    applyCatalogueDetail(value); detailCached.value = false; networkPrompt.value = null
     lineId.value = wanted.identity.line_id; starting.value = false
     await play(entry)
   } catch (problem) { if (current(turn)) networkError.value = onlineCatalogError(problem) }
@@ -716,7 +717,7 @@ async function refreshHostDetail() {
   hostReminders.remember(hostReminderKey())
   const refreshed = await client.detail(context.source, context.externalId)
   if (!hostDialogCurrent() || hostDialog.value !== context || refreshed?.item.id !== context.itemId) throw new Error('stale host detail')
-  detail.value = refreshed
+  applyCatalogueDetail(refreshed)
   lineId.value = refreshed.lines.some(line => line.id === originalLine) ? originalLine
     : refreshed.lines.find(line => line.entries.some(entry => entry.supported && entry.identity))?.id || refreshed.lines[0]?.id || ''
   await readItemState(refreshed, context.view)
@@ -1170,6 +1171,16 @@ async function showDetailTop(turn) {
   detailTitle.value?.focus?.({ preventScroll: true })
   detailRoot.value?.scrollIntoView?.({ block: 'start', behavior: 'instant' })
 }
+function applyCatalogueDetail(response) {
+  detail.value = response
+  const poster = onlineArtworkPath(response.poster_path)
+  if (!poster) return
+  // Read the snapshot through the records API so the shelf gets a current
+  // lease alongside the other data for its own rows.
+  const { id, source_id: source } = response.item
+  if (continueLoading.value || continueRows.value.some(row => row.available
+    && row.item.id === id && row.item.source_id === source && row.poster_path !== poster)) void loadContinue()
+}
 async function openDetail(externalId, options = {}) {
   const navigation = options.navigationTicket ?? ++navigationGeneration
   if (!navigationCurrent(navigation)) return
@@ -1191,7 +1202,7 @@ async function openDetail(externalId, options = {}) {
     const response = cached?.detail || await client.detail(source, externalId)
     if (!current(turn) || !navigationCurrent(navigation) || !response) return
     if (cached) applyCacheSnapshot(cached)
-    else detail.value = response
+    else applyCatalogueDetail(response)
     lineId.value = detail.value.lines?.find(line => line.entries.some(entry => entry.supported && entry.identity))?.id || detail.value.lines?.[0]?.id || ''
     detailLoading.value = false
     void showDetailTop(turn)
@@ -1362,7 +1373,7 @@ async function onEnded(run, identity) {
     const fresh = await nextClient.detail(run.source, run.externalId)
     if (disposed || ticket !== nextIntent || view !== generation || !safeMode.value || !autoplay.value || !fresh) return
     const entry = nextOnlineEpisode(fresh, identity)
-    detail.value = fresh
+    applyCatalogueDetail(fresh)
     if (!entry) {
       const entries = fresh.lines?.find(value => value.id === identity.line_id)?.entries || []
       const index = entries.findIndex(value => sameIdentity(value.identity, identity))
