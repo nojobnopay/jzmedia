@@ -3,7 +3,7 @@
     <EmptyState v-if="loading" state="loading" title="正在加载在线视频源设置" />
     <EmptyState v-else-if="loadError" state="error" title="在线视频源设置加载失败" :text="loadError" retry @retry="load" />
     <template v-else>
-      <header v-if="taskActive" class="online-task-heading"><JzButton icon="back" :disabled="saving || networkSaving || hostApplying || profilesLocked" @click="requestCloseTask">{{ hostSource ? '关闭检查' : '返回视频源列表' }}</JzButton><h3 ref="taskHeading" tabindex="-1">{{ taskTitle }}</h3><p class="hint">{{ taskScope }}</p></header>
+      <header v-if="taskActive" class="online-task-heading"><JzButton icon="back" :disabled="saving || networkSaving || hostApplying || discoverySaving || profilesLocked" @click="requestCloseTask">{{ hostSource ? '关闭检查' : '返回视频源列表' }}</JzButton><h3 ref="taskHeading" tabindex="-1">{{ taskTitle }}</h3><p class="hint">{{ taskScope }}</p></header>
       <section v-show="!taskActive" class="card-block">
         <div class="section-heading"><h3>在线点播</h3><JzButton :variant="settings.enabled ? 'secondary' : 'primary'" :loading="toggling" :disabled="saving || networkSaving || profilesLocked || hostApplying" @click="toggleEnabled">{{ settings.enabled ? '关闭在线点播' : '启用在线点播' }}</JzButton></div>
         <p class="hint">{{ settings.enabled ? '已启用；仅已启用的来源可被查询或播放。' : '默认关闭；启用后仍需启用至少一个来源。' }} 作用于此服务的所有播放设备。</p>
@@ -11,10 +11,16 @@
         <p v-if="message" class="online-source-feedback" :class="{ 'is-error': messageError }" :role="messageError ? 'alert' : 'status'">{{ message }}</p>
       </section>
       <section v-show="!taskActive || editorOpen" class="card-block online-source-task">
-        <div v-show="!taskActive" class="section-heading"><h3 ref="listHeading" tabindex="-1">视频源</h3><JzButton icon="plus" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editSource()">添加来源</JzButton></div>
-        <p v-show="!taskActive" class="hint">选择来源或填写接口。新增来源默认启用，保存后可测试目录。</p>
+        <div v-show="!taskActive" class="section-heading online-source-heading">
+          <h3 ref="listHeading" tabindex="-1">视频源</h3>
+          <div class="online-source-actions">
+            <JzButton icon="search" variant="primary" :disabled="saving || networkSaving || profilesLocked || dirty || hostApplying || toggling || testingSource !== '' || !settings.enabled" @click="discoveryOpen = true">发现并探测来源</JzButton>
+            <JzButton icon="plus" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editSource()">添加来源</JzButton>
+          </div>
+        </div>
+        <p v-show="!taskActive" class="hint">{{ settings.enabled ? '新来源会临时试读样片及其清单引用的媒体主机，启用时确认要保存的域名。已有来源按当前允许主机探测。' : '启用上方的在线点播后，可从此服务器探测候选来源。' }}</p>
         <HelpLink page="user-guide/watch-online" anchor="online-source-directory" label="去哪里找视频源？" />
-        <EmptyState v-if="!sources.length && !taskActive" state="empty" title="还没有视频源" text="添加自己的 MacCMS JSON 来源，或选择开放样例目录。" />
+        <EmptyState v-if="!sources.length && !taskActive" state="empty" title="还没有视频源" text="选择「发现并探测来源」查找可用来源，也可以手动添加。" />
         <div v-show="!taskActive" class="online-source-list"><article v-for="source in sources" :key="source.id" class="online-source-row" :data-online-source-row="source.id"><div><h4>{{ source.name }}</h4><p>{{ source.provider === 'open_catalog' ? '开放样例目录' : 'MacCMS JSON' }} · {{ source.enabled ? '已启用' : '已停用' }} · 优先级 {{ source.priority }}</p><p v-if="sourceChecks[source.id]" role="status">{{ sourceChecks[source.id] }}</p></div><div class="online-source-actions"><JzButton :aria-label="'测试来源 ' + source.name" :loading="testingSource === source.id" :disabled="!!testingSource || hostChecking || saving || networkSaving || profilesBusy || hostApplying || !settings.enabled || !source.enabled" @click="testSource(source)">测试来源</JzButton><JzButton icon="edit" :aria-label="'编辑 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editSource(source)">编辑</JzButton><JzButton icon="link" :aria-label="'网络 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editNetwork(source)">网络</JzButton></div></article></div>
         <p v-if="!taskActive && sources.length && !settings.enabled" class="hint">先启用上方的在线点播，再测试已启用来源。</p>
         <EmptyState v-if="editorOpen && snapshotLoading" state="loading" title="正在读取来源配置" />
@@ -44,6 +50,8 @@
           <SettingsFormActions :dirty="sourceDirty" :busy="saving" label="来源配置"><JzButton type="submit" variant="primary" :loading="saving" :disabled="profilesLocked || sourceConflict || migrationBlocked || !form.name.trim() || !form.api_base_url.trim()">保存来源</JzButton><JzButton :disabled="saving || profilesLocked" @click="requestCloseTask">取消</JzButton></SettingsFormActions>
         </form>
       </section>
+      <OnlineDiscoveryPanel v-if="discoveryOpen || discoverySaving" :open="discoveryOpen"
+        @enabled="reflectSourceUpdate" @saving="discoverySaving = $event" />
       <section v-if="hostSource" class="card-block online-host-check" data-online-host-check>
         <p class="hint">检查所选内容的目录信息，列出尚未允许的媒体和图片主机。检查不会访问这些新主机，也不会自动修改来源。</p>
         <form class="online-host-form" data-online-host-form @submit.prevent="checkHosts">
@@ -116,6 +124,7 @@ import SettingsFormActions from './SettingsFormActions.vue'
 import { useSettingsTaskNavigation } from '../useSettingsTaskNavigation.js'
 import Spinner from './Spinner.vue'
 import OnlineHostChanges from './OnlineHostChanges.vue'
+import OnlineDiscoveryPanel from './OnlineDiscoveryPanel.vue'
 import OnlineProxyProfiles from './OnlineProxyProfiles.vue'
 import '../styles/online.css'
 import '../styles/online-source.css'
@@ -132,6 +141,7 @@ const { report: migrationReport, selected: migrationSelected, pending: migration
   blocked: migrationBlocked, retry: retryMigration } = useOnlineHostMigration({ api, sourceId: editingId, baseline, form, onConflict: conflict })
 const sourceTemplates = ref([]), templateId = ref(''), templatesLoading = ref(false), templatesError = ref(false)
 const testingSource = ref(''), sourceChecks = ref({})
+const discoveryOpen = ref(false), discoverySaving = ref(false)
 const route = useRoute()
 const hostSource = ref(null), hostExternalId = ref(''), hostReport = ref(null), selectedHosts = ref([])
 const hostChecking = ref(false), hostApplying = ref(false), hostError = ref(''), hostApplied = ref(false)
@@ -167,7 +177,7 @@ const sourceDirty = computed(() => editorOpen.value && savedForm.value !== JSON.
   || !!networkSource.value && savedNetwork.value !== networkSnapshot())
 const dirty = computed(() => sourceDirty.value || profilesDirty.value)
 const assistantBlockReason = computed(() => dirty.value ? '在线视频源设置有未保存的修改，请先保存或放弃草稿。'
-  : loading.value || saving.value || networkSaving.value || hostApplying.value || profilesBusy.value || toggling.value
+  : loading.value || saving.value || networkSaving.value || hostApplying.value || discoverySaving.value || profilesBusy.value || toggling.value
     ? '请等待当前视频源操作完成。' : '')
 function reflectSourceUpdate(source) {
   sources.value = [...sources.value.filter(item => item.id !== source.id), source].sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name))
@@ -175,6 +185,7 @@ function reflectSourceUpdate(source) {
 }
 function assistantSourceSaved(source) {
   reflectSourceUpdate(source)
+  discoveryOpen.value = false
   if (hostSource.value?.id === source.id) { invalidateHostResult(); hostSource.value = source }
   if (networkTarget.value?.id === source.id && !sourceDirty.value) void editNetwork(source)
   if (editingId.value === source.id) {
@@ -184,12 +195,12 @@ function assistantSourceSaved(source) {
 }
 const assistantSourceId = computed(() => (editorOpen.value && editingId.value) || networkTarget.value?.id || hostSource.value?.id || '')
 defineExpose({ assistantBlockReason, assistantSourceSaved, assistantSourceId })
-const taskActive = computed(() => editorOpen.value || !!networkTarget.value || !!hostSource.value)
-const taskTitle = computed(() => editorOpen.value ? (editingId.value ? '编辑来源' : '添加来源') : networkTarget.value ? '来源网络' : '检查媒体主机')
+const taskActive = computed(() => editorOpen.value || !!networkTarget.value || !!hostSource.value || discoveryOpen.value)
+const taskTitle = computed(() => discoveryOpen.value ? '视频源探测' : editorOpen.value ? (editingId.value ? '编辑来源' : '添加来源') : networkTarget.value ? '来源网络' : '检查媒体主机')
 const taskScope = computed(() => (editorOpen.value ? form.value.name : networkTarget.value?.name || hostSource.value?.name) || '此服务的在线点播')
 const { heading: taskHeading, listHeading, focusTask, requestClose: requestCloseTask } = useSettingsTaskNavigation({
-  section: 'sec-online', active: taskActive, busy: () => saving.value || networkSaving.value || hostApplying.value,
-  close: () => { cancelEditor(); cancelNetwork(); cancelHostCheck() },
+  section: 'sec-online', active: taskActive, busy: () => saving.value || networkSaving.value || hostApplying.value || discoverySaving.value,
+  close: () => { discoveryOpen.value = false; cancelEditor(); cancelNetwork(); cancelHostCheck() },
 })
 async function openProfiles() {
   if (!await requestCloseTask()) return
@@ -200,8 +211,8 @@ async function openProfiles() {
 }
 
 useSettingsDraft({ section: 'sec-online', label: '在线视频源', edit: focusTask, dirty: () => dirty.value,
-  busy: () => saving.value || toggling.value || networkSaving.value || hostApplying.value || profilesBusy.value,
-  discard: () => { cancelEditor(); cancelNetwork(); cancelHostCheck(); profilesEditor.value?.discard() } })
+  busy: () => saving.value || toggling.value || networkSaving.value || hostApplying.value || profilesBusy.value || discoverySaving.value,
+  discard: () => { discoveryOpen.value = false; cancelEditor(); cancelNetwork(); cancelHostCheck(); profilesEditor.value?.discard() } })
 function invalidateNetworkResults() { invalidateHostResult(); sourceTestGeneration++; sourceChecks.value = {} }
 function profileUpdated(profile) {
   profiles.value = profiles.value.map(item => item.id === profile.id ? profile : item)
@@ -230,7 +241,8 @@ function cancelHostCheck() {
   invalidateHostResult(); hostSource.value = null; hostExternalId.value = ''
 }
 function openHostCheck(source, externalId) {
-  if (saving.value || networkSaving.value || profilesLocked.value || hostApplying.value || dirty.value) return
+  if (saving.value || networkSaving.value || profilesLocked.value || hostApplying.value || dirty.value || discoverySaving.value) return
+  discoveryOpen.value = false
   cancelEditor(); cancelNetwork(); cancelHostCheck()
   hostSource.value = source; hostExternalId.value = externalId
   const turn = hostGeneration
@@ -245,7 +257,7 @@ function hostLinkKey() {
 function syncHostLink() {
   const key = hostLinkKey()
   if (!key) { lastHostLink = ''; cancelHostCheck(); return }
-  if (key === lastHostLink || loading.value || dirty.value || saving.value || networkSaving.value || profilesBusy.value || hostApplying.value) return
+  if (key === lastHostLink || loading.value || dirty.value || saving.value || networkSaving.value || profilesBusy.value || hostApplying.value || discoverySaving.value) return
   const source = sources.value.find(item => item.id === route.query.source)
   if (!source) return
   lastHostLink = key; openHostCheck(source, route.query.item)
@@ -486,7 +498,8 @@ async function saveNetwork() {
   finally { if (!disposed) networkSaving.value = false }
 }
 watch(hostExternalId, invalidateHostResult, { flush: 'sync' })
-watch(() => [route?.query?.sec, route?.query?.source, route?.query?.item, loading.value, sources.value, dirty.value, saving.value, networkSaving.value, profilesBusy.value, hostApplying.value], syncHostLink, { immediate: true, flush: 'post' })
+watch(() => route?.query?.sec, section => { if (section !== 'sec-online') discoveryOpen.value = false })
+watch(() => [route?.query?.sec, route?.query?.source, route?.query?.item, loading.value, sources.value, dirty.value, saving.value, networkSaving.value, profilesBusy.value, hostApplying.value, discoverySaving.value], syncHostLink, { immediate: true, flush: 'post' })
 onMounted(load)
 onUnmounted(() => { disposed = true; generation++; networkGeneration++; hostGeneration++; snapshotController?.abort(); controllers.forEach(controller => controller.abort()); controllers.clear() })
 </script>

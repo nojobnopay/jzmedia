@@ -11,10 +11,10 @@ import uuid
 from ..network.guard import NetworkOperation, NetworkOperationError, current_operation, operation_context
 from ..store import online as online_store
 from ..store.online import OnlineNotFound
-from ..store.online_network import load_online_network_state
+from ..store.online_network import load_online_network_state, online_network_fingerprint
 from . import api_pool, health, maccms, open_catalog, service
 from .models import OnlinePlaybackIdentity
-from .providers import ProviderError, ResolvedPlayback
+from .providers import PlaybackMatch, ProviderError, ResolvedPlayback
 
 
 _owner = ContextVar("online_catalog_owner", default=None)
@@ -170,7 +170,7 @@ def _detail_configuration(access, source):
         raise CatalogError("online_source_disabled", 503)
     if current != source:
         raise CatalogError("online_source_changed", 409)
-    return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return online_network_fingerprint(state)
 
 
 def _detail_retry_guard(access, source):
@@ -219,8 +219,7 @@ def sources(access):
             continue
         # Include referenced encrypted credentials/revisions and every network
         # purpose, while returning only an opaque invalidation tag.
-        configuration = hashlib.sha256(json.dumps(state, sort_keys=True,
-                                                 separators=(",", ":")).encode()).hexdigest()
+        configuration = online_network_fingerprint(state)
         result.append({**_public_source(source), "priority": source["priority"],
                        "configuration_token": configuration,
                        "capabilities": {"search": True, "episodes": source["provider"] == "maccms", "refresh": True,
@@ -382,14 +381,17 @@ def background_browse(access, source_id, page=1, category_id="", year="", *, ope
     return _background_refresh(access, source_id, browse, page, category_id, year, operation=operation)
 
 
-def _persist(source, detail):
+def _persist(source, detail, *, selected_entry=None):
     episodes = []
     if detail.kind == "tv":
-        for line in detail.lines:
-            for entry in line.entries:
-                episodes.append({"external_id": maccms.episode_external_id(line.name, entry.label),
-                                 "title": entry.label, "season": None, "episode": None,
-                                 "sort_order": len(episodes)})
+        if selected_entry is not None:
+            entries = (selected_entry,)
+        else:
+            entries = enumerate((line, entry) for line in detail.lines for entry in line.entries)
+        for sort_order, (line, entry) in entries:
+            episodes.append({"external_id": maccms.episode_external_id(line.name, entry.label),
+                             "title": entry.label, "season": None, "episode": None,
+                             "sort_order": sort_order})
     return online_store.save_online_catalog(source["id"], detail.external_id, detail.kind, detail.title, episodes)
 
 
@@ -461,6 +463,7 @@ def resolve(identity):
     identity = OnlinePlaybackIdentity.model_validate(identity)
     with _admit(_owner.get()):
         source = _ready_source(identity.source_id)
+        configuration = _detail_configuration(None, source)
         item = online_store.get_online_item(identity.item_id)
         if item is None or item["source_id"] != identity.source_id:
             raise ProviderError("provider_not_found")
@@ -503,7 +506,8 @@ def resolve(identity):
         elif entry.resolver != "direct":
             raise ProviderError("invalid_provider_result")
         return ResolvedPlayback(url, entry.transport, duration_seconds=selected.duration_seconds,
-                                source_fingerprint=_version(source), media_policy_fingerprint=media_policy_fingerprint)
+                                source_fingerprint=_version(source), media_policy_fingerprint=media_policy_fingerprint,
+                                match=PlaybackMatch.from_detail(selected, entry.label), configuration=configuration)
 
 
 def provider_error_status(error):

@@ -31,6 +31,11 @@
   max-width: calc(100% - 28px); width: max-content; padding: 7px 12px; border-radius: var(--jz-radius-m);
   color: var(--jz-text); background: rgba(0, 0, 0, .8); font-size: .75rem; text-align: center; pointer-events: none; }
 .online-player-controls { position: relative; z-index: 6; padding: 5px 12px 10px; background: var(--jz-bg); min-width: 0; }
+.online-alternative { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--jz-gap-s); padding: 6px 4px; color: var(--jz-text); background: var(--jz-bg);
+  font-size: .8125rem; overflow-wrap: anywhere; }
+.online-alternative-choice { display: flex; align-items: center; flex-wrap: wrap; gap: var(--jz-gap-s); }
+.online-alternative .jz-button { max-width: 100%; white-space: normal; }
 .online-player-control-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .online-player-buttons { display: flex; align-items: center; flex: none; gap: 2px; order: 1; }
 .online-player-time { display: flex; align-items: center; gap: 7px; min-width: 0; margin: 0 auto 0 4px; order: 2;

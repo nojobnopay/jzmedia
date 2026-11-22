@@ -1,6 +1,7 @@
 """Owned online sessions and opaque resource delivery; no URL input endpoint."""
 
 import asyncio
+import sqlite3
 import threading
 import time
 
@@ -9,13 +10,16 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from pydantic import BaseModel, ConfigDict
 
 from ..network.client import NetworkRequestError
 from ..network.guard import NetworkOperation, NetworkOperationError, operation_context
 from ..network.policy import NetworkPolicyError
-from ..online import cache, gateway, providers, service
+from ..online import alternative_tasks, alternatives, cache, catalog, gateway, providers, service
 from ..online.models import OnlinePlaybackDescriptor, OnlinePlaybackIdentity
 from ..online.sessions import SessionError
+from ..store.online import OnlineNotFound
+from .online_catalog import _read
 
 
 HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
@@ -45,9 +49,10 @@ class _CreateAttempt:
     request can reclaim a result already published by that worker.
     """
 
-    def __init__(self, identity, access, *, cache_only=False):
+    def __init__(self, identity, access, *, cache_only=False, recommendation=None):
         self._identity, self._access = identity, access
         self._cache_only = cache_only
+        self._recommendation = recommendation
         self._registry = service.registry
         self._lock = threading.Lock()
         self.cancelled = threading.Event()
@@ -72,8 +77,12 @@ class _CreateAttempt:
     def _run(self):
         if self.cancelled.is_set():
             raise service.PlaybackError("online_create_cancelled", 410)
-        session = (service.create(self._identity, self._access, cache_only=True) if self._cache_only
-                   else service.create(self._identity, self._access))
+        options = {}
+        if self._cache_only:
+            options["cache_only"] = True
+        if self._recommendation is not None:
+            options["recommendation"] = self._recommendation
+        session = service.create(self._identity, self._access, **options)
         with self._lock:
             cancelled = self.cancelled.is_set()
             if not cancelled:
@@ -166,6 +175,8 @@ class OnlinePlaybackRoute(APIRoute):
                 return _error("invalid_online_playback_request", 422)
             except service.PlaybackError as error:
                 return _error(error.category, error.status)
+            except catalog.CatalogError as error:
+                return _error(error.category, error.status)
             except cache.CacheError as error:
                 return _error(error.category, error.status)
             except providers.ProviderError as error:
@@ -173,8 +184,10 @@ class OnlinePlaybackRoute(APIRoute):
                 return _error(error.category, provider_error_status(error))
             except SessionError as error:
                 return _session_error(error)
-            except NetworkPolicyError:
+            except (NetworkPolicyError, OnlineNotFound):
                 return _error("online_source_unavailable", 503)
+            except sqlite3.Error:
+                return _error("online_access_unavailable", 503)
             except NetworkRequestError as error:
                 return _error(error.category, 502)
             except NetworkOperationError as error:
@@ -195,13 +208,41 @@ class OnlinePlaybackRoute(APIRoute):
 router = APIRouter(prefix="/api/online", tags=["online-playback"], route_class=OnlinePlaybackRoute)
 
 
+@router.post("/playback/alternatives", response_model=alternatives.Alternatives)
+async def playback_alternatives(body: OnlinePlaybackIdentity, request: Request):
+    return await _read(request, alternatives.read, body, deadline_seconds=alternatives.DEADLINE_SECONDS)
+
+
+@router.post("/playback/alternative-tasks", response_model=alternative_tasks.Progress)
+def create_alternative_task(body: OnlinePlaybackIdentity, request: Request):
+    return alternative_tasks.start(service.capture_access(request), body)
+
+
+class _AdvanceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/playback/alternative-tasks/{task_id}/advance", response_model=alternative_tasks.Progress)
+async def advance_alternative_task(task_id: str, request: Request, body: _AdvanceBody | None = None):
+    return await _read(request, alternative_tasks.advance, task_id, deadline_seconds=8)
+
+
+@router.delete("/playback/alternative-tasks/{task_id}", status_code=204, response_class=Response)
+def cancel_alternative_task(task_id: str, request: Request):
+    alternative_tasks.cancel(service.capture_access(request), task_id)
+    return Response(status_code=204, headers=HEADERS)
+
+
 @router.post("/sessions", response_model=OnlinePlaybackDescriptor, status_code=201)
 async def create_session(body: OnlinePlaybackIdentity, request: Request):
     access = await run_in_threadpool(service.capture_access, request)
     cache_only = request.headers.get("x-online-cache-only")
     if cache_only not in {None, "true"}:
         raise service.PlaybackError("invalid_online_playback_request", 422)
-    attempt = _CreateAttempt(body, access, cache_only=cache_only == "true")
+    recommendation = request.headers.get("x-online-recommendation")
+    if recommendation is not None and (len(recommendation) != 32 or not recommendation.isascii()):
+        raise service.PlaybackError("invalid_online_playback_request", 422)
+    attempt = _CreateAttempt(body, access, cache_only=cache_only == "true", recommendation=recommendation)
     request.state.online_creation = attempt
     attempt.watch(request)
     task = asyncio.create_task(run_in_threadpool(attempt.run), name="online-session-create")

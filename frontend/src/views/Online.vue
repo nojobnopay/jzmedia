@@ -126,7 +126,7 @@
         <OnlineCacheView v-if="pageView === 'cache'" v-show="cacheVisible" ref="cacheView" :active="cacheVisible && safeMode" @back="showBrowse" @detail="openCacheItem" @changed="refreshDetailCache" @status="cacheStatus" />
     </template>
     <OnlineHostDialog v-if="hostDialog && safeMode && !playing" :key="hostDialog.key" :source-id="hostDialog.source" :external-id="hostDialog.externalId" :title="hostDialog.title" :source-name="hostDialog.sourceName" :current="hostDialogCurrent" :refresh="refreshHostDetail" @close="closeHostDialog" />
-    <OnlinePlayerModal v-if="playing" ref="onlinePlayer" :key="playing.key" :online-identity="playing.identity" :title="playing.title" :initial-position="playing.position" :cache-only="playing.local" :prepare-session="playing.prepareSession" @close="playing.close" @failure="playing.failure" @progress="playing.progress" @ended="playing.ended" />
+    <OnlinePlayerModal v-if="playing" ref="onlinePlayer" :key="playing.key" :online-identity="playing.identity" :title="playing.title" :initial-position="playing.position" :cache-only="playing.local" :prepared-playback="playing.prepared" :prepare-session="playing.prepareSession" :switch-source="playing.switchSource" @close="playing.close" @failure="playing.failure" @progress="playing.progress" @ended="playing.ended" />
     <OnlineCacheDialog v-if="cacheDialog && detail && selectedLine && safeMode" :key="detail.item.id + lineId" :detail="detail" :line="selectedLine" :entries="detailCacheEntries" @close="cacheDialog = false" @created="cacheCreated" />
     <JzDialog v-if="networkPrompt && safeMode" title="此集尚未缓存" :busy="starting" @close="networkPrompt = null"><p>“{{ networkPrompt.label }}”没有完整的本地缓存。是否连接视频源在线播放？</p><p v-if="networkError" class="online-cache-error" role="alert">{{ networkError }}</p><template #footer><JzButton :disabled="starting" @click="networkPrompt = null">暂不播放</JzButton><JzButton variant="primary" :loading="starting" :disabled="starting" data-online-cache-network-confirm @click="playFromNetwork">联网播放</JzButton></template></JzDialog>
   </div>
@@ -139,7 +139,7 @@ import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, onUnmounted, r
 import { useRoute, useRouter } from 'vue-router'
 import { createOnlineCatalogClient, createOnlineRefreshClient, createOnlineHealthClient, onlineHealthLabel, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
 import { createOnlineRelatedClient, onlineRelatedError } from '../onlineRelated.js'
-import { createOnlineProgressMemory, onlineIdentityKey, validateOnlineIdentity } from '../onlinePlayback.js'
+import { createOnlinePlaybackClient, createOnlineProgressMemory, onlineIdentityKey, validateOnlineIdentity } from '../onlinePlayback.js'
 import { createOnlineStateClient, createOnlineProgressWriter, loadOnlineAutoplay, saveOnlineAutoplay, nextOnlineEpisode, onlineStateError } from '../onlineState.js'
 import { onlineArtworkPath } from '../onlineArtwork.js'
 import { isChildren, registerViewingPlaybackCleanup, viewing } from '../viewing.js'
@@ -1194,16 +1194,17 @@ async function openDetail(externalId, options = {}) {
   cacheDialog.value = false; networkPrompt.value = null; detailCached.value = false; detailCacheEntries.value = []; cacheItemId.value = ''
   void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = true; lastDetailId.value = externalId
   try {
-    const cached = await cacheDetailClient.lookup(source, externalId)
+    const cached = options.verifiedDetail ? null : await cacheDetailClient.lookup(source, externalId)
     if (!current(turn) || !navigationCurrent(navigation)) return
-    const response = cached?.detail || await client.detail(source, externalId)
+    const response = options.verifiedDetail || cached?.detail || await client.detail(source, externalId)
     if (!current(turn) || !navigationCurrent(navigation) || !response) return
     if (cached) applyCacheSnapshot(cached)
     else applyCatalogueDetail(response)
     lineId.value = detail.value.lines?.find(line => line.entries.some(entry => entry.supported && entry.identity))?.id || detail.value.lines?.[0]?.id || ''
     detailLoading.value = false
     void showDetailTop(turn)
-    await readItemState(response, turn)
+    if (options.prepared) itemState.value = options.prepared.state
+    else await readItemState(response, turn)
     if (!current(turn) || !navigationCurrent(navigation)) return
     if (!lineSelectionIntent && resumeEntry.value) lineId.value = resumeEntry.value.identity.line_id
     if (!options.resume || lineSelectionIntent) return
@@ -1211,7 +1212,7 @@ async function openDetail(externalId, options = {}) {
     const entry = findEntry(response, options.identity)
     if (!entry) { stateNotice.value = '上次线路或分集已变化，请在详情中重新选择。'; return }
     lineId.value = entry.identity.line_id
-    await play(entry)
+    await play(entry, { prepared: options.prepared })
   } catch (error) { if (current(turn) && navigationCurrent(navigation)) detailError.value = onlineCatalogError(error) }
   finally { if (current(turn) && navigationCurrent(navigation)) { detailLoading.value = false; if (!detailCached.value) { void loadHealth(); if (detail.value && !detailError.value) { openHostDialog(true); void loadRelated() } } } }
 }
@@ -1278,10 +1279,12 @@ async function locateLastEntry() {
 async function stopRun(run) {
   if (!run) return
   if (run.stopping) return run.stopping
+  run.cancelSelection?.()
   run.stopping = (async () => {
     if (playing.value?.key === run.key) playing.value = null
     await nextTick() // the child's beforeUnmount emits its final decoded snapshot
     await run.writer.close()
+    if (run.prepared) void run.prepared.client.close()
     if (activeRun === run) activeRun = null
   })()
   return run.stopping
@@ -1292,7 +1295,54 @@ async function closePlayer() {
   await stopRun(run)
   if (run && !disposed && safeMode.value) { refreshRecords(); if (!run.local) void loadHealth() }
 }
-async function play(entry, { automatic = false } = {}) {
+async function switchToAlternative(run, candidate, signal) {
+  const view = generation
+  const stillPlaying = () => !disposed && activeRun === run && !run.stopping && safeMode.value && generation === view
+  if (!stillPlaying() || run.local || run.cancelSelection || signal?.aborted) return
+  const target = validateOnlineIdentity(candidate.identity)
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(candidate.recommendation_token || '')) throw new Error('invalid recommendation')
+  const catalog = createOnlineCatalogClient(), records = createOnlineStateClient()
+  const client = createOnlinePlaybackClient(), pending = new AbortController()
+  const cancel = () => { pending.abort(); catalog.close(); records.close(); void client.close() }
+  run.cancelSelection = cancel
+  signal?.addEventListener('abort', cancel, { once: true })
+  let prepared
+  try {
+    const fresh = await catalog.detail(target.source_id, candidate.external_id)
+    if (pending.signal.aborted || !stillPlaying()) return
+    const entry = findEntry(fresh, target)
+    if (!entry || fresh.item.title !== candidate.title || entry.label !== candidate.entry_label) {
+      throw Object.assign(new Error(), { code: 'online_recommendation_changed' })
+    }
+    if (!sources.value.some(source => source.id === target.source_id)) {
+      const refreshed = await catalog.sources()
+      if (pending.signal.aborted || !stillPlaying()) return
+      if (!refreshed?.enabled || onlineBrowseScope(refreshed.scope_token, viewing) !== cacheScope
+          || !refreshed.items.some(source => source.id === target.source_id)) throw new Error('source unavailable')
+      sources.value = refreshed.items
+    }
+    // The server verifies the recommendation against the actual target of this session.
+    const [descriptor, state] = await Promise.all([
+      client.create(target, { signal: pending.signal, recommendation: candidate.recommendation_token }),
+      records.item(target.item_id, target),
+    ])
+    if (pending.signal.aborted || !stillPlaying()) return
+    if (!state || state.item_id !== target.item_id || !state.available || !state.scope_token
+        || (run.scopeToken && state.scope_token !== run.scopeToken)) throw new Error('state changed')
+    prepared = markRaw({ descriptor, client, state, claimed: false })
+    // Stopping the original run now commits the handoff; it no longer owns the new lease.
+    run.cancelSelection = null
+    signal?.removeEventListener('abort', cancel)
+    sourceId.value = lastSourceId = target.source_id
+    await openDetail(candidate.external_id, { resume: true, identity: target, itemId: target.item_id, verifiedDetail: fresh, prepared })
+  } finally {
+    if (!prepared?.claimed) cancel()
+    catalog.close(); records.close()
+    signal?.removeEventListener('abort', cancel)
+    if (run.cancelSelection === cancel) run.cancelSelection = null
+  }
+}
+async function play(entry, { automatic = false, prepared = null } = {}) {
   if (!entry?.supported || !entry.identity || !safeMode.value || !detail.value) return
   if (cacheContext.value && !enabled.value) return
   if (detailCached.value && onlineCachedEntry(detailCacheEntries.value, entry.identity)?.state !== 'ready') {
@@ -1307,15 +1357,15 @@ async function play(entry, { automatic = false } = {}) {
   starting.value = true; stateNotice.value = ''
   await stopRun(activeRun)
   if (disposed || intent !== playIntent || view !== generation || !safeMode.value) return
-  let state = null
-  try { state = await stateClient.item(identity.item_id, identity) }
+  let state = prepared?.state
+  try { if (!prepared) state = await stateClient.item(identity.item_id, identity) }
   catch (error) { if (intent === playIntent && safeMode.value) stateNotice.value = onlineStateError(error) }
   if (disposed || intent !== playIntent || view !== generation || !safeMode.value) return
   const saved = state?.selected_progress
   const remembered = progress.get(identity)
   const position = state ? saved?.updated_at > 0 ? saved.completed ? 0 : saved.position : 0 : remembered?.position || 0
   const run = { key: ++runId, intent, identity, source: identity.source_id, externalId: lastDetailId.value,
-    itemId: data.item.id, local: detailCached.value, endedHandled: false, stopping: null, writer: null }
+    itemId: data.item.id, scopeToken: state?.scope_token, prepared, local: detailCached.value, endedHandled: false, stopping: null, writer: null }
   run.writer = createOnlineProgressWriter({ identity, scopeToken: state?.scope_token,
     revision: saved?.writer_revision || 0,
     onNotice: (message, code) => {
@@ -1325,8 +1375,11 @@ async function play(entry, { automatic = false } = {}) {
     onSaved: value => { if (!disposed && activeRun === run && safeMode.value && itemState.value?.item_id === identity.item_id) itemState.value = { ...itemState.value, last_progress: value, selected_progress: value } },
   })
   activeRun = run
+  if (prepared) prepared.claimed = true
   lastPlayerFailure.value = null
   playing.value = { key: run.key, identity, local: run.local, title: data.item.title + (data.item.kind === 'tv' ? ' · ' + entry.label : ''), position,
+    prepared,
+    switchSource: (candidate, signal) => switchToAlternative(run, candidate, signal),
     failure: (code, cached) => {
       if (activeRun === run) lastPlayerFailure.value = code ? { view, identity, code, cached, replay: () => {
         if (!disposed && view === generation && safeMode.value && !playing.value && lineId.value === identity.line_id) {

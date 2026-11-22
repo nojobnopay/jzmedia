@@ -1,6 +1,6 @@
 // Real Vue App and Router, in-memory API and local demo artwork only.
 // Run one check at a time under the repository's bounded validation wrapper.
-// node scripts/smoke_online_ui.mjs [--baseline|--settings-only] [--width 1440|430|390|375|320] [--capture-docs|--capture-preview]
+// node scripts/smoke_online_ui.mjs [--baseline|--settings-only|--alternatives-only] [--width 1440|430|390|375|320] [--capture-docs|--capture-preview]
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -16,18 +16,21 @@ import { artworkFingerprint, createFixture, movies, shows } from './fixtures/uiR
 import { ONLINE_ARTWORK_LIMIT } from '../frontend/src/onlineArtwork.js'
 
 const root = fileURLToPath(new URL('../', import.meta.url)), args = process.argv.slice(2)
-let baseline = false, settingsOnly = false, captureDocs = false, capturePreview = false, widths = [1440, 430, 390, 375, 320]
+let alternativesOnly = false, baseline = false, settingsOnly = false, captureDocs = false, capturePreview = false, widths = [1440, 430, 390, 375, 320]
 for (let index = 0; index < args.length; index++) {
   if (args[index] === '--baseline') baseline = true
+  else if (args[index] === '--alternatives-only') alternativesOnly = true
   else if (args[index] === '--settings-only') settingsOnly = true
   else if (args[index] === '--capture-docs' || args[index] === '--capture-preview') { captureDocs = true; capturePreview = args[index] === '--capture-preview'; widths = [1440, 390] }
   else if (args[index] === '--width') { const width = Number(args[++index]); assert.ok(widths.includes(width)); widths = [width] }
-  else if (args[index] === '--help') { console.log('node scripts/smoke_online_ui.mjs [--baseline|--settings-only] [--width 1440|430|390|375|320] [--capture-docs|--capture-preview]'); process.exit(0) }
+  else if (args[index] === '--help') { console.log('node scripts/smoke_online_ui.mjs [--baseline|--settings-only|--alternatives-only] [--width 1440|430|390|375|320] [--capture-docs|--capture-preview]'); process.exit(0) }
   else throw new Error('Unknown argument: ' + args[index])
 }
 assert.ok(!(settingsOnly && (baseline || captureDocs)), 'Settings checks use current source and isolated fixtures')
 assert.ok(!(baseline && captureDocs), 'Documentation captures require current source')
-const label = settingsOnly ? 'settings-after' : baseline ? 'before' : 'after'
+assert.ok(!alternativesOnly || (!baseline && !captureDocs && !settingsOnly))
+if (alternativesOnly && !args.includes('--width')) widths = [1440, 390]
+const label = alternativesOnly ? 'playback-alternatives' : settingsOnly ? 'settings-after' : baseline ? 'before' : 'after'
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-ui-'))
 const output = path.join(root, 'output/playwright/online-ui', label), dist = path.join(work, 'dist')
 const fixture = createFixture(), sourceA = 'src_' + '1'.repeat(32), sourceB = 'src_' + '2'.repeat(32)
@@ -91,6 +94,21 @@ function api(url, method, body) {
   if (settingsOnly) {
     if (key === '/api/online/settings') { if (method === 'PATCH') settingsData.enabled = body.enabled; return { enabled: settingsData.enabled } }
     if (key === '/api/online/sources') return { items: settingsData.sources }
+    const saved = settingsData.sources.find(source => source.api_base_url === 'https://fixture.example/api')
+    const discoverId = saved?.id || 'fixture-discovery', receipt = saved ? 'saved-fixture-receipt' : 'initial-fixture-receipt'
+    if (key === '/api/online/discovery/refresh') return { items: [{ id: discoverId, name: '新片放映室', origin: '演示目录',
+      api_base_url: 'https://fixture.example/api', source_id: saved?.id || null, enabled: !!saved?.enabled }] }
+    if (key === '/api/online/discovery/' + discoverId + '/probe') return { id: discoverId, status: 'measured',
+      catalog_ms: 70, media_ms: 225, sample_bytes: 131072, sample_kbps: 4660, reason: 'ok',
+      allowed_hosts: saved ? [] : ['media.fixture.example'], probe_token: receipt }
+    if (key === '/api/online/discovery/' + discoverId + '/enable') {
+      assert.deepEqual(body, { probe_token: receipt })
+      if (saved) { saved.enabled = true; return saved }
+      const source = { ...settingsData.sources[0], id: 'src_' + '4'.repeat(32), name: '新片放映室',
+        api_base_url: 'https://fixture.example/api', allowed_hosts: ['fixture.example', 'media.fixture.example'] }
+      settingsData.sources.push(source)
+      return source
+    }
     if (key === '/api/online/network/profiles') return { items: settingsData.profiles }
     if (key === '/api/online/network/default') return { rule: { mode: 'direct' } }
     if (key === '/api/online/source-templates') return { items: [] }
@@ -123,10 +141,11 @@ function api(url, method, body) {
   if (captureDocs && key === '/api/online/network/default') return { rule: { mode: 'direct' } }
   if (captureDocs && key === '/api/online/source-templates') return { items: [] }
   if (captureDocs && key.endsWith('/host-check')) return { source_id: sourceB, external_id: 'fixture-2', configuration_fingerprint: 'd'.repeat(64), missing_hosts: ['media.example.com', 'images.example.com'], rejected_count: 0 }
-  if (key === '/api/online/catalog/sources') return { enabled: true, items: sources, scope_token: 'a'.repeat(64) }
+  const browseSources = settingsOnly ? settingsData.sources : sources
+  if (key === '/api/online/catalog/sources') return { enabled: true, items: browseSources, scope_token: 'a'.repeat(64) }
   if (key === '/api/online/catalog/health') return { purposes: { api: { state: 'success', mode: 'direct' }, media: { state: 'unknown', mode: 'direct' } } }
   if (key === '/api/online/catalog/browse' || key === '/api/online/catalog/search') {
-    const page = Number(query.get('page') || 1), source = sources.find(source => source.id === query.get('source_id')) || sources[0]
+    const page = Number(query.get('page') || 1), source = browseSources.find(source => source.id === query.get('source_id')) || sources[0]
     const items = metadata.filter(entry => entry.source.id === source.id).slice(0, 18).map(entry => ({ ...entry, ...entry.item, title: entry.item.title }))
     return { source, items: page === 1 ? items : [...items.slice(3), ...items.slice(0, 3)], page, page_count: 2, total: 36, categories,
       ...(query.get('priority') === 'background' ? { status: 'ready', configuration_token: source.configuration_token } : {}) }
@@ -164,7 +183,8 @@ function api(url, method, body) {
 }
 
 const report = { label, generated_at: new Date().toISOString(), fixture: 'online-ui-v1', artwork_sha256: artworkFingerprint,
-  scope: 'Real Vue App and Router, isolated in-memory API and existing fictional demo artwork; no production backend, external source, real library or media decoding.',
+  scope: alternativesOnly ? 'Real Vue player and router, mocked online APIs and a local tutorial MP4 streamed over loopback with controlled stalls.'
+    : 'Real Vue App and Router, isolated in-memory API and existing fictional demo artwork; no production backend, external source, real library or media decoding.',
   screenshots: [], checks: [], errors: [], external: [], touchTargets: [] }
 let server, browser, currentPage, currentWidth, source = root
 async function fingerprint(folder) {
@@ -286,9 +306,143 @@ async function touchTargets(page, width) {
   if (!baseline) assert.deepEqual(small, [], 'Phone controls must retain 44px targets')
 }
 
+// Serve an existing fictional tutorial clip slowly, so Chromium decodes frames and
+// then really exhausts its buffer. API fixtures expose the same episode at a second source.
+async function checkPlaybackAlternatives(page, base) {
+  const original = identity(metadata[1], 6), alternate = identity(metadata[4], 6)
+  const clip = await readFile(path.join(root, 'docs/assets/videos/organizing.mp4'))
+  const attempts = [], requests = []
+  const taskPath = '/api/online/playback/alternative-tasks', taskId = 'alt_' + 'c'.repeat(32)
+  const token = 'p'.repeat(32), probeStarted = Promise.withResolvers()
+  let holdMedia = true, probeResponse = null
+  let mediaGate = Promise.withResolvers()
+  state.serveTestMedia = async (req, res) => {
+    const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range || '')
+    const start = range ? Number(range[1]) : 0, end = range?.[2] ? Number(range[2]) + 1 : clip.length
+    res.writeHead(range ? 206 : 200, { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-store', 'Content-Length': end - start,
+      ...(range ? { 'Content-Range': `bytes ${start}-${end - 1}/${clip.length}` } : {}) })
+    const boundary = holdMedia ? Math.min(end, Math.max(start, 202000)) : end
+    res.write(clip.subarray(start, boundary))
+    if (boundary < end) await mediaGate.promise
+    if (!res.destroyed) res.end(clip.subarray(boundary, end))
+  }
+  const result = { identity: alternate, external_id: metadata[4].item.external_id, source_name: sources[0].name,
+    title: metadata[1].item.title, entry_label: '第6集',
+    line_label: '高清线路', throughput_kbps: 7200, recommendation_token: token }
+  const originalTitle = metadata[1].item.title
+  await page.route('**/api/stream/client-info', route => route.fulfill({ json: { features: ['online_alternatives_v2'] } }))
+  await page.route('**/api/online/**', async route => {
+    const req = route.request(), url = new URL(req.url()), key = url.pathname
+    if (key === '/api/online/sessions') {
+      const requested = req.postDataJSON()
+      if (requested.source_id === alternate.source_id) assert.equal(req.headers()['x-online-recommendation'], token)
+      attempts.push(requested)
+      const sid = hex(attempts.length)
+      return route.fulfill({ json: { identity: requested, session_id: sid, media_url: '/api/online/sessions/' + sid + '/media',
+        transport: 'mp4', processing: 'passthrough', seekable: true, duration_seconds: 31.95,
+        time_offset_seconds: 0, expires_at: Math.floor(Date.now() / 1000) + 3600 } })
+    }
+    if (key === taskPath) {
+      requests.push(req.postDataJSON())
+      return route.fulfill({ json: { task_id: taskId, status: 'running', items: [], retry_after_ms: 0, partial: false } })
+    }
+    if (key === taskPath + '/' + taskId && req.method() === 'DELETE') {
+      return route.fulfill({ status: 204 })
+    }
+    if (key === taskPath + '/' + taskId + '/advance') {
+      probeStarted.resolve()
+      if (probeResponse) await probeResponse.promise
+      return route.fulfill({ json: { task_id: taskId, status: 'done', items: [result], retry_after_ms: 0, partial: false } }).catch(() => {})
+    }
+    if (key.startsWith('/api/online/state/progress')) {
+      const body = req.postDataJSON()
+      const response = key.endsWith('/claim') ? { identity: attempts.at(-1), writer_id: body.session_id,
+        writer_revision: body.expected_revision + 1 } : { progress: { ...body, identity: attempts.at(-1) } }
+      return route.fulfill({ json: { ...response, scope_token: scope() } })
+    }
+    if (key === '/api/online/catalog/detail' && url.searchParams.get('external_id') === result.external_id) {
+      const detail = api(url, 'GET')
+      detail.item = { ...detail.item, title: originalTitle }
+      return route.fulfill({ json: detail })
+    }
+    return route.fallback()
+  })
+  const dialog = page.locator('.online-player-dlg')
+  const choice = dialog.getByRole('button', { name: '切换到 光影片库 · 高清线路' })
+  state.rows.find(row => row.item.id === original.item_id).progress.position = 0
+  async function stall() {
+    await go(page, base, `/online?source=${sourceB}&item=fixture-2`)
+    await page.locator('[data-online-primary-play]').click()
+    await page.waitForFunction(() => document.querySelector('.online-player-video')?.currentTime > .2)
+    await dialog.getByText('正在缓冲', { exact: true }).waitFor({ timeout: 15000 })
+  }
+  try {
+    // Recover after the probe starts and deliver a stale result. No offer survives.
+    probeResponse = Promise.withResolvers()
+    await stall()
+    await dialog.getByText('正在探测同一节目的备用线路…').waitFor()
+    await probeStarted.promise
+    assert.deepEqual(requests, [original])
+    const cancelled = page.waitForRequest(req => req.method() === 'DELETE' && new URL(req.url()).pathname === taskPath + '/' + taskId)
+    holdMedia = false; mediaGate.resolve()
+    await page.waitForFunction(() => document.querySelector('.online-player-video')?.currentTime > 4)
+    await dialog.locator('.online-alternative').waitFor({ state: 'hidden' })
+    probeResponse.resolve(); probeResponse = null
+    await cancelled
+    assert.equal(await choice.count(), 0, 'A late response cannot reopen an offer after playback recovers')
+    await page.keyboard.press('Escape')
+    await dialog.waitFor({ state: 'hidden' })
+    assert.deepEqual(attempts, [original])
+
+    // Stall again, leave bytes blocked until a viewer selects the offer.
+    mediaGate = Promise.withResolvers(); holdMedia = true
+    await stall()
+    await choice.waitFor({ timeout: 15000 })
+    await capture(page, 'alternate-line', page.viewportSize().width)
+    assert.deepEqual(requests, [original, original])
+    assert.deepEqual(attempts, [original, original], 'A recommendation alone never creates the alternate session')
+    const switched = page.waitForRequest(req => new URL(req.url()).pathname === '/api/online/sessions' && req.postDataJSON().source_id === sourceA)
+    await choice.click(); await switched
+    holdMedia = false; mediaGate.resolve()
+    await page.waitForURL(url => url.searchParams.get('source') === sourceA && url.searchParams.get('item') === result.external_id)
+    await page.waitForFunction(() => document.querySelector('.online-player-video')?.currentTime > .2)
+    assert.deepEqual(attempts, [original, original, alternate], 'The player adopts the one prepared session for the verified target episode')
+    await page.keyboard.press('Escape')
+    await dialog.waitFor({ state: 'hidden' })
+    report.checks.push({ width: page.viewportSize().width, checks: ['decoded frames before real MP4 starvation',
+      'recovery cancels pending recommendation', 'explicit alternate choice opens the same episode on another source'] })
+  } finally {
+    holdMedia = false; mediaGate.resolve(); probeResponse?.resolve()
+    await page.unrouteAll({ behavior: 'wait' })
+    delete state.serveTestMedia
+  }
+}
+
 async function checkSourceSettings(page, base, width) {
   await page.goto(base + '/settings?sec=sec-online')
   const sourceRow = page.locator(`[data-online-source-row="${sourceA}"]`)
+  await sourceRow.waitFor()
+  const discover = page.getByRole('button', { name: '发现并探测来源', exact: true })
+  await discover.click()
+  const result = page.locator('[data-discovery-candidate="fixture-discovery"]')
+  await result.getByText(/本轮优先试用/).waitFor()
+  await result.getByText(/允许访问 media.fixture.example/).waitFor()
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true)
+  await result.getByRole('button', { name: '启用来源 新片放映室' }).click()
+  await result.getByText('已启用', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '返回视频源列表', exact: true }).click()
+  await page.getByRole('heading', { name: '新片放映室', exact: true }).waitFor()
+  assert.equal(await discover.evaluate(button => document.activeElement === button), true)
+  const chosenSource = 'src_' + '4'.repeat(32)
+  settingsData.sources.find(source => source.id === chosenSource).enabled = false
+  await discover.click()
+  const existing = page.locator(`[data-discovery-candidate="${chosenSource}"]`)
+  await existing.getByRole('button', { name: '启用来源 新片放映室' }).click()
+  await existing.getByRole('link', { name: '使用此源 新片放映室' }).click()
+  await page.waitForURL(url => url.pathname === '/online' && url.searchParams.get('source') === chosenSource)
+  await page.waitForFunction(id => document.querySelector('[data-online-source]')?.value === id, chosenSource)
+  await page.goto(base + '/settings?sec=sec-online')
   await sourceRow.waitFor()
   const edit = sourceRow.getByRole('button', { name: '编辑 光影片库', exact: true })
   await edit.click()
@@ -386,7 +540,7 @@ try {
   }
   report.source_sha256 = await fingerprint(path.join(source, 'frontend/src'))
   report.fixture_sha256 = createHash('sha256').update(JSON.stringify(metadata)).update(artworkFingerprint).digest('hex')
-  if (!baseline && !captureDocs && !settingsOnly) {
+  if (!baseline && !captureDocs && !settingsOnly && !alternativesOnly) {
     const previous = await readFile(path.join(root, 'output/playwright/online-ui/before/report.json'), 'utf8').then(JSON.parse).catch(() => null)
     if (previous) assert.equal(previous.fixture_sha256, report.fixture_sha256, 'Recapture baseline after changing the comparison fixture')
   }
@@ -396,6 +550,10 @@ try {
     res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'")
     try {
       const url = new URL(req.url, 'http://127.0.0.1'), key = url.pathname
+      if (alternativesOnly && key.endsWith('/media') && state.serveTestMedia) {
+        await state.serveTestMedia(req, res)
+        return
+      }
       if (assets.has(key)) {
         const asset = assets.get(key), bytes = await readFile(path.join(root, asset.master))
         assert.equal(createHash('sha256').update(bytes).digest('hex'), asset.sha256)
@@ -440,6 +598,7 @@ try {
     const page = currentPage = await context.newPage(); currentWidth = width; page.setDefaultTimeout(10000)
     page.on('pageerror', error => report.errors.push(String(error)))
     page.on('console', message => { if (message.type() === 'error' && !/(?:503 \(Service Unavailable\)|404 \(Not Found\))/.test(message.text())) report.errors.push(message.text()) })
+    if (alternativesOnly) { await checkPlaybackAlternatives(page, base); await context.close(); continue }
     if (settingsOnly) { await checkSourceSettings(page, base, width); await context.close(); continue }
     await go(page, base)
     await page.locator('[data-online-result]').first().waitFor()

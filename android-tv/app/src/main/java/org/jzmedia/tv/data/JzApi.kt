@@ -37,6 +37,10 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
         private set
     var supportsAiDiscovery: Boolean by mutableStateOf(initialAiDiscovery)
         private set
+    var supportsOnlineAlternatives: Boolean by mutableStateOf(false)
+        private set
+    var supportsAlternativeTasks: Boolean by mutableStateOf(false)
+        private set
     fun updateViewingMetadata(session: ViewingSession) {
         check(viewing?.mode == session.mode && viewing?.generation == session.generation && viewingToken == session.token)
         viewing = session
@@ -123,17 +127,20 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
     fun readViewingSession(value: JSONObject): ViewingSession = try { ViewingSession.fromJson(value, viewingToken) }
     catch (e: ApiException) { if (e.code == "viewing_locked") locked.tryEmit(Unit); throw e }
     fun withViewing(value: JSONObject): JzApi = withViewingSession(readViewingSession(value))
-    fun withViewingSession(session: ViewingSession): JzApi = JzApi(baseUrl, token, session,
-        initialOnlineVod = supportsOnlineVod, initialAiDiscovery = supportsAiDiscovery)
+    private fun copyConnection(session: ViewingSession?, viewingCredential: String = "") =
+        JzApi(baseUrl, token, session, viewingCredential, supportsOnlineVod, supportsAiDiscovery)
+            .also { it.supportsOnlineAlternatives = supportsOnlineAlternatives; it.supportsAlternativeTasks = supportsAlternativeTasks }
+    fun withViewingSession(session: ViewingSession): JzApi = copyConnection(session)
+    fun withViewingToken(credential: String): JzApi = copyConnection(null, credential)
     fun cancelRequests() { client.dispatcher.cancelAll(); playbackClient.dispatcher.cancelAll(); onlineClient.dispatcher.cancelAll() }
     internal suspend fun requestOnline(method: String, path: String, body: JSONObject? = null,
                                        scopeToken: String? = null, retryConnectionFailure: Boolean = true,
-                                       cacheOnly: Boolean = false): JSONObject {
+                                       cacheOnly: Boolean = false, recommendation: String? = null): JSONObject {
         require(path.startsWith("/api/online/")) { "在线请求地址无效" }
         require(scopeToken == null || Regex("[0-9a-f]{64}").matches(scopeToken)) { "在线状态身份无效" }
         require(!cacheOnly || method == "POST" && path == "/api/online/sessions")
         return json(method, path, body, requestClient = if (retryConnectionFailure) onlineClient else onlineWriteClient, scopeToken = scopeToken,
-            retryConnectionFailure = retryConnectionFailure, cacheOnly = cacheOnly)
+            retryConnectionFailure = retryConnectionFailure, cacheOnly = cacheOnly, recommendation = recommendation)
     }
     internal suspend fun discoveryResults(body: JSONObject, refresh: Boolean): JSONObject {
         if (viewing?.mode == "children") throw ApiException(403, "儿童模式暂不提供智能找片", "children_restricted")
@@ -149,9 +156,9 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
     private suspend fun json(method: String, path: String, body: JSONObject? = null, longRequest: Boolean = false,
                              receiverToken: String? = null, requestClient: OkHttpClient? = null,
                              scopeToken: String? = null, retryConnectionFailure: Boolean = true,
-                             cacheOnly: Boolean = false): JSONObject {
+                             cacheOnly: Boolean = false, recommendation: String? = null): JSONObject {
         val text = execute(method, path, body, 8 * 1024 * 1024, longRequest, receiverToken,
-            requestClient, scopeToken, retryConnectionFailure, cacheOnly).toString(Charsets.UTF_8)
+            requestClient, scopeToken, retryConnectionFailure, cacheOnly, recommendation).toString(Charsets.UTF_8)
         return try { if (text.isBlank()) JSONObject() else JSONObject(text) }
         catch (_: Exception) { throw ApiException(0, "服务器返回了无法识别的数据") }
     }
@@ -159,7 +166,7 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
     private suspend fun execute(method: String, path: String, body: JSONObject?, maxBytes: Int, longRequest: Boolean = false,
                                 receiverToken: String? = null, requestClient: OkHttpClient? = null,
                                 scopeToken: String? = null, retryConnectionFailure: Boolean = true,
-                                cacheOnly: Boolean = false): ByteArray =
+                                cacheOnly: Boolean = false, recommendation: String? = null): ByteArray =
         suspendCancellableCoroutine { continuation ->
             val url = absoluteUrl(path)
             val request = Request.Builder().url(url).header("Accept", "application/json, text/plain, */*")
@@ -167,7 +174,13 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
             authHeadersFor(url).forEach { (key, value) -> request.header(key, value) }
             if (receiverToken != null) request.header("X-Receiver-Token", receiverToken)
             if (scopeToken != null) request.header("X-Online-State-Scope", scopeToken)
+            if (recommendation != null) {
+                require(method == "POST" && path == "/api/online/sessions" && supportsAlternativeTasks)
+                request.header("X-Online-Recommendation", checkedRecommendation(recommendation))
+            }
             if (cacheOnly) request.header("X-Online-Cache-Only", "true")
+            if (method == "POST" && path == "/api/online/sessions" && (supportsOnlineAlternatives || supportsAlternativeTasks))
+                request.header("X-Online-Playback-Context", "cache")
             val encoded = body?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType())
             val payload = if (!retryConnectionFailure && encoded != null) object : RequestBody() {
                 override fun contentType() = encoded.contentType()
@@ -212,7 +225,9 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
                             if (source.request(maxBytes.toLong() + 1)) throw ApiException(0, "服务器响应过大")
                             source.readByteArray()
                         }
-                        if (continuation.isActive) continuation.resume(bytes)
+                        if (method == "POST" && path in setOf("/api/online/sessions", "/api/online/playback/alternative-tasks")) {
+                            continuation.resume(bytes) { _, body, _ -> releaseUndeliveredOnlineResult(path, body) }
+                        } else if (continuation.isActive) continuation.resume(bytes)
                     } catch (e: Exception) {
                         if (continuation.isActive) continuation.resumeWithException(
                             if (e is ApiException) e else ApiException(0, "读取服务器响应失败，请重试"),
@@ -222,12 +237,28 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
             })
         }
 
+    private fun releaseUndeliveredOnlineResult(path: String, payload: ByteArray) {
+        val session = path == "/api/online/sessions"
+        val id = runCatching { JSONObject(payload.toString(Charsets.UTF_8)).getString(if (session) "session_id" else "task_id") }
+            .getOrNull() ?: return
+        if ((session && !ONLINE_OPAQUE.matches(id)) || (!session && runCatching { checkedRecommendation(id) }.isFailure)) return
+        val url = absoluteUrl("$path/$id")
+        val request = Request.Builder().url(url).delete()
+        authHeadersFor(url).forEach { (key, value) -> request.header(key, value) }
+        onlineWriteClient.newCall(request.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = Unit
+            override fun onResponse(call: Call, response: Response) = response.close()
+        })
+    }
+
     suspend fun checkConnection(): JSONObject {
         val info = get("/api/stream/client-info")
         if (info.optInt("protocol_version") != 1) throw ApiException(0, "服务器版本不兼容，请更新 jzmedia 服务端")
         val check = post("/api/stream/client-check", JSONObject().put("client", "android_tv").put("protocol_version", 1))
         if (check.optInt("protocol_version") != 1) throw ApiException(0, "服务器版本不兼容，请更新 jzmedia 服务端")
         supportsOnlineVod = org.jzmedia.tv.data.supportsOnlineVod(info)
+        supportsOnlineAlternatives = supportsOnlineFeature(info, "online_alternatives")
+        supportsAlternativeTasks = supportsOnlineFeature(info, "online_alternatives_v2")
         supportsAiDiscovery = supportsAiDiscovery(info)
         return info
     }

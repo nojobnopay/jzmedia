@@ -418,7 +418,12 @@ def management_path(path, method):
     if path in {"/api/online/catalog/sources", "/api/online/catalog/search", "/api/online/catalog/detail",
                 "/api/online/catalog/health", "/api/online/catalog/browse", "/api/online/catalog/related"}:
         return method != "GET"
-    if method == "POST" and path == "/api/online/catalog/search-sessions":
+    if method == "POST" and path in {"/api/online/catalog/search-sessions", "/api/online/playback/alternatives",
+                                     "/api/online/playback/alternative-tasks"}:
+        return False
+    if method == "POST" and re.fullmatch(r"/api/online/playback/alternative-tasks/alt_[0-9a-f]{32}/advance", path):
+        return False
+    if method == "DELETE" and re.fullmatch(r"/api/online/playback/alternative-tasks/alt_[0-9a-f]{32}", path):
         return False
     if method == "GET" and re.fullmatch(r"/api/online/catalog/search-sessions/srch_[0-9a-f]{32}", path):
         return False

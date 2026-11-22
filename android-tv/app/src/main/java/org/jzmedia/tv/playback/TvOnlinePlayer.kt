@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -62,6 +61,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.jzmedia.tv.data.JzApi
+import org.jzmedia.tv.data.OnlineAlternative
+import org.jzmedia.tv.data.OnlineApi
 import org.jzmedia.tv.ui.Accent
 import org.jzmedia.tv.ui.Muted
 import org.jzmedia.tv.ui.TvAction
@@ -71,7 +72,7 @@ import org.jzmedia.tv.ui.generated.DesignTokens
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun TvOnlinePlayer(api: JzApi, request: OnlinePlaybackRequest, onClose: () -> Unit,
-                   onPlayNext: (OnlinePlaybackRequest) -> Unit = {},
+                   onPlayNext: (OnlinePlaybackRequest) -> Unit = { it.preparedSession?.discard() },
                    onPlayingChanged: (Boolean) -> Unit = {},
                    onController: (OnlinePlaybackController, Boolean) -> Unit = { _, _ -> }) {
     val context = LocalContext.current
@@ -103,7 +104,32 @@ fun TvOnlinePlayer(api: JzApi, request: OnlinePlaybackRequest, onClose: () -> Un
             controller::setRate, controller::setTrack, ::leave)
     }
     key(controller) {
-        OnlinePlayerContent(request, state, actions) {
+        val online = remember { OnlineApi(api) }
+        val scope = rememberCoroutineScope()
+        val alternatives = remember { OnlineAlternativeSearch(online, scope, request.identity) }
+        val trigger = alternativeTrigger(state, api.supportsAlternativeTasks)
+        var lastAuto by remember { mutableStateOf<Long?>(null) }
+        LaunchedEffect(trigger, alternatives.selecting) {
+            if (trigger == AlternativeTrigger.Inactive && !alternatives.selecting) alternatives.clear()
+        }
+        LaunchedEffect(trigger) {
+            // Error is distinct from recovery: leave a running comparison alive on the error screen.
+            if (trigger == AlternativeTrigger.Waiting) {
+                delay(5000)
+                val now = android.os.SystemClock.elapsedRealtime()
+                lastAuto?.let { delay((60_000 - (now - it)).coerceAtLeast(0L)) }
+                if (!alternatives.busy && !alternatives.selecting && alternatives.notice == null) {
+                    lastAuto = android.os.SystemClock.elapsedRealtime()
+                    alternatives.probe()
+                }
+            }
+        }
+        val mayRetry = !alternatives.busy && !alternatives.selecting &&
+            (trigger == AlternativeTrigger.Error || alternatives.notice != null && trigger == AlternativeTrigger.Waiting)
+        OnlinePlayerContent(request, state, actions, alternatives.notice, alternatives.items, alternatives.selecting,
+            if (alternatives.selecting) alternatives::cancelSelection else if (mayRetry) alternatives::probe else null, { target ->
+                scope.launch { alternatives.choose(target, request) { destination -> next(destination) } }
+            }) {
             AndroidView(factory = { PlayerView(it).apply {
                 player = controller.player; useController = false; isFocusable = false
                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
@@ -112,6 +138,11 @@ fun TvOnlinePlayer(api: JzApi, request: OnlinePlaybackRequest, onClose: () -> Un
             }, onRelease = { it.keepScreenOn = false; it.player = null })
         }
     }
+}
+
+private fun alternativeLabel(candidate: OnlineAlternative): String {
+    val speed = candidate.throughputKbps?.let { " · %.1f Mbps".format(it / 1000.0) }.orEmpty()
+    return "切换到 ${candidate.sourceName} · ${candidate.lineLabel}$speed"
 }
 
 /** Keeps remote interaction testable without creating a decoder or a network session. */
@@ -130,7 +161,10 @@ internal data class OnlinePlayerActions(
 
 @Composable
 internal fun OnlinePlayerContent(request: OnlinePlaybackRequest, state: OnlinePlaybackState,
-                                 actions: OnlinePlayerActions, video: @Composable () -> Unit = {}) {
+                                 actions: OnlinePlayerActions, alternativeNotice: String? = null,
+                                 alternatives: List<OnlineAlternative> = emptyList(), selecting: Boolean = false,
+                                 retryAlternatives: (() -> Unit)? = null, switchSource: (OnlineAlternative) -> Unit = {},
+                                 video: @Composable () -> Unit = {}) {
     var controls by remember { mutableStateOf(true) }
     var menu by remember { mutableStateOf<String?>(null) }
     var interaction by remember { mutableIntStateOf(0) }
@@ -154,7 +188,8 @@ internal fun OnlinePlayerContent(request: OnlinePlaybackRequest, state: OnlinePl
         "seek", "rewind", "forward" -> !canSeek
         "cancel-next" -> !state.nextLoading
         "network-next" -> state.networkNext == null
-        else -> false
+        "probe" -> retryAlternatives == null
+        else -> lastControl.startsWith("alternative:") && alternatives.none { lastControl == "alternative:" + it.identity }
     }
 
     fun stopSeekHold() { seekHold?.cancel(); seekHold = null }
@@ -187,7 +222,10 @@ internal fun OnlinePlayerContent(request: OnlinePlaybackRequest, state: OnlinePl
             else -> rootFocus.requestFocus()
         }
     }
-    LaunchedEffect(canSeek, state.nextLoading, state.networkNext != null, controls, menu, state.error) {
+    LaunchedEffect(alternativeNotice != null) {
+        if (alternativeNotice != null && (state.loading || state.awaitingSeek || !state.firstFrame)) controls = true
+    }
+    LaunchedEffect(canSeek, state.nextLoading, state.networkNext != null, alternatives.map { it.identity }, retryAlternatives != null, controls, menu, state.error) {
         // Only recover a control that disappeared; background next-episode work must not steal focus.
         if (controls && menu == null && state.error == null && focusedControlRemoved()) {
             withFrameNanos { }
@@ -244,8 +282,13 @@ internal fun OnlinePlayerContent(request: OnlinePlaybackRequest, state: OnlinePl
         }
     }.focusRequester(rootFocus).focusable()) {
         video()
-        if (state.loading && state.error == null) Box(Modifier.align(Alignment.Center)
-            .background(DesignTokens.SurfaceRaised).padding(24.dp)) { Text(if (request.localCache) "正在准备本地缓存…" else "正在准备在线原片…") }
+        if ((state.loading || state.awaitingSeek && state.playWhenReady) && state.error == null) Box(Modifier.align(Alignment.Center)
+            .background(DesignTokens.SurfaceRaised).padding(24.dp)) { Text(when {
+                state.awaitingSeek -> "正在跳转…"
+                state.firstFrame -> "正在缓冲…"
+                request.localCache -> "正在准备本地缓存…"
+                else -> "正在准备在线原片…"
+            }) }
         if (preview != null && !controls) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
             .background(Color.Black.copy(alpha = .88f)).padding(28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("跳转至 ${playbackTime(preview!!)} / ${playbackTime(state.duration)}", style = MaterialTheme.typography.headlineSmall)
@@ -289,6 +332,7 @@ internal fun OnlinePlayerContent(request: OnlinePlaybackRequest, state: OnlinePl
             Text("${if (preview != null) "跳转至 " else ""}${playbackTime(preview ?: state.position)} / ${playbackTime(state.duration)} · ${state.rate}×")
             if (seekFocused) Text("左右预选 · 确定跳转 · 返回取消 · 步长${playbackTime(seekUnit.toDouble())}", color = Muted)
             state.notice?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
+            alternativeNotice?.let { Text(it, color = Muted) }
             if (state.ended) Text(if (state.nextLoading) "播放结束，正在读取下一集…" else "播放结束")
             LazyRow(state = actionList, contentPadding = PaddingValues(6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 item("play") {
@@ -301,18 +345,31 @@ internal fun OnlinePlayerContent(request: OnlinePlaybackRequest, state: OnlinePl
                 item("rewind") { TvAction("后退10秒", { actions.skip(-10.0); interaction++ }, controlFocus("rewind").focusProperties { canFocus = canSeek }, enabled = canSeek, icon = "rewind") }
                 item("forward") { TvAction("前进10秒", { actions.skip(10.0); interaction++ }, controlFocus("forward").focusProperties { canFocus = canSeek }, enabled = canSeek, icon = "forward10") }
                 item("settings") { TvAction("播放设置", { menu = "settings" }, controlFocus("settings"), icon = "settings") }
+                items(alternatives, key = { "alternative:" + it.identity }) { target ->
+                    TvAction(alternativeLabel(target), { switchSource(target) }, controlFocus("alternative:" + target.identity), enabled = !selecting)
+                }
+                if (retryAlternatives != null) item("probe") {
+                    TvAction(if (selecting) "取消切换" else "重新探测", retryAlternatives, controlFocus("probe"))
+                }
                 if (state.nextLoading) item("cancel-next") { TvAction("取消连续播放", actions.cancelNext, controlFocus("cancel-next")) }
                 if (state.networkNext != null) item("network-next") { TvAction("联网播放下一集", actions.playNetworkNext, controlFocus("network-next"), icon = "forward") }
                 item("exit") { TvAction("退出播放", actions.close, controlFocus("exit"), icon = "close") }
             }
         }
-        state.error?.let { error -> Column(Modifier.align(Alignment.Center).widthIn(max = 720.dp)
+        state.error?.let { error -> Column(Modifier.align(Alignment.Center).widthIn(max = 920.dp)
             .background(DesignTokens.SurfaceRaised).padding(32.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             Text(error, style = MaterialTheme.typography.titleLarge)
+            alternativeNotice?.let { Text(it, color = Muted) }
             Text("在线不提供服务器转码；可返回选择其他线路。", color = Muted)
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                TvAction("重试播放", actions.retry, Modifier.focusRequester(errorFocus), icon = "refresh")
-                TvAction("返回选集", actions.close, icon = "arrow-left")
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(6.dp)) {
+                item("retry") { TvAction("重试播放", actions.retry, Modifier.focusRequester(errorFocus), icon = "refresh") }
+                items(alternatives, key = { "alternative:" + it.identity }) { target ->
+                    TvAction(alternativeLabel(target), { switchSource(target) }, enabled = !selecting)
+                }
+                if (retryAlternatives != null) item("probe") {
+                    TvAction(if (selecting) "取消切换" else if (alternativeNotice == null) "查找备用线路" else "重新探测", retryAlternatives)
+                }
+                item("back") { TvAction("返回选集", actions.close, icon = "arrow-left") }
             }
         } }
         if (menu != null && state.error == null) key(menu) { Column(Modifier.align(Alignment.CenterEnd).fillMaxWidth(.48f)

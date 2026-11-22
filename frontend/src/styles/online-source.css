@@ -1,4 +1,10 @@
 .online-connection-choice { max-width: 440px; }
+.online-source-heading .online-source-actions { max-width: 100%; }
+.online-source-probes .online-source-row > div { min-width: 0; overflow-wrap: anywhere; }
+.online-source-probes .online-source-row > .jz-button { flex: none; }
+.online-source-probes .online-source-row p { line-height: 1.65; }
+.online-discovery-choice { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--jz-gap-m); }
+.online-discovery-choice a { display: inline-flex; align-items: center; min-height: var(--jz-touch-target); }
 .online-host-check h3 { min-width: 0; overflow-wrap: anywhere; }
 .online-proxy-fields { display: grid; grid-template-columns: minmax(100px, .6fr) minmax(160px, 2fr) minmax(100px, .7fr); gap: 0 var(--jz-gap-m); }
 .online-proxy-auth { grid-column: 1 / -1; }

@@ -125,8 +125,21 @@ class OnlineApi(val api: JzApi) {
             checkedHostApprovalResponse(it, report, selected)
         }
     }
-    suspend fun createSession(identity: OnlineIdentity, cacheOnly: Boolean = false): OnlineDescriptor {
-        val value = api.requestOnline("POST", "/api/online/sessions", identity.toJson(), cacheOnly = cacheOnly)
+    internal suspend fun startAlternatives(identity: OnlineIdentity): OnlineAlternativeTask =
+        read("POST", "/api/online/playback/alternative-tasks", identity.toJson(), retryConnectionFailure = false) {
+            OnlineAlternativeTask.parse(it, identity)
+        }
+    internal suspend fun advanceAlternatives(id: String, identity: OnlineIdentity): OnlineAlternativeTask =
+        read("POST", "/api/online/playback/alternative-tasks/${checkedRecommendation(id)}/advance",
+            JSONObject(), retryConnectionFailure = false) { OnlineAlternativeTask.parse(it, identity, id) }
+    internal suspend fun cancelAlternatives(id: String) {
+        read("DELETE", "/api/online/playback/alternative-tasks/${checkedRecommendation(id)}") { Unit }
+    }
+
+    suspend fun createSession(identity: OnlineIdentity, cacheOnly: Boolean = false,
+                              recommendation: String? = null): OnlineDescriptor {
+        val value = api.requestOnline("POST", "/api/online/sessions", identity.toJson(), cacheOnly = cacheOnly,
+            recommendation = recommendation, retryConnectionFailure = recommendation == null)
         val returnedId = (value.opt("session_id") as? String)?.takeIf { ONLINE_OPAQUE.matches(it) }
         try {
             val result = OnlineDescriptor.fromJson(value, identity)

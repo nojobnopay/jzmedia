@@ -9,6 +9,7 @@ import math
 import re
 
 from ..network.headers import HeaderPolicy
+from . import related_matching
 from .models import OnlinePlaybackIdentity
 
 
@@ -28,6 +29,48 @@ class ProviderError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class PlaybackMatch:
+    """Verified programme and edition labels from the detail used for playback."""
+    title: str
+    year: str
+    label: str
+    directors: tuple[str, ...] = ()
+
+    actors: tuple[str, ...] = ()
+    area: str = ""
+    language: str = ""
+
+    @classmethod
+    def from_metadata(cls, title, year, label, metadata):
+        return cls(title, year, label, tuple(metadata.get("directors", ())), tuple(metadata.get("actors", ())),
+                   metadata.get("area", ""), metadata.get("language", ""))
+
+    @classmethod
+    def from_detail(cls, detail, label):
+        return cls.from_metadata(detail.title, detail.year, label, detail.metadata)
+
+    def same_programme(self, other):
+        if (other is None or self.year != other.year
+                or related_matching.title_parts(self.title)[1:] != related_matching.title_parts(other.title)[1:]):
+            return False
+        directors = {related_matching.normalize(person) for person in self.directors}
+        other_directors = {related_matching.normalize(person) for person in other.directors}
+        if directors and other_directors and directors.isdisjoint(other_directors):
+            return False
+        if related_matching._identity_conflict(
+                {"area": self.area, "language": self.language}, {"area": other.area, "language": other.language}):
+            actors = {related_matching.normalize(person) for person in self.actors}
+            other_actors = {related_matching.normalize(person) for person in other.actors}
+            if actors and other_actors:
+                return not actors.isdisjoint(other_actors)
+            return bool(directors & other_directors)
+        return True
+
+    def same_edition(self, other):
+        return self.same_programme(other) and related_matching.normalize(self.label) == related_matching.normalize(other.label)
+
+
+@dataclass(frozen=True)
 class ResolvedPlayback:
     url: str = field(repr=False)
     transport: str
@@ -36,6 +79,8 @@ class ResolvedPlayback:
     header_policy: HeaderPolicy | None = field(default=None, repr=False)
     source_fingerprint: str | None = field(default=None, repr=False)
     media_policy_fingerprint: str | None = field(default=None, repr=False)
+    match: PlaybackMatch | None = field(default=None, repr=False)
+    configuration: str | None = field(default=None, repr=False)
 
     def __post_init__(self):
         duration = self.duration_seconds

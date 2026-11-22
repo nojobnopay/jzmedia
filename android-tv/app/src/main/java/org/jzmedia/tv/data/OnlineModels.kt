@@ -61,9 +61,11 @@ private fun JSONObject.artwork(sourceId: String?, itemId: String? = null): Strin
 }
 
 /** Absence is the old-server path; no application-version guess enables it. */
-fun supportsOnlineVod(info: JSONObject): Boolean = when (val features = info.opt("features")) {
-    is JSONArray -> (0 until features.length()).any { features.opt(it) == "online_vod" }
-    is JSONObject -> features.opt("online_vod") == true
+fun supportsOnlineVod(info: JSONObject): Boolean = supportsOnlineFeature(info, "online_vod")
+
+internal fun supportsOnlineFeature(info: JSONObject, feature: String): Boolean = when (val features = info.opt("features")) {
+    is JSONArray -> (0 until features.length()).any { features.opt(it) == feature }
+    is JSONObject -> features.opt(feature) == true
     else -> false
 }
 
@@ -221,11 +223,45 @@ data class OnlineDetail(val source: OnlineSource, val item: OnlineCatalogItem, v
     } }
 }
 
+private val ALTERNATIVE_TOKEN = Regex("[A-Za-z0-9_-]{12,128}")
+internal fun checkedRecommendation(token: String) = token.also { require(ALTERNATIVE_TOKEN.matches(it)) }
+
+internal data class OnlineAlternative(val identity: OnlineIdentity, val externalId: String, val sourceName: String,
+                             val lineLabel: String, val throughputKbps: Double?, val title: String,
+                             val entryLabel: String, val recommendation: String) {
+    companion object {
+        fun parse(item: JSONObject, current: OnlineIdentity): OnlineAlternative {
+            val identity = OnlineIdentity.fromJson(item.getJSONObject("identity"))
+            require(identity.kind == current.kind && identity != current && identity.lineId != null)
+            return OnlineAlternative(identity, checkedOnlineCatalogExternal(item.string("external_id", 128)),
+                item.string("source_name", 128), item.string("line_label", 512), item.optionalNumber("throughput_kbps"),
+                item.string("title", 512).also { require(it.isNotBlank()) },
+                item.string("entry_label", 512).also { require(it.isNotBlank()) },
+                checkedRecommendation(item.string("recommendation_token", 128)))
+        }
+    }
+}
+
+internal data class OnlineAlternativeTask(val id: String, val status: String, val items: List<OnlineAlternative>,
+                                          val retryAfterMs: Long) {
+    val finished get() = status == "done" || status == "partial"
+    companion object {
+        fun parse(value: JSONObject, current: OnlineIdentity, expected: String? = null): OnlineAlternativeTask {
+            val id = checkedRecommendation(value.string("task_id", 128))
+            require(expected == null || id == expected)
+            val status = value.string("status", 16).also { require(it in setOf("queued", "running", "partial", "done")) }
+            val items = value.list("items", 3).map { OnlineAlternative.parse(it, current) }
+            require(items.distinctBy { it.identity }.size == items.size)
+            return OnlineAlternativeTask(id, status, items, value.integer("retry_after_ms").also { require(it <= 60_000) })
+        }
+    }
+}
+
 data class OnlineDescriptor(val identity: OnlineIdentity, val sessionId: String, val mediaUrl: String,
                             val transport: String, val durationSeconds: Double?, val expiresAt: Long,
-                            val seekable: Boolean = true) {
+                            val seekable: Boolean = true, val cached: Boolean = false) {
     companion object { fun fromJson(value: JSONObject, expectedIdentity: OnlineIdentity? = null): OnlineDescriptor {
-        value.only(setOf("identity", "session_id", "media_url", "transport", "processing", "seekable", "duration_seconds", "time_offset_seconds", "expires_at"))
+        value.only(setOf("identity", "session_id", "media_url", "transport", "processing", "seekable", "duration_seconds", "time_offset_seconds", "expires_at", "cached"))
         val identity = OnlineIdentity.fromJson(value.getJSONObject("identity"))
         require(expectedIdentity == null || identity == expectedIdentity)
         val session = checkedOnlineSession(value.string("session_id"))
@@ -235,7 +271,8 @@ data class OnlineDescriptor(val identity: OnlineIdentity, val sessionId: String,
         val transport = value.string("transport").also { require(it in setOf("mp4", "hls")) }
         val duration = value.optionalNumber("duration_seconds")?.also { require(it > 0) }
         return OnlineDescriptor(identity, session, media, transport, duration,
-            value.integer("expires_at").also { require(it > 0) }, value.boolean("seekable"))
+            value.integer("expires_at").also { require(it > 0) }, value.boolean("seekable"),
+            value.has("cached") && value.boolean("cached"))
     } }
 }
 

@@ -6,9 +6,7 @@ the existing transport still checks DNS answers and actual public socket peers.
 """
 
 import ipaddress
-import json
 import re
-import time
 from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -17,7 +15,7 @@ from .. import viewing
 from ..network.targets import TargetPolicy, TargetPolicyError, public_address
 from ..store import online as online_store
 from . import catalog, maccms, service
-from .models import OnlineSource, SourceId, normalize_host
+from .models import SourceId, normalize_host
 from .providers import ProviderError
 from .source_migration import fingerprint
 
@@ -178,9 +176,5 @@ def allow(access, source_id, body):
             raise HostCheckError("online_allowed_host_limit", 422)
         if hosts == previous["allowed_hosts"]:
             return previous, False
-        record = OnlineSource.model_validate({**previous, "allowed_hosts": hosts,
-                                             "updated_at": int(time.time())}).model_dump(mode="json")
         _management(access)
-        connection.execute("UPDATE online_sources SET allowed_hosts=?,updated_at=? WHERE id=?",
-                           (json.dumps(record["allowed_hosts"]), record["updated_at"], source_id))
-    return record, True
+        return online_store._update_source(connection, previous, {"allowed_hosts": hosts})

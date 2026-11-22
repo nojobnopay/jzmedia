@@ -16,7 +16,7 @@ async function submit(ui, attr) { await ui.find(node => node.type === 'form' && 
 
 async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail = false, policyFailures = 0, catalogGate = null,
   routeQuery = {}, hostCheckGate = null, hostApplyGate = null, hostApplyFailures = 0, hostReport = null, extraSources = [], profileGate = null,
-  readSource, previewMigration, patchSource } = {}) {
+  readSource, previewMigration, patchSource, discoveryApi, onlineEnabled = true } = {}) {
   const requests = [], source = { id: SOURCE, name: '演示来源', provider: 'maccms', api_base_url: 'https://api.example/',
     allowed_hosts: ['api.example'], enabled: true, priority: 100, provider_options: {} }
   const sourceList = [source, ...extraSources.map(item => ({ ...source, ...item }))]
@@ -25,7 +25,8 @@ async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail 
   const api = async (path, options = {}) => {
     const body = options.body && JSON.parse(options.body)
     requests.push({ path, method: options.method || 'GET', body, signal: options.signal })
-    if (path === '/api/online/settings') return { enabled: true }
+    if (path === '/api/online/settings') return { enabled: onlineEnabled }
+    if (discoveryApi && path.startsWith('/api/online/discovery')) return discoveryApi(path, body)
     if (path === '/api/online/sources') return options.method === 'POST' ? { ...body, id: SOURCE } : { items: sourceList }
     if (path.endsWith('/host-migration-preview')) return previewMigration ? previewMigration(body) : { expected_fingerprint: PREVIEW, changes: [] }
     if (path === '/api/online/sources/' + SOURCE) {
@@ -377,4 +378,209 @@ test('a pending proxy edit blocks host approval and cannot leave host actions pe
   gate.resolve(); await saving; await flush()
   assert.equal(draft.busy(), false)
   assert.equal(button(ui, '关闭检查').props.disabled, false)
+})
+
+const discoveryItem = id => ({ id, name: id, api_base_url: 'https://' + id + '.example/api',
+  origin: '公开目录', source_id: null, enabled: false })
+const measured = (id, kbps) => ({ id, status: 'measured', catalog_ms: 50, media_ms: 100,
+  sample_kbps: kbps, allowed_hosts: ['media-' + id + '.example'], probe_token: 'receipt-' + id })
+
+test('discovery samples two candidates at once, ranks successful media samples and only saves the explicitly chosen one', async t => {
+  const items = ['alpha', 'beta', 'gamma', 'expensive'].map(discoveryItem)
+  const slow = deferred()
+  const { ui, requests } = await mount(t, { discoveryApi(path, body) {
+    if (path === '/api/online/discovery/refresh') return { items }
+    if (path.endsWith('/alpha/probe')) return slow.promise
+    if (path.endsWith('/beta/probe')) return measured('beta', 2000)
+    if (path.endsWith('/expensive/probe')) return { ...measured('expensive', 5500), realtime_ratio: 0.7 }
+    if (path.endsWith('/gamma/probe')) return { id: 'gamma', status: 'catalog_only', reason: 'no_media_sample', catalog_ms: 1, probe_token: 'catalog' }
+    if (path.endsWith('/alpha/enable')) {
+      assert.deepEqual(body, { probe_token: 'receipt-alpha' })
+      return { ...items[0], enabled: true, id: 'src_new', provider: 'maccms', priority: 100 }
+    }
+    throw new Error('Unexpected request')
+  } })
+  assert.ok(!requests.some(r => r.path.includes('/discovery')))
+  await click(ui, '发现并探测来源')
+  assert.match(ui.text(), /正在探测 · 3 \/ 4/)
+  assert.match(ui.text(), /当前优先试用/)
+  assert.equal(button(ui, '启用来源 alpha').props.disabled, true)
+  slow.resolve(measured('alpha', 3000)); await flush()
+  assert.deepEqual(ui.all().filter(n => 'data-discovery-candidate' in n.props).map(n => n.props['data-discovery-candidate']), ['alpha', 'beta', 'expensive', 'gamma'])
+  assert.match(ui.text(), /探测完成 · 4 \/ 4/)
+  assert.match(ui.text(), /本轮优先试用/)
+  assert.match(ui.text(), /取样速度低于该片段播放所需/)
+  assert.match(ui.text(), /允许访问 media-alpha.example/)
+  assert.equal(requests.some(r => r.path.endsWith('/enable')), false)
+  await click(ui, '启用来源 alpha')
+  assert.equal(button(ui, '启用来源 alpha'), undefined)
+  await click(ui, '返回视频源列表')
+  assert.ok(ui.find(n => n.props['data-online-source-row'] === 'src_new'))
+})
+
+test('stopping discovery cancels pending probes and prevents queued requests and late results', async t => {
+  const pending = deferred()
+  const { ui, requests } = await mount(t, { discoveryApi(path) {
+    if (path === '/api/online/discovery/refresh') return { items: ['first', 'second', 'third'].map(discoveryItem) }
+    return pending.promise
+  } })
+  await click(ui, '发现并探测来源')
+  const probes = requests.filter(r => r.path.endsWith('/probe'))
+  assert.equal(probes.length, 2)
+  await click(ui, '停止探测')
+  assert.ok(probes.every(r => r.signal.aborted))
+  assert.match(ui.text(), /探测已停止 · 0 \/ 3/)
+  pending.resolve(measured('first', 1800)); await flush()
+  assert.equal(requests.filter(r => r.path.endsWith('/probe')).length, 2)
+  assert.equal(ui.text().includes('本轮优先试用'), false)
+})
+
+test('a disabled global online switch keeps discovery inactive', async t => {
+  const { ui, requests } = await mount(t, { onlineEnabled: false })
+  assert.equal(button(ui, '发现并探测来源').props.disabled, true)
+  assert.ok(!requests.some(r => r.path.includes('/discovery')))
+})
+
+test('leaving the settings section cancels outstanding probes and reconciles an already confirmed save', async t => {
+  const probe = deferred(), save = deferred()
+  const { ui, route, requests, draft } = await mount(t, { discoveryApi(path) {
+    if (path.endsWith('/refresh')) return { items: ['alpha', 'beta'].map(discoveryItem) }
+    if (path.endsWith('/beta/probe')) return probe.promise
+    if (path.endsWith('/enable')) return save.promise
+    return measured('alpha', 2000)
+  } })
+  await click(ui, '发现并探测来源')
+  const saving = button(ui, '启用来源 alpha').props.onClick()
+  await flush()
+  route.query.sec = 'sec-general'
+  await flush()
+  assert.equal(requests.find(r => r.path.endsWith('/beta/probe')).signal.aborted, true)
+  assert.equal(requests.find(r => r.path.endsWith('/enable')).signal.aborted, false)
+  assert.equal(draft.busy(), true)
+  save.resolve({ id: 'src_new', enabled: true, name: 'alpha', priority: 1 })
+  probe.resolve(measured('beta', 1000))
+  await saving; await flush()
+  assert.equal(draft.busy(), false)
+  route.query.sec = 'sec-online'
+  await flush()
+  assert.ok(ui.find(n => n.props['data-online-source-row'] === 'src_new'))
+})
+
+test('discovery shows cached catalogue, recovers from an expired receipt and enables only after another explicit selection', async t => {
+  let expired = true
+  const { ui, requests } = await mount(t, { discoveryApi(path) {
+    if (path.endsWith('/refresh')) return { items: [discoveryItem('alpha')], directory_status: 'cached' }
+    if (path.endsWith('/probe')) return measured('alpha', 2000)
+    if (expired) { expired = false; throw Object.assign(new Error('private details'), { status: 409, code: 'online_discovery_probe_expired' }) }
+    return { id: 'src_new', enabled: true, name: 'alpha', priority: 1 }
+  } })
+  await click(ui, '发现并探测来源')
+  assert.match(ui.text(), /最近保存的候选目录/)
+  await click(ui, '启用来源 alpha')
+  assert.match(ui.text(), /探测结果已失效/)
+  assert.equal(button(ui, '启用来源 alpha').props.disabled, true)
+  await click(ui, '重新探测')
+  assert.equal(requests.filter(r => r.path.endsWith('/enable')).length, 1)
+  await click(ui, '启用来源 alpha')
+  assert.match(ui.text(), /已启用「alpha」/)
+  assert.ok(ui.find(n => n.type === 'a' && n.props['aria-label'] === '使用此源 alpha'))
+})
+
+test('enabling a saved source requires a receipt for its current configuration', async t => {
+  const saved = { ...discoveryItem('saved'), id: SOURCE, name: '已存来源', source_id: SOURCE }
+  const receipts = [null, 'saved-outdated-receipt', 'saved-current-receipt']
+  let probes = 0
+  const { ui, requests } = await mount(t, { discoveryApi(path, body) {
+    if (path.endsWith('/refresh')) return { items: [{ ...saved }] }
+    if (path.endsWith('/probe')) return { ...measured(SOURCE, 2500), allowed_hosts: [], probe_token: receipts[probes++] }
+    if (path.endsWith('/enable')) {
+      assert.deepEqual(body, { probe_token: receipts[probes - 1] })
+      if (probes === 2) throw Object.assign(new Error('private details'), { status: 409, code: 'online_source_changed' })
+      return { ...saved, enabled: true, priority: 50 }
+    }
+    throw new Error('Unexpected request')
+  } })
+  await click(ui, '发现并探测来源')
+  assert.equal(button(ui, '启用来源 已存来源').props.disabled, true)
+  await click(ui, '重新探测')
+  await click(ui, '启用来源 已存来源')
+  assert.match(ui.text(), /来源或网络配置已改变，请重新探测后启用/)
+  assert.equal(button(ui, '启用来源 已存来源').props.disabled, true)
+  await click(ui, '重新探测')
+  assert.equal(requests.filter(call => call.path.endsWith('/enable')).length, 1)
+  await click(ui, '启用来源 已存来源')
+  assert.match(ui.text(), /已启用「已存来源」/)
+  assert.ok(ui.find(node => node.type === 'a' && node.props['aria-label'] === '使用此源 已存来源'))
+})
+
+test('two simultaneous scans keep busy entries queued and eventually sample every source', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const gate = deferred(), items = Array.from({ length: 10 }, (_, i) => discoveryItem('source' + i))
+  let occupied = 0, busy = 0
+  const discoveryApi = async path => {
+    if (path.endsWith('/refresh')) return { items }
+    if (occupied === 3) { busy++; throw Object.assign(new Error('busy'), { status: 429, code: 'provider_catalog_busy', retryAfterSeconds: 1 }) }
+    occupied++
+    await gate.promise
+    occupied--
+    return measured(path.split('/').at(-2), 2500)
+  }
+  const a = await mount(t, { discoveryApi }), b = await mount(t, { discoveryApi })
+  await click(a.ui, '发现并探测来源')
+  await click(b.ui, '发现并探测来源')
+  assert.equal(occupied, 3)
+  assert.equal(busy, 1)
+  assert.match(b.ui.text(), /正在探测 · 0 \/ 10 · 排队/)
+  gate.resolve()
+  await flush(); await flush()
+  t.mock.timers.tick(1000)
+  await flush(); await flush()
+  for (const current of [a, b]) {
+    assert.match(current.ui.text(), /探测完成 · 10 \/ 10/)
+    const rows = current.ui.all().filter(node => node.props['data-discovery-candidate'])
+    assert.equal(rows.filter(node => nodeText(node).includes('Mbps')).length, 10)
+  }
+})
+
+test('empty sources can be retested but only a nonempty catalogue can be enabled', async t => {
+  let empty = true
+  const { ui } = await mount(t, { discoveryApi(path) {
+    if (path.endsWith('/refresh')) return { items: [discoveryItem('alpha')] }
+    if (empty) return { status: 'empty', reason: 'empty_catalog' }
+    return { status: 'catalog_only', reason: 'no_media_sample', probe_token: 'fixture-receipt' }
+  } })
+  await click(ui, '发现并探测来源')
+  assert.match(ui.text(), /空目录/)
+  assert.equal(button(ui, '启用来源 alpha').props.disabled, true)
+  empty = false
+  await click(ui, '复测此源')
+  assert.match(ui.text(), /仅目录可读/)
+  assert.equal(button(ui, '启用来源 alpha').props.disabled, false)
+})
+
+test('an active source can explicitly test missing domains and save a selected poster domain', async t => {
+  const item = { ...discoveryItem('saved'), id: SOURCE, source_id: SOURCE, enabled: true }
+  const { ui, requests } = await mount(t, { discoveryApi(path, body) {
+    if (path.endsWith('/refresh')) return { items: [item] }
+    if (path.endsWith('/probe') && !body.probe_token) {
+      return { status: 'catalog_only', probe_token: 'first-receipt', missing_hosts: ['cdn.example'], reason: 'target_host_not_allowed' }
+    }
+    if (path.endsWith('/probe')) {
+      assert.deepEqual(body, { probe_token: 'first-receipt', hosts: ['cdn.example'] })
+      return { ...measured('saved', 2500), probe_token: 'verified-receipt', allowed_hosts: ['cdn.example'], poster_hosts: ['poster.example'] }
+    }
+    assert.deepEqual(body, { probe_token: 'verified-receipt', poster_hosts: ['poster.example'] })
+    return { ...item, allowed_hosts: ['cdn.example', 'poster.example'], priority: 100 }
+  } })
+  await click(ui, '发现并探测来源')
+  assert.match(ui.text(), /试读还需要访问 cdn.example/)
+  await click(ui, '允许本次试读并复测')
+  assert.match(ui.text(), /保存后允许访问 cdn.example/)
+  const check = ui.find(n => n.type === 'input' && n.props.type === 'checkbox' && typeof n.props.onChange === 'function')
+  assert.ok(check)
+  check.props.onChange({ target: { checked: true } })
+  await flush()
+  await click(ui, '保存已选主机')
+  assert.ok(requests.find(r => r.path.endsWith('/enable')))
+  assert.match(ui.text(), /已保存/)
 })

@@ -21,6 +21,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import org.jzmedia.tv.data.OnlineAlternative
 import org.jzmedia.tv.data.OnlineIdentity
 
 /** Exercises the production control tree with a synthetic state and no media/network session. */
@@ -311,7 +312,35 @@ class OnlinePlayerInteractionTest {
         rule.runOnIdle { assertTrue(seeks.isEmpty()); assertTrue(skips.isEmpty()) }
     }
 
-    private fun mount(localCache: Boolean = false) {
+    @Test fun arrivingFasterLineCannotRetargetAnAlreadyFocusedSwitch() {
+        val original = OnlineIdentity("src_" + "1".repeat(32), "itm_" + "2".repeat(32), "movie")
+        val first = OnlineAlternative(original.copy(lineId = "ln_" + "3".repeat(32)), "film", "来源一", "正片", null, "电影", "正片", "f".repeat(32))
+        val fast = first.copy(identity = first.identity.copy(lineId = "ln_" + "4".repeat(32)), sourceName = "来源二")
+        val rows = mutableStateOf(listOf(first))
+        var chosen: OnlineAlternative? = null
+        mount(alternatives = { rows.value }, switch = { chosen = it })
+        repeat(4) { press(Key.DirectionRight) }
+        rule.onNodeWithText("切换到 来源一 · 正片").assertIsFocused()
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionCenter) }
+        rule.runOnIdle { rows.value = listOf(first, fast) }
+        rule.onNodeWithText("切换到 来源一 · 正片").assertIsFocused()
+        rule.onRoot().performKeyInput { keyUp(Key.DirectionCenter) }
+        rule.runOnIdle { assertEquals(first.identity, chosen?.identity) }
+    }
+
+    @Test fun networkErrorPageAllowsRemoteRetryOfTheProbe() {
+        var pressed = false
+        state.value = ready().copy(error = "网关错误", playing = false)
+        mount(retryProbe = { pressed = true })
+        rule.onNodeWithText("重试播放").assertIsFocused()
+        press(Key.DirectionRight)
+        rule.onNodeWithText("查找备用线路").assertIsFocused()
+        press(Key.DirectionCenter)
+        rule.runOnIdle { assertTrue(pressed) }
+    }
+
+    private fun mount(localCache: Boolean = false, alternatives: () -> List<OnlineAlternative> = { emptyList() },
+                      retryProbe: (() -> Unit)? = null, switch: (OnlineAlternative) -> Unit = {}) {
         val request = OnlinePlaybackRequest(
             OnlineIdentity("src_${"1".repeat(32)}", "itm_${"2".repeat(32)}", "movie"),
             "隔离焦点测试", "focus-fixture", scopeToken = "", localCache = localCache)
@@ -331,7 +360,8 @@ class OnlinePlayerInteractionTest {
             setTrack = { _, _ -> },
             close = { closes++ },
         )
-        rule.setContent { MaterialTheme { OnlinePlayerContent(request, state.value, actions) } }
+        rule.setContent { MaterialTheme { OnlinePlayerContent(request, state.value, actions,
+            alternatives = alternatives(), retryAlternatives = retryProbe, switchSource = switch) } }
         rule.waitForIdle()
     }
 

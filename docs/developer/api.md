@@ -73,6 +73,10 @@
 | `GET /api/online/settings` | 返回总开关 `{enabled:false}` |
 | `PATCH /api/online/settings` | 必须提供布尔 `enabled`，持久保存总开关 |
 | `GET /api/online/source-templates` | 返回本地配置建议 `{items:[...]}`。每项的 `api_base_url` 为模板当前地址，`known_api_urls` 列出已核对的同运营方接口，用于在换址时辨认已有来源 |
+| `GET /api/online/discovery` | 列出已配置的来源与本机已知候选，返回候选 ID、名称、出处、目录地址与启用状态 |
+| `POST /api/online/discovery/refresh` | 管理员提交 `{}`，服务器通过订阅出口更新公开候选，返回列表和 `directory_status`（已更新、缓存或内置候选） |
+| `POST /api/online/discovery/{candidate_id}/probe` | 提交 `{}` 从目录及媒体出口取样。返回 `measured`、`catalog_only`、`empty` 或 `failed`，以及 `sample_bytes`、可空的 `sample_kbps` 和 `realtime_ratio`。已有源可提交本轮 `probe_token` 与 `hosts` 复测所列 `missing_hosts`。429 携带 `Retry-After` |
+| `POST /api/online/discovery/{candidate_id}/enable` | 提交本轮 `probe_token` 和可选的 `poster_hosts`，原子保存核对过的主机。空目录没有启用凭据，重复请求复用原结果，来源或网络修订变化时返回 409 |
 | `POST /api/online/sources/{source_id}/host-check` | 管理员提交 `{external_id}`，只读取一项目录；返回缺失主机、原允许列表、拒绝地址数及配置指纹，不返回播放 URL，也不访问候选媒体 |
 | `POST /api/online/sources/{source_id}/allow-hosts` | 提交 `{hosts,expected_fingerprint}`，在同一事务检查完整来源指纹并只追加主机；冲突返回 409，变更后撤销该来源旧会话 |
 | `POST /api/online/sources/{source_id}/host-migration-preview` | 按草稿接口地址、允许主机和本地已核对的公告预览主机替换，返回待确认的变更与草稿指纹 |
@@ -275,6 +279,11 @@ claim 不接收任意播放身份，而是核对 `session_id` 的设备归属。
 | `HEAD /api/online/sessions/{session_id}/media` | 读取入口元信息；远程清单不读取响应体，本地清单读取并重写以返回准确长度，均不发送正文 |
 | `GET/HEAD /api/online/sessions/{session_id}/resources/{resource_id}` | 读取当前会话登记的不透明资源 |
 | `DELETE /api/online/sessions/{session_id}` | 关闭本设备当前会话并返回 `204`，中断其上游读取 |
+| `POST /api/online/playback/alternatives` | 兼容旧客户端的单次探测接口，返回 `items` 和 `partial` |
+| `POST /api/online/playback/alternative-tasks` | 能力 `online_alternatives_v2`。提交当前播放身份，获得当前设备与观看模式专属的 `task_id` |
+| `POST /api/online/playback/alternative-tasks/{task_id}/advance` | 推进一个步骤。响应包含 `items`、`status`、`retry_after_ms` 和 `partial`。在 `queued`、`running` 时可继续推进，`partial`、`done` 为终态。有结果即可选择 |
+| `DELETE /api/online/playback/alternative-tasks/{task_id}` | 取消任务并释放本轮探测。已返回的短时推荐凭据仍可用于确认 |
+| `POST /api/online/sessions` 带 `X-Online-Recommendation` | 请求体沿用目标播放身份，头部携带候选的 `recommendation_token`。建会话时核对当前节目与来源配置，命中缓存则核对缓存资料。凭据过期或内容变化返回 409 |
 
 身份包含 `source_id`、`item_id`、`kind`；电影的 `kind` 为 `movie`，分集为 `episode` 且必须带 `episode_id`。可选 `line_id` 为 `ln_` 加 32 位小写十六进制字符，未选择时从序列化结果省略，兼容早期单线路身份。多线路电影未选择线路时返回 `provider_line_required`；失效线路或分集明确失败，不自动改播其它线路或集。服务端核对来源、条目种类、分集及线路归属，未知身份返回 `404`。URL、headers、处理方式或其它未知字段均不接受，验证失败返回固定 `422`，不回显请求内容。播放描述固定 `processing:"passthrough"`、`time_offset_seconds:0`，不包含上游 URL、凭据或本地文件路径。
 

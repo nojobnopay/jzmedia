@@ -39,6 +39,8 @@ APK 当前使用 `X-Api-Token`，仅发往保存的服务器 origin 和路径范
 
 `online_vod` 是独立的可选能力。APK 完成 `client-info/client-check` 后保存该能力，接受 `features` 数组中的成员或对象中显式的 `online_vod:true`；缺失、错误类型或 `false` 不启用。连接克隆及观看模式切换沿用握手结果，不按版本号猜测支持情况；旧服务器仍走原本地媒体流程。
 
+`online_alternatives_v2` 声明分步查找和验证换线能力。电视通过 `POST /api/online/playback/alternative-tasks` 创建任务，再调用 `/{task_id}/advance`，根据排队时长继续、显示合格候选，或用 DELETE 取消。选择时，电视用 `X-Online-Recommendation` 提交目标会话并读取一次目标线路的状态，准备好后接管。支持缓存标识的服务端可通过 `X-Online-Playback-Context: cache` 返回缓存命中状态。新版电视连接缺少 v2 能力的服务端时提供原有播放和手工选线；服务端为旧电视保留 `online_alternatives` 及单次探测接口。
+
 ### 观看模式与保护会话
 
 `features` 中的 `viewing_modes` 是可选能力，播放协议仍为 1。旧服务端不显示模式入口；新服务端对没有观看会话的旧客户端按普通模式过滤，隐藏手工标记的隐私内容。模式为 `normal`、`children`、`private`，内容筛选和资源鉴权由服务端统一执行。

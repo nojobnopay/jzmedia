@@ -78,19 +78,38 @@ def get_online_source(source_id: str) -> dict | None:
         return _source(connection.execute("SELECT * FROM online_sources WHERE id=?", (source_id,)).fetchone())
 
 
+def source_revision(connection, source_id):
+    row = connection.execute("SELECT value FROM app_settings WHERE key=?",
+                             ("online_source_revision:" + source_id,)).fetchone()
+    return int(row["value"]) if row else 0
+
+
+def _advance_source_revision(connection, source_id):
+    connection.execute(
+        "INSERT INTO app_settings(key,value,updated_at) VALUES(?,'1',?) ON CONFLICT(key) DO UPDATE"
+        " SET value=CAST(app_settings.value AS INTEGER)+1,updated_at=excluded.updated_at",
+        ("online_source_revision:" + source_id, int(time.time())),
+    )
+
+
 def create_online_source(values: dict) -> dict:
+    with _connection(write=True) as connection:
+        return insert_online_source(connection, values)
+
+
+def insert_online_source(connection, values: dict) -> dict:
+    """Insert in the caller's write transaction for atomic discovery selection."""
     source = OnlineSourceCreate.model_validate(values).model_dump(mode="json")
     now = int(time.time())
     record = OnlineSource.model_validate({**source, "id": "src_" + uuid.uuid4().hex,
                                          "created_at": now, "updated_at": now}).model_dump(mode="json")
-    with _connection(write=True) as connection:
-        connection.execute(
-            "INSERT INTO online_sources(id,provider,name,api_base_url,allowed_hosts,enabled,priority,created_at,updated_at,provider_options)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (record["id"], record["provider"], record["name"], record["api_base_url"],
-             json.dumps(record["allowed_hosts"]), int(record["enabled"]), record["priority"], now, now,
-             json.dumps(record["provider_options"])),
-        )
+    connection.execute(
+        "INSERT INTO online_sources(id,provider,name,api_base_url,allowed_hosts,enabled,priority,created_at,updated_at,provider_options)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (record["id"], record["provider"], record["name"], record["api_base_url"],
+         json.dumps(record["allowed_hosts"]), int(record["enabled"]), record["priority"], now, now,
+         json.dumps(record["provider_options"])),
+    )
     return record
 
 
@@ -116,6 +135,8 @@ def _update_source(connection, previous, patch):
     if selection is not None or "api_base_url" in patch:
         patch["allowed_hosts"] = source_migration.hosts_for_update(previous, patch, selection)
     record = OnlineSource.model_validate({**previous, **patch, "updated_at": int(time.time())}).model_dump(mode="json")
+    if all(previous[key] == record[key] for key in record if key != "updated_at"):
+        return previous, False
     if record["api_base_url"] != previous["api_base_url"]:
         connection.execute("DELETE FROM app_settings WHERE key=?", ("online_operator:" + source_id,))
     connection.execute(
@@ -126,6 +147,7 @@ def _update_source(connection, previous, patch):
     )
     changed = any(previous[key] != record[key]
                   for key in ("api_base_url", "allowed_hosts", "provider_options", "enabled"))
+    _advance_source_revision(connection, source_id)
     return record, changed
 
 

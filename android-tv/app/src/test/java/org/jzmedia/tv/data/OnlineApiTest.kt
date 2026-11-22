@@ -41,16 +41,35 @@ class OnlineApiTest {
 
     @Test fun successfulHandshakeCarriesOnlineCapabilityAcrossViewingModeClones() = runBlocking {
         MockWebServer().use { server ->
-            server.enqueue(reply(JSONObject().put("protocol_version", 1).put("features", JSONArray().put("online_vod"))))
+            server.enqueue(reply(JSONObject().put("protocol_version", 1).put("features", JSONArray().put("online_vod").put("online_alternatives"))))
             server.enqueue(reply(JSONObject().put("protocol_version", 1)))
             val original = api(server)
             assertFalse(original.supportsOnlineVod)
+            assertFalse(original.supportsOnlineAlternatives)
             original.checkConnection()
             assertTrue(original.supportsOnlineVod)
             val replacement = original.withViewingSession(ViewingSession(mode = "normal", token = "device-token", generation = 1))
             assertTrue(replacement.supportsOnlineVod)
+            assertTrue(replacement.supportsOnlineAlternatives)
+            assertFalse(replacement.supportsAlternativeTasks)
+            assertTrue(replacement.withViewingToken("new-token").supportsOnlineAlternatives)
+            server.enqueue(reply(descriptor().put("cached", true)))
+            assertTrue(OnlineApi(replacement).createSession(movie).cached)
+            server.takeRequest(); server.takeRequest()
+            assertEquals("cache", server.takeRequest().getHeader("X-Online-Playback-Context"))
             assertEquals("device-token", replacement.viewingToken)
             assertEquals("write-token", replacement.token)
+        }
+    }
+
+    @Test fun verifiedTaskCapabilitySurvivesBothKindsOfViewingSessionChange() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(reply(JSONObject().put("protocol_version", 1).put("features", JSONArray().put("online_alternatives_v2"))))
+            server.enqueue(reply(JSONObject().put("protocol_version", 1)))
+            val connection = api(server)
+            connection.checkConnection()
+            assertTrue(connection.withViewingSession(ViewingSession(mode = "normal", token = "device")).supportsAlternativeTasks)
+            assertTrue(connection.withViewingToken("replacement").supportsAlternativeTasks)
         }
     }
 

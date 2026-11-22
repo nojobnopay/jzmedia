@@ -4,6 +4,7 @@ import * as Vue from 'vue'
 import { loadSfc } from './helpers/loadSfc.js'
 import { renderHarness, flush, deferred, nodeText } from './helpers/renderHarness.js'
 import * as catalog from '../src/onlineCatalog.js'
+import * as playback from '../src/onlinePlayback.js'
 import * as relatedCatalog from '../src/onlineRelated.js'
 import * as state from '../src/onlineState.js'
 import * as cache from '../src/onlineCache.js'
@@ -16,7 +17,7 @@ const rows = { items: [{ external_id: 'movie-1', title: '合成电影', kind: 'm
 const showVisibility = (element, binding) => { element.props['data-test-visible'] = !!binding.value }
 const vue = { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {}, vShow: { beforeMount: showVisibility, updated: showVisibility } }
 const SCOPE = 'a'.repeat(64)
-async function setup(t, request, { stateRequest, relatedRequest, hostRequest, cacheRequest = async () => { throw { status: 404 } }, refreshRequest = request, autoplay = false, routeQuery = {}, session = {} } = {}) {
+async function setup(t, request, { playbackClient, stateRequest, relatedRequest, hostRequest, cacheRequest = async () => { throw { status: 404 } }, refreshRequest = request, autoplay = false, routeQuery = {}, session = {} } = {}) {
   const cleanups = new Set()
   const viewingSession = Vue.reactive({ mode: 'normal', generation: 1, revision: 0, locallyLocked: false, suspended: false, ...session })
   const players = [], writers = [], preferences = [], navigations = []
@@ -32,6 +33,7 @@ async function setup(t, request, { stateRequest, relatedRequest, hostRequest, ca
     vue,
     'vue-router': { useRoute: () => routeState, useRouter: () => ({ replace: navigate, push: navigate }) },
     '../api.js': { api: hostRequest || (async () => { throw { code: 'provider_timeout' } }) },
+    '../onlinePlayback.js': { ...playback, createOnlinePlaybackClient: () => playbackClient || playback.createOnlinePlaybackClient() },
     '../onlineCache.js': { ...cache, createOnlineCacheClient: options => cache.createOnlineCacheClient({ ...options, request: cacheRequest }) },
     '../onlineCatalog.js': { ...catalog, createOnlineCatalogClient: () => catalog.createOnlineCatalogClient({ request }),
       createOnlineRefreshClient: () => catalog.createOnlineRefreshClient({ request: refreshRequest }),
@@ -49,7 +51,7 @@ async function setup(t, request, { stateRequest, relatedRequest, hostRequest, ca
     '../components/JzDialog.vue': dialogStub,
     './JzDialog.vue': dialogStub,
     './ActionMenu.vue': { default: { setup: (_props, { slots }) => () => Vue.h('div', slots.default?.()) } },
-    '../components/OnlinePlayerModal.vue': { default: { props: ['onlineIdentity', 'initialPosition', 'prepareSession', 'cacheOnly'], setup: props => {
+    '../components/OnlinePlayerModal.vue': { default: { props: ['onlineIdentity', 'initialPosition', 'prepareSession', 'cacheOnly', 'switchSource', 'preparedPlayback'], setup: props => {
       const listeners = Vue.getCurrentInstance().vnode.props
       const player = { props, fail: (code, cached) => listeners.onFailure(code, cached), ended: identity => listeners.onEnded(identity || props.onlineIdentity),
         progress: value => listeners.onProgress(value), close: () => listeners.onClose(), session: value => props.prepareSession(value) }
@@ -476,6 +478,60 @@ function multiLineShow() {
 }
 function primaryPlay(ui) { return ui.find(node => node.props['data-online-primary-play'] !== undefined) }
 function chooseDetailLine(ui, line) { ui.find(node => node.props['data-online-line'] === line).props.onClick() }
+for (const outcome of ['ready', 'changed', 'cancelled']) {
+  test('preparing a recommendation keeps the old run until verified: ' + outcome, async t => {
+    const otherItem = 'itm_' + '8'.repeat(32)
+    const target = { ...identity(EP1), source_id: SOURCE_B, item_id: otherItem }
+    const data = show(), pending = deferred(), calls = [], stateReads = []
+    const fresh = { ...data, source: sources.items[1], item: { ...data.item, source_id: SOURCE_B, id: otherItem },
+      lines: [{ ...data.lines[0], entries: [{ label: '第1集', supported: true, identity: target, transport: 'mp4' }] }] }
+    const token = 'x'.repeat(32)
+    let closes = 0
+    const client = { create: (identity, opts) => { calls.push({ identity, opts }); return pending.promise }, close: () => { closes++ } }
+    const { ui, players, writers, route } = await setup(t, async path => {
+      if (path.endsWith('/sources')) return sources
+      if (path.includes('/search?')) return rows
+      return path.includes(SOURCE_B) ? fresh : data
+    }, { playbackClient: client, stateRequest: async path => {
+      if (path.includes('/library?')) return { items: [], total: 0, limit: 20, offset: 0, scope_token: SCOPE }
+      if (path.includes(otherItem)) stateReads.push(path)
+      return { item_id: path.includes(otherItem) ? otherItem : ITEM, available: true, scope_token: SCOPE,
+        selected_progress: path.includes(otherItem) ? savedProgress(target, { position: 25 }) : null }
+    } })
+    await openShow(ui); primaryPlay(ui).props.onClick(); await flush()
+    const cancel = new AbortController()
+    const selecting = players[0].props.switchSource({ identity: target, external_id: 'other-show', title: data.item.title, entry_label: '第1集', recommendation_token: token }, cancel.signal)
+    await flush()
+    assert.equal(writers[0].closes, 0)
+    assert.equal(players.length, 1)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].opts.recommendation, token)
+    if (outcome === 'changed') {
+      pending.reject(Object.assign(new Error('节目已替换'), { code: 'online_recommendation_changed' }))
+      await assert.rejects(selecting, { code: 'online_recommendation_changed' })
+    } else {
+      if (outcome === 'cancelled') cancel.abort()
+      pending.resolve({ session_id: 'p'.repeat(32), identity: target })
+      await selecting
+    }
+    await flush()
+    assert.equal(stateReads.length, 1)
+    assert.ok(stateReads[0].includes('episode_id='))
+    if (outcome === 'ready') {
+      assert.equal(writers[0].closes, 1)
+      assert.deepEqual(players[1].props.onlineIdentity, target)
+      assert.equal(players[1].props.initialPosition, 25)
+      assert.equal(players[1].props.preparedPlayback.descriptor.session_id, 'p'.repeat(32))
+      assert.equal(closes, 0)
+      assert.equal(route.query.source, SOURCE_B)
+    } else {
+      assert.equal(writers[0].closes, 0)
+      assert.equal(players.length, 1)
+      assert.ok(closes > 0)
+      assert.notEqual(route.query.source, SOURCE_B)
+    }
+  })
+}
 const savedProgress = (entry, extra = {}) => ({ identity: entry, position: 11.5, duration: 24, completed: false, updated_at: 10, writer_revision: 4, ...extra })
 
 test('details show the primary play and episode picker before supplementary information while browse controls keep their state', async t => {

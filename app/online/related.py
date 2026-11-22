@@ -12,7 +12,7 @@ import threading
 import time
 
 from ..network.guard import NetworkOperation, NetworkOperationError, current_operation, operation_context
-from ..store.online_network import load_online_network_state
+from ..store.online_network import load_online_network_state, online_network_fingerprint
 from . import catalog, health, maccms, related_matching
 from .providers import ProviderError
 
@@ -115,7 +115,7 @@ def _snapshot(access, source_id):
     source = state["source_config"]
     if not state["online_enabled"] or not source or not source["enabled"]:
         raise catalog.CatalogError("online_source_disabled", 503)
-    fingerprint = hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    fingerprint = online_network_fingerprint(state)
     return source, fingerprint
 
 

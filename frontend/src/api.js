@@ -79,7 +79,12 @@ export async function api(path, opts = {}) {
       try { window.dispatchEvent(new CustomEvent('jzmedia:viewing-generation', { detail: { generation: Number(generation) } })) } catch { /* 无浏览器环境 */ }
     }
     if (!r.ok) {
-      throw _httpError(r.status, await r.text(), silentViewing, silentAuth)
+      const error = _httpError(r.status, await r.text(), silentViewing, silentAuth)
+      if (r.status === 429) {
+        const after = Number(r.headers?.get('Retry-After'))
+        if (Number.isFinite(after) && after > 0) error.retryAfterSeconds = after
+      }
+      throw error
     }
     if (r.status === 204) return null
     return r.json()

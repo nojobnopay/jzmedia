@@ -13,7 +13,7 @@ from ..network.models import (NetworkProfileCreate, NetworkProfilePatch,
                               NetworkProfilePublic, NetworkRule,
                               SourceNetworkPatch, SourceNetworkPolicy)
 from . import _base
-from .online import OnlineNotFound, _source
+from .online import OnlineNotFound, _source, source_revision
 
 
 DEFAULT_KEY = "online_network_default"
@@ -279,10 +279,11 @@ def save_verified_operator(connection, source_id, operator_id):
         ("online_operator:" + source_id, operator_id, int(time.time())))
 
 
-def online_network_snapshot(connection, source_id: str) -> dict:
+def online_network_snapshot(connection, source_id: str, *, candidate=None) -> dict:
     """Use the caller's transaction when a metadata write needs the same snapshot."""
     application = _application(connection)
-    source = _source_policy(connection, source_id)
+    source = (_source_policy(connection, source_id) if candidate is None else
+              {"source_id": source_id, "policy": SourceNetworkPolicy().model_dump(mode="json"), "revision": 0})
     referenced = {rule["profile_id"] for rule in (application["rule"], *source["policy"].values())
                   if rule["profile_id"] is not None}
     for rule in (application["rule"], *source["policy"].values()):
@@ -290,12 +291,18 @@ def online_network_snapshot(connection, source_id: str) -> dict:
     profiles = {profile_id: dict(connection.execute(
         "SELECT * FROM network_profiles WHERE id=?", (profile_id,)).fetchone())
                 for profile_id in referenced}
-    source_config = _source(connection.execute("SELECT * FROM online_sources WHERE id=?", (source_id,)).fetchone())
+    source_config = (candidate if candidate is not None else
+                     _source(connection.execute("SELECT * FROM online_sources WHERE id=?", (source_id,)).fetchone()))
     enabled = connection.execute("SELECT value FROM app_settings WHERE key='online_enabled'").fetchone()
     return {"application": application, "source": source, "profiles": profiles,
+            "source_revision": source_revision(connection, source_id) if candidate is None else 0,
             "source_config": source_config, "online_enabled": bool(enabled and enabled["value"] == "true")}
 
 
 def online_network_fingerprint(state) -> str:
     """Digest the complete private configuration without exposing its contents."""
+    # Old artwork/cache records use the pre-revision digest. A saved source
+    # remains at revision zero until its first real edit on this installation.
+    if state.get("source_revision") == 0:
+        state = {key: value for key, value in state.items() if key != "source_revision"}
     return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()

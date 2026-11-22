@@ -113,6 +113,18 @@ def test_legacy_favorite_has_empty_presentation_until_user_opens_detail(environm
     assert records(environment)[0]["poster_path"]
 
 
+def test_edited_source_can_refresh_favorite_artwork_on_new_configuration_revision(environment):
+    detail = prepare(environment)
+    sid = environment.source["id"]
+    online.update_online_source(sid, {"allowed_hosts": [*environment.source["allowed_hosts"], "other-cdn.example"]})
+    state = online_network.load_online_network_state(sid)
+    assert state["source_revision"] > 0
+    assert records(environment)[0]["poster_path"] == ""
+    reopened = get_detail(environment).json()
+    assert reopened["poster_path"] and reopened["poster_path"] == records(environment)[0]["poster_path"]
+    assert saved(detail["item"]["id"])["configuration_fingerprint"] == online_network.online_network_fingerprint(state)
+
+
 def test_changed_network_invalidates_snapshot_and_late_old_write_cannot_overwrite_new(environment):
     detail = prepare(environment)
     item_id = detail["item"]["id"]

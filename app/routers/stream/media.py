@@ -33,7 +33,7 @@ def stream_client_info():
     except Exception:
         version = ""
     return {"protocol_version": 1,
-            "features": ["android_tv", "independent_sessions", "tv_search", "tv_actor_search", "viewing_modes", "tv_app_handoff", "online_vod", "ai_discovery"],
+            "features": ["android_tv", "independent_sessions", "tv_search", "tv_actor_search", "viewing_modes", "tv_app_handoff", "online_vod", "online_alternatives", "online_alternatives_v2", "ai_discovery"],
             "auth_required": bool(config.effective_jzmedia_token()),
             "name": name,
             "version": version,

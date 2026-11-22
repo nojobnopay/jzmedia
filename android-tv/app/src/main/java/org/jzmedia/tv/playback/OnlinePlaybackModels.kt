@@ -1,12 +1,29 @@
 package org.jzmedia.tv.playback
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import org.jzmedia.tv.data.OnlineDescriptor
 import org.jzmedia.tv.data.OnlineIdentity
+
+/** Owned by the pending navigation until the target controller takes it, or the route closes. */
+class PendingOnlineSession internal constructor(descriptor: OnlineDescriptor, private val release: suspend (String) -> Unit) {
+    private var pending: OnlineDescriptor? = descriptor
+    @Synchronized internal fun take(): OnlineDescriptor? = pending.also { pending = null }
+    internal fun discard() {
+        val session = take() ?: return
+        CoroutineScope(Dispatchers.IO).launch {
+            withTimeoutOrNull(3000) { runCatching { release(session.sessionId) } }
+        }
+    }
+}
 
 /** Everything needed to open one exact online version; never a local media ID or upstream URL. */
 data class OnlinePlaybackRequest(val identity: OnlineIdentity, val title: String, val externalId: String,
                                  val position: Double = 0.0, val scopeToken: String,
                                  val writerRevision: Long = 0, val autoplay: Boolean = false,
-                                 val localCache: Boolean = false) {
+                                 val localCache: Boolean = false, val preparedSession: PendingOnlineSession? = null) {
     init {
         require(position.isFinite() && position >= 0)
         require(writerRevision >= 0)
@@ -26,7 +43,8 @@ data class OnlinePlaybackState(val loading: Boolean = true, val playing: Boolean
                                val audios: List<OnlineTrackOption> = emptyList(),
                                val subtitles: List<OnlineTrackOption> = emptyList(),
                                val nextLoading: Boolean = false, val next: OnlinePlaybackRequest? = null,
-                               val networkNext: OnlinePlaybackRequest? = null)
+                               val networkNext: OnlinePlaybackRequest? = null, val networkPlayback: Boolean = false,
+                               val awaitingSeek: Boolean = false)
 
 /** A native ended event plus a decoded frame is needed; high percentages never complete online progress. */
 internal fun onlineCompletion(firstFrame: Boolean, ended: Boolean, position: Double, duration: Double): Boolean =

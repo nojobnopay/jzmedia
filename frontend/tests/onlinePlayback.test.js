@@ -55,6 +55,23 @@ test('session creation requests cache context and keeps the local-only constrain
   await controller.close()
 })
 
+test('a recommended session is created once, adopted by its player and released once', async () => {
+  const calls = [], releases = [], token = 't'.repeat(32)
+  const player = client({ request: async (_, options) => {
+    calls.push(options)
+    return descriptor(SID_A, EPISODE, { expires_at: Math.floor(Date.now() / 1000) + 600 })
+  }, releaseRequest: async path => { releases.push(path); return { status: 204 } } })
+  const prepared = await player.create(EPISODE, { recommendation: token })
+  const controller = createOnlinePlaybackController({ client: player })
+  const adopted = await controller.begin(EPISODE, { prepared })
+  assert.deepEqual(adopted, prepared)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].headers['X-Online-Recommendation'], token)
+  assert.deepEqual(JSON.parse(calls[0].body), EPISODE)
+  await controller.close()
+  assert.deepEqual(releases, ['/api/online/sessions/' + SID_A])
+})
+
 for (const [name, value] of Object.entries({
   null: null, array: [], localId: { ...MOVIE, item_id: 12 },
   stringObject: { ...MOVIE, source_id: Object(MOVIE.source_id) },

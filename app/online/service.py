@@ -123,7 +123,7 @@ def _resolved_source_current(identity, resolved):
         raise PlaybackError(error.category, error.status) from None
 
 
-def create(identity, access, *, cache_only=False):
+def create(identity, access, *, cache_only=False, recommendation=None):
     try:
         identity = OnlinePlaybackIdentity.model_validate(identity)
     except (ValueError, TypeError):
@@ -132,9 +132,22 @@ def create(identity, access, *, cache_only=False):
         raise PlaybackError("viewing_session_required", 401)
     _current_access(access)
     _identity_ready(identity, local=True)
-    from . import cache
+    if recommendation is not None:
+        from . import recommendations
+        offer = recommendations.accept(recommendation, access, identity)
+        with offer.reserve():
+            session = _create(identity, access, cache_only, offer)
+            offer.prepared_id = session.id
+            return session
+    return _create(identity, access, cache_only, None)
+
+
+def _create(identity, access, cache_only, offer):
+    from . import cache, recommendations
     cached = cache.lookup(identity)
     if cached is not None:
+        if offer:
+            offer.check_cache(cached)
         session = registry.create_local(identity, access.owner, cached["id"], cache.package_files(cached["id"]),
                                         duration_seconds=cached.get("duration_seconds"), context=access)
         try:
@@ -142,6 +155,9 @@ def create(identity, access, *, cache_only=False):
             current = cache.lookup(identity)
             if current is None or current["id"] != session.cache_id:
                 raise PlaybackError("online_cache_unavailable", 409)
+            if offer:
+                offer.check_cache(current)
+                offer.check_configuration()
             authorize(session.id, access)
         except Exception:
             registry.close(session.id, access.owner)
@@ -156,7 +172,10 @@ def create(identity, access, *, cache_only=False):
             resolved = providers.resolve(identity)
     except catalog.CatalogError as error:
         raise PlaybackError(error.category, error.status) from None
-    except providers.ProviderError:
+    except providers.ProviderError as error:
+        if offer and error.category in {"provider_not_found", "provider_line_not_found", "provider_media_unsupported",
+                                        "provider_episode_not_found", "provider_ambiguous_identity"}:
+            raise PlaybackError("online_recommendation_changed", 409) from None
         raise
     except Exception:
         # Providers are a separate boundary. No third-party exception text,
@@ -165,6 +184,9 @@ def create(identity, access, *, cache_only=False):
     if not isinstance(resolved, providers.ResolvedPlayback):
         raise providers.ProviderError("invalid_provider_result")
     _resolved_source_current(identity, resolved)
+    if offer:
+        offer.check_match(resolved.match)
+        offer.check_configuration()
     try:
         client = create_online_client(identity.source_id, "media", header_policy=resolved.header_policy)
     except (NetworkPolicyError, OnlineNotFound, sqlite3.Error, ValueError):
@@ -185,13 +207,17 @@ def create(identity, access, *, cache_only=False):
             pass
         raise
     session = registry.create(identity, access.owner, client, resolved.url, resolved.transport,
-                              seekable=resolved.seekable, duration_seconds=resolved.duration_seconds, context=access)
+                              seekable=resolved.seekable, duration_seconds=resolved.duration_seconds, context=access,
+                              playback_match=resolved.match, playback_configuration=resolved.configuration)
     try:
         # Source or permission changes racing provider resolution/DNS must not
         # publish a newly active session after the gate has been revoked.
         _identity_ready(identity)
         _resolved_source_current(identity, resolved)
         authorize(session.id, access)
+        if offer:
+            offer.check_configuration()
+        recommendations.remember_origin(session)
     except Exception:
         try:
             registry.close(session.id, access.owner)
@@ -224,11 +250,16 @@ def authorize(session_id, access):
 
 def delete(session_id, access):
     session = authorize(session_id, access)
+    from . import recommendations
+    recommendations.remember_origin(session)
     registry.close(session.id, access.owner)
 
 
 def sweep():
     """Called by the application maintenance loop; no thread starts at import."""
+    from . import alternative_tasks, recommendations
+    alternative_tasks.sweep()
+    recommendations.sweep()
     registry.sweep()
     sessions = registry.sessions()
     if not sessions:

@@ -16,6 +16,7 @@ import time
 
 from ..network.targets import TargetPolicyError
 from .models import OnlinePlaybackDescriptor, OnlinePlaybackIdentity
+from .providers import PlaybackMatch
 
 
 CHUNK_BYTES = 64 * 1024
@@ -120,6 +121,8 @@ class OnlineSession:
     _resource_keys: dict = field(default_factory=dict, repr=False)
     _leases: dict = field(default_factory=dict, repr=False)
     cache_id: str | None = field(default=None, repr=False)
+    playback_match: PlaybackMatch | None = field(default=None, repr=False)
+    playback_configuration: str | None = field(default=None, repr=False)
     _local_files: dict = field(default_factory=dict, repr=False)
     _local_readers: dict = field(default_factory=dict, repr=False)
 
@@ -242,7 +245,7 @@ class SessionRegistry:
             _run_callbacks([client.close])
 
     def create(self, identity, owner, client, entry_url, transport, *, seekable=True,
-               duration_seconds=None, context=None):
+               duration_seconds=None, context=None, playback_match=None, playback_configuration=None):
         """Take ownership of a newly created server-side client, even on failure."""
         pending_id = None
         published = False
@@ -287,7 +290,8 @@ class SessionRegistry:
             current = self._clock()
             session = OnlineSession(session_id, identity, transport, owner, client, entry, now,
                                     now + self.limits.ttl_seconds, expires_at, current, self.limits.idle_seconds,
-                                    seekable, duration_seconds, context)
+                                    seekable, duration_seconds, context, playback_match=playback_match,
+                                    playback_configuration=playback_configuration)
             with self._lock:
                 if pending_id in self._cancelled_pending:
                     raise SessionError("session_closed")

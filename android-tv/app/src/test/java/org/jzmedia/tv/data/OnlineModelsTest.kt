@@ -233,6 +233,7 @@ class OnlineModelsTest {
     }
 
     @Test fun playbackDescriptorAcceptsOnlyAnOwnedPassthroughPathAndOriginalTimeline() {
+        assertTrue(OnlineDescriptor.fromJson(descriptor().put("cached", true), movie).cached)
         assertEquals("mp4", OnlineDescriptor.fromJson(descriptor(), movie).transport)
         assertEquals(24.0, OnlineDescriptor.fromJson(descriptor(), movie).durationSeconds!!, 0.0)
         val corruptions = listOf(
@@ -251,6 +252,21 @@ class OnlineModelsTest {
         assertThrows(IllegalArgumentException::class.java) {
             OnlineDescriptor.fromJson(descriptor(), movie.copy(lineId = "ln_" + "9".repeat(32)))
         }
+    }
+
+    @Test fun recommendationsRequireADifferentPlayableVersionAndKeepAnOpaqueIdentity() {
+        val other = movie.copy(lineId = "ln_" + "a".repeat(32))
+        val row = JSONObject().put("identity", other.toJson()).put("external_id", "film-2")
+            .put("source_name", "合成来源").put("line_label", "线路二").put("throughput_kbps", 3200.0)
+        row.put("title", "合成电影").put("entry_label", "正片").put("recommendation_token", "a".repeat(32))
+        val response = JSONObject().put("items", JSONArray().put(row)).put("status", "running")
+            .put("retry_after_ms", 0).put("task_id", "alt_" + "f".repeat(32))
+        assertEquals(other, OnlineAlternativeTask.parse(response, movie).items.single().identity)
+        assertThrows(IllegalArgumentException::class.java) { OnlineAlternativeTask.parse(response, other) }
+        row.put("external_id", "https://media.invalid/film")
+        assertThrows(IllegalArgumentException::class.java) { OnlineAlternativeTask.parse(response, movie) }
+        row.put("external_id", "film-2").put("recommendation_token", "invalid/")
+        assertThrows(IllegalArgumentException::class.java) { OnlineAlternativeTask.parse(response, movie) }
     }
 
     @Test fun freshDetailNeverSkipsAnUnsupportedNextEpisodeOrChangesSourceAndLine() {

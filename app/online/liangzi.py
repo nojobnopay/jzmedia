@@ -329,7 +329,7 @@ def _html_response(response):
     return charsets[0] if charsets else "utf-8"
 
 
-def resolve(source, page_url, *, operation=None):
+def resolve(source, page_url, *, operation=None, client_factory=None):
     """Fetch one selected page using the source's bounded media network path."""
     if not supports_page(source, "liangzi", page_url):
         raise ProviderError("provider_page_unsupported")
@@ -337,7 +337,7 @@ def resolve(source, page_url, *, operation=None):
     child = None
     try:
         with _page_operation(parent) as child:
-            with create_online_client(source["id"], "media") as client:
+            with (client_factory() if client_factory else create_online_client(source["id"], "media")) as client:
                 child.check()
                 with client.stream("GET", page_url, headers={"Accept": "text/html"}) as response:
                     child.check()

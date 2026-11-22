@@ -70,7 +70,7 @@ async function player(t, claimResponse, { sessionProblem = null, durationSeconds
   const scope = Vue.effectScope()
   let render, exposed
   scope.run(() => {
-    render = component.setup({ onlineIdentity: IDENTITY, title: '隔离媒体', initialPosition,
+    render = component.setup({ onlineIdentity: IDENTITY, title: '隔离媒体', initialPosition, switchSource: () => {},
       prepareSession: value => writer.session(value) }, {
       expose: value => { exposed = value },
       emit: (name, value) => { if (name === 'progress') writer.update(value) },
@@ -109,6 +109,7 @@ async function player(t, claimResponse, { sessionProblem = null, durationSeconds
   }
   const videoNode = () => findNode(node => node.type === 'video')
   return { video, page, writer, requests, notices, close, snapshot: exposed.snapshot,
+    alternative: () => findNode(node => node.type?.__name === 'OnlinePlaybackAlternatives')?.props,
     seekbar: () => findNode(node => node.type?.__name === 'PlayerSeekbar')?.props,
     text() {
       const text = node => typeof node === 'string' ? node : Array.isArray(node) ? node.map(text).join('')
@@ -191,15 +192,18 @@ test('HLS seek waits through the bounded fragment attempts and gives a clear lim
   assert.equal(ui.snapshot().activeHls, true, 'a retryable transient response keeps the player alive')
   ui.frame(); ui.event('playing')
   ui.seekbar().onCommit({ target: { value: '18' } })
+  assert.equal(ui.alternative().waiting, true, 'a committed seek starts the normal stall timer')
   assert.equal(timers.count(10000), 0)
   assert.equal(timers.count(165000), 1)
   assert.equal(ui.snapshot().activeHls, true)
   ui.event('seeked')
+  assert.equal(ui.alternative().waiting, false)
   assert.equal(timers.count(165000), 0)
   hls.emit(FakeHls.Events.ERROR, { fatal: true, type: 'networkError', details: 'fragLoadError', response: { code: 429 } })
   assert.match(ui.text(), /在线取流已达到限制，请稍后重新加载/)
   assert.equal(ui.snapshot().activeHls, false)
   assert.equal(hls.destroyed, true)
+  assert.equal(ui.alternative().failed, true, 'fatal upstream failure keeps the recovery UI mounted')
 })
 
 test('native seek stays alive beyond 10 seconds but still stops after its bound', async t => {

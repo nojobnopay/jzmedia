@@ -47,6 +47,10 @@
         </div>
         <div class="online-player-controls pv-ctl" :inert="isFull && !controlsVisible" :aria-hidden="isFull && !controlsVisible"
           @click.stop @pointerdown.stop @dblclick.stop>
+          <OnlinePlaybackAlternatives v-if="switchSource && !cachedPlayback && (descriptor || canProbeFailure)"
+            :key="identityKey" :identity="onlineIdentity" :failed="canProbeFailure"
+            :waiting="!pauseWanted && !needGesture && !error && (!firstFrame || buffering || seeking)"
+            :switch-source="switchSource" />
           <PlayerSeekbar :value="duration > 0 ? (dragging ? seekPreview : position) : 0" :duration="duration" :buffered="buffered"
             :disabled="!canSeek || booting || !!error" :preview-hint-text="''" :preview-container="stageEl"
             @input="seekInput" @commit="seekCommit" @cancel="dragging = false" @active="previewActive = $event" />
@@ -95,22 +99,26 @@ import PlayerSeekbar from './PlayerSeekbar.vue'
 import PlayerVolumeControl from './PlayerVolumeControl.vue'
 import PlayerQuickControls from './PlayerQuickControls.vue'
 import Spinner from './Spinner.vue'
+import OnlinePlaybackAlternatives from './OnlinePlaybackAlternatives.vue'
 import '../player.css'
 import '../onlinePlayer.css'
 
 const props = defineProps({ onlineIdentity: { type: Object, required: true }, title: { type: String, default: '' },
-  initialPosition: { type: Number, default: 0 }, prepareSession: { type: Function, default: null }, cacheOnly: Boolean })
+  initialPosition: { type: Number, default: 0 }, prepareSession: { type: Function, default: null }, cacheOnly: Boolean,
+  switchSource: { type: Function, default: null }, preparedPlayback: { type: Object, default: null } })
 const emit = defineEmits(['close', 'progress', 'ended', 'session', 'failure'])
 const dialogEl = ref(null), stageEl = ref(null), videoEl = ref(null)
 const volumeControl = ref(null), quickControls = ref(null)
 const focus = useFocusTrap(ref(true), dialogEl)
-const client = createOnlinePlaybackClient({ request: api })
+const client = props.preparedPlayback?.client || createOnlinePlaybackClient({ request: api })
+let preparedDescriptor = props.preparedPlayback?.descriptor
 const controller = createOnlinePlaybackController({ client })
 const memory = createOnlineProgressMemory()
 const descriptor = ref(null), transport = ref(''), engine = ref('')
 const videoKey = ref(0), position = ref(0), duration = ref(0), buffered = ref([])
 const paused = ref(true), booting = ref(true), seeking = ref(false), needGesture = ref(false), error = ref('')
 const cachedPlayback = ref(false), failureCode = ref(''), buffering = ref(false)
+const canProbeFailure = ref(false)
 const volume = ref(1), muted = ref(false), rate = ref(1), volumeSupported = ref(true)
 const audios = ref([]), subtitles = ref([]), audioIndex = ref(0), subtitleIndex = ref(-1)
 const activePanel = ref(''), panelHeight = ref(240), isFull = ref(false), hint = ref('')
@@ -120,7 +128,8 @@ const canSeek = computed(() => !!descriptor.value?.seekable && duration.value > 
 const controlsVisible = computed(() => pointerActive.value || paused.value || booting.value || seeking.value || buffering.value
   || !!activePanel.value || previewActive.value || needGesture.value || !!error.value)
 let identity = null, hls = null, hlsClass = null, generation = 0, disposed = false, mounted = false
-let bootController = null, pendingStart = 0, pauseWanted = false, endedOnce = false
+const pauseWanted = ref(false)
+let bootController = null, pendingStart = 0, endedOnce = false
 let resumeApplied = false
 let frameHandle = null, frameVideo = null, resizeObserver = null
 let hideTimer = null, hintTimer = null, seekTimer = null, startupTimer = null, surfaceTimer = null
@@ -149,7 +158,7 @@ function capture() {
   return { identity, position: Math.max(0, actual || 0), duration: duration.value,
     // pause() updates the element before its queued DOM event updates refs.
     // Capture the synchronous user/load intent, including startup and errors.
-    paused: pauseWanted, ended: endedOnce, first_frame: firstFrame.value }
+    paused: pauseWanted.value, ended: endedOnce, first_frame: firstFrame.value }
 }
 function save(snapshot = capture(), reason = 'tick') {
   if (!snapshot) return
@@ -167,7 +176,7 @@ function clearBuffering() {
 }
 function needsBuffering(video) {
   return firstFrame.value && !booting.value && !seeking.value && !needGesture.value && !error.value
-    && !pauseWanted && !video.paused && !video.ended && !video.error && video.readyState < 3
+    && !pauseWanted.value && !video.paused && !video.ended && !video.error && video.readyState < 3
 }
 function waitForMedia(event) {
   if (!validEvent(event)) return
@@ -202,6 +211,7 @@ function detachMedia() {
   paused.value = true
 }
 function stop() {
+  preparedDescriptor = null
   generation++
   bootController?.abort(); bootController = null
   detachMedia()
@@ -214,6 +224,8 @@ function fail(category, message) {
   record(category)
   failureCode.value = cleanCategory(category)
   if (failureCode.value.startsWith('online_cache_')) cachedPlayback.value = true
+  canProbeFailure.value = !cachedPlayback.value && category !== 'online_access_revoked' && (
+    !!descriptor.value || /^(provider_(timeout|network_error|upstream_error|rate_limited|resolution_failed|media_unsupported)|online_(startup_timeout|seek_timeout|media_network_error|decode_unsupported))$/.test(category))
   emit('failure', failureCode.value, cachedPlayback.value)
   error.value = message
   void stop()
@@ -357,6 +369,7 @@ async function load({ start = position.value, paused: keepPaused = false, recove
   detachMedia()
   descriptor.value = null; transport.value = ''; engine.value = ''
   cachedPlayback.value = !!props.cacheOnly
+  canProbeFailure.value = false
   if (failureCode.value) emit('failure', '')
   error.value = ''; failureCode.value = ''; hint.value = ''; booting.value = true; needGesture.value = false
   firstFrame.value = false; startupGapRecoveries.value = 0; presentedFrames = 0
@@ -364,22 +377,24 @@ async function load({ start = position.value, paused: keepPaused = false, recove
   buffered.value = []; dragging.value = false; endedOnce = false; diagnosing = false; resumeApplied = false
   if (!recovering) { lastRenewal = -Infinity; renewalPosition = 0 }
   pendingStart = Math.max(0, Number.isFinite(Number(start)) ? Number(start) : 0)
-  position.value = pendingStart; pauseWanted = !!keepPaused; paused.value = !!keepPaused
+  position.value = pendingStart; pauseWanted.value = !!keepPaused; paused.value = !!keepPaused
   lastMediaTime = pendingStart
   videoKey.value++
   await nextTick()
   const video = videoEl.value
   if (!current(gen, video) || control.signal.aborted) return
-  video.autoplay = !pauseWanted; video.muted = muted.value
+  video.autoplay = !pauseWanted.value; video.muted = muted.value
   volumeSupported.value = supportsMediaVolume(video)
   if (volumeSupported.value) video.volume = volume.value
   applyPlaybackRate(video, rate.value)
   watchFrames(video, gen)
   armStartup(video, gen)
   try {
-    await api('/api/viewing/session', { signal: control.signal, timeout: 10000 })
+    if (!preparedDescriptor) await api('/api/viewing/session', { signal: control.signal, timeout: 10000 })
     if (!current(gen, video) || control.signal.aborted) return
-    const result = await controller.begin(identity, { signal: control.signal, cacheOnly: props.cacheOnly })
+    const prepared = preparedDescriptor
+    preparedDescriptor = null
+    const result = await controller.begin(identity, { signal: control.signal, cacheOnly: props.cacheOnly, prepared })
     if (!current(gen, video) || control.signal.aborted) { await client.release(result.session_id); return }
     cachedPlayback.value = !!props.cacheOnly || result.cached === true
     descriptor.value = result; transport.value = result.transport
@@ -417,7 +432,7 @@ function renew() {
   return true
 }
 function retry() {
-  void load({ start: position.value, paused: pauseWanted, recovering: false })
+  void load({ start: position.value, paused: pauseWanted.value, recovering: false })
 }
 function validEvent(event) { return !disposed && !pageLifecycle.isAway() && descriptor.value && event.currentTarget === videoEl.value }
 function updateDuration(event) {
@@ -434,7 +449,7 @@ function metadata(event) {
   }
   resumeApplied = true
   applyPlaybackRate(video, rate.value)
-  if (pauseWanted) { video.pause(); paused.value = true; booting.value = false; clearStartup() }
+  if (pauseWanted.value) { video.pause(); paused.value = true; booting.value = false; clearStartup() }
   else void attemptPlay()
 }
 function timeUpdate(event) {
@@ -465,7 +480,7 @@ function playState(event) {
 async function attemptPlay() {
   const video = videoEl.value, gen = generation
   if (!current(gen, video) || !descriptor.value) return
-  if (pauseWanted) { video.pause(); paused.value = true; booting.value = false; clearStartup(); return }
+  if (pauseWanted.value) { video.pause(); paused.value = true; booting.value = false; clearStartup(); return }
   if (!firstFrame.value && startupTimer === null) armStartup(video, gen)
   try {
     await video.play()
@@ -481,8 +496,8 @@ function togglePlay() {
   const video = videoEl.value
   if (endedOnce) { void load({ start: 0, paused: false }); return }
   if (!video || !descriptor.value) return
-  if (video.paused) { pauseWanted = false; void attemptPlay() }
-  else { pauseWanted = true; clearBuffering(); video.pause() }
+  if (video.paused) { pauseWanted.value = false; void attemptPlay() }
+  else { pauseWanted.value = true; clearBuffering(); video.pause() }
   showControls()
 }
 function seekInput(event) { dragging.value = true; seekPreview.value = Number(event.target.value) || 0; showControls() }
@@ -513,7 +528,7 @@ function seeked(event) {
 function ended(event) {
   if (!validEvent(event) || endedOnce || booting.value) return
   position.value = Number.isFinite(event.currentTarget.currentTime) ? event.currentTarget.currentTime : position.value
-  endedOnce = true; pauseWanted = true; paused.value = true; save(undefined, 'ended')
+  endedOnce = true; pauseWanted.value = true; paused.value = true; save(undefined, 'ended')
   const endingIdentity = identity
   void stop(); emit('ended', endingIdentity)
 }

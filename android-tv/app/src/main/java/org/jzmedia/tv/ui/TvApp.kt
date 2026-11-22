@@ -157,6 +157,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: LongState) {
     val latestPlaying by rememberUpdatedState(playing)
 
     fun closeOnlinePlayback() {
+        onlinePlayback?.preparedSession?.discard()
         onlineController?.close()
         onlineController = null
         onlinePlayback = null
@@ -243,7 +244,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: LongState) {
             }
         }
         lifecycle?.addObserver(observer)
-        onDispose { lifecycle?.removeObserver(observer) }
+        onDispose { lifecycle?.removeObserver(observer); latestCloseOnline() }
     }
 
     LaunchedEffect(Unit) {
@@ -456,7 +457,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: LongState) {
                 if (onlinePlayback === selected && api === server && foreground && !viewingBlocked && server.viewing?.mode != "children") {
                     onlineController?.close(); onlineController = null
                     onlinePlayback = next
-                }
+                } else next.preparedSession?.discard()
             },
             onPlayingChanged = { if (onlinePlayback === selected) playing = it },
             onController = { controller, available ->
@@ -682,8 +683,7 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
                 val info = candidate.checkConnection()
                 if (supportsViewingModes(info)) {
                     if (!resetViewingSession && prior == null && initial?.serverId?.isNotBlank() == true && initial.serverId == info.text("server_id") && initial.token == chosenToken) {
-                        candidate = JzApi(chosenAddress, chosenToken, initialViewingToken = initial.viewingToken,
-                            initialOnlineVod = candidate.supportsOnlineVod)
+                        candidate = candidate.withViewingToken(initial.viewingToken)
                     }
                     candidate = candidate.withViewing(candidate.get("/api/viewing/session"))
                     if (initial?.viewingToken == candidate.viewingToken && initial.viewingGeneration != candidate.viewing?.generation) {

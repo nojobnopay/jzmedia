@@ -109,7 +109,7 @@ def selected_entry(detail, line_id, episode_key):
     return entry
 
 
-def _manifest(client, url):
+def _manifest(client, url, *, reference_url=None):
     check_access()
     with client.stream("GET", url) as response:
         if response.status_code != 200:
@@ -127,7 +127,9 @@ def _manifest(client, url):
     references, segments, variants = {}, [], []
 
     def register(address, *, kind, byte_range=None):
-        canonical = client.targets._canonical_url(address)[0]
+        if byte_range:
+            gateway.requested_range(None, SessionLimits.max_segment_response_bytes, byte_range)
+        canonical = reference_url(address) if reference_url else client.targets._canonical_url(address)[0]
         path = f"/sample/{len(references)}"
         references[path] = (canonical, byte_range)
         return path
@@ -135,10 +137,10 @@ def _manifest(client, url):
     hls.rewrite_manifest(bytes(body), base, register, on_media=segments.extend, on_master=variants.extend)
     for segment in segments:
         if not segment.gap:
-            return "segment", references[segment.path], references.get(segment.init_path)
+            return "segment", references[segment.path], references.get(segment.init_path), segment.duration
     for path, kind in variants:
         if kind == "variant":
-            return "manifest", references[path], None
+            return "manifest", references[path], None, None
     raise ProbeFailure("no_media_sample")
 
 
@@ -196,7 +198,7 @@ def media(source, entry, policy):
                 stage = "manifest"
                 trail.append((stage, url, None))
                 check_operation()
-                kind, (url, restriction), initialization = _manifest(client, url)
+                kind, (url, restriction), initialization, _duration = _manifest(client, url)
             if kind == "manifest":
                 raise ProbeFailure("manifest_depth")
             stage = "bytes"

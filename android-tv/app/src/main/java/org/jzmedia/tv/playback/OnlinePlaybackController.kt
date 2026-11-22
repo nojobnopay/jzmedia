@@ -61,6 +61,7 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
     private var writer = newWriter(request.scopeToken, request.writerRevision)
     private var endedHandled = false
     private var loadingSource = false
+    private var seekClockMs = 0L
     private var renewalWindow = 0L
     private var renewalAttempts = 0
     private var exit: Job? = null
@@ -74,7 +75,7 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
             addListener(object : Player.Listener {
                 override fun onRenderedFirstFrame() {
                     if (!disposed && !loadingSource) {
-                        state = state.copy(firstFrame = true, loading = false)
+                        state = state.copy(firstFrame = true, awaitingSeek = false, loading = this@apply.playbackState == Player.STATE_BUFFERING)
                         updatePosition(); queueSave()
                     }
                 }
@@ -114,7 +115,7 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
     private val mediaSession = MediaSession.Builder(context.applicationContext, player).build()
 
     init {
-        begin(request.position, paused = false)
+        begin(request.position, paused = false, prepared = request.preparedSession?.take())
         scope.launch {
             var tick = 0
             while (true) {
@@ -135,7 +136,7 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
         return next
     }
 
-    private fun begin(position: Double, paused: Boolean, freshWriter: Boolean = false) {
+    private fun begin(position: Double, paused: Boolean, freshWriter: Boolean = false, prepared: OnlineDescriptor? = null) {
         if (disposed) return
         cancelNext()
         val ticket = ++generation
@@ -147,8 +148,9 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
         http.dispatcher.cancelAll()
         if (previous != null) writes.launch { deleteSession(previous.sessionId) }
         state = state.copy(loading = true, playing = false, firstFrame = false, ended = false, error = null,
-            position = position, playWhenReady = !paused, seekable = false,
+            position = position, playWhenReady = !paused, seekable = false, networkPlayback = false, awaitingSeek = false,
             audios = emptyList(), subtitles = emptyList(), next = null)
+        prepared?.let { sessions.own(it.sessionId) }
         preparation = scope.launch {
             val lease = PlaybackSessionLease({ !disposed && generation == ticket }, ::deleteSession)
             try {
@@ -159,10 +161,11 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
                     writer = newWriter(saved?.scopeToken.orEmpty(), saved?.selectedProgress?.writerRevision ?: 0)
                 }
                 val result = lease.create({ withTimeout(45_000) {
-                    online.createSession(request.identity, cacheOnly = request.localCache)
+                    prepared ?: online.createSession(request.identity, cacheOnly = request.localCache)
                 } }) { it.sessionId }
                 sessions.own(result.sessionId)
                 descriptor = result
+                state = state.copy(networkPlayback = !request.localCache && !result.cached)
                 // A decoded frame must never race final DELETE with an unfinished initial claim.
                 writer.prepare(result.sessionId)
                 if (disposed || generation != ticket) return@launch
@@ -177,7 +180,10 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
             catch (error: Exception) {
                 if (!disposed && generation == ticket) {
                     descriptor = null
-                    state = state.copy(loading = false, playing = false, error = onlineErrorMessage(error))
+                    val code = (error as? org.jzmedia.tv.data.ApiException)?.code.orEmpty()
+                    state = state.copy(loading = false, playing = false, error = onlineErrorMessage(error),
+                        networkPlayback = !request.localCache && (state.networkPlayback || code in setOf(
+                            "provider_timeout", "provider_upstream_error", "provider_network_error", "provider_media_unsupported")))
                 }
             } finally {
                 if (generation == ticket) loadingSource = false
@@ -189,8 +195,13 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
     private fun updatePosition() {
         if (disposed || !state.firstFrame || endedHandled) return
         val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 }?.div(1000.0) ?: state.duration
-        val position = player.currentPosition.coerceAtLeast(0) / 1000.0
-        state = state.copy(position = if (duration > 0) position.coerceAtMost(duration) else position,
+        val millis = player.currentPosition.coerceAtLeast(0)
+        val position = millis / 1000.0
+        // ExoPlayer can acknowledge a seek before the media clock moves. A submitted seek
+        // remains eligible for a stall probe until output resumes, even in STATE_READY.
+        val awaitingSeek = state.awaitingSeek && !(player.isPlaying && millis != seekClockMs)
+        seekClockMs = millis
+        state = state.copy(awaitingSeek = awaitingSeek, position = if (duration > 0) position.coerceAtMost(duration) else position,
             duration = duration, buffered = player.bufferedPosition.coerceAtLeast(0) / 1000.0)
     }
 
@@ -258,7 +269,9 @@ class OnlinePlaybackController(context: Context, private val api: JzApi, val req
     fun seek(position: Double) {
         if (disposed || state.error != null || endedHandled || loadingSource || descriptor?.seekable != true
             || !position.isFinite() || state.duration <= 0) return
+        state = state.copy(awaitingSeek = true)
         player.seekTo((position.coerceIn(0.0, state.duration) * 1000).toLong())
+        seekClockMs = player.currentPosition
         // The actual post-seek position is sampled rather than persisting a guessed target.
         scope.launch { delay(200); updatePosition(); queueSave() }
     }
