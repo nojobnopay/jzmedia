@@ -13,8 +13,7 @@
     </header>
     <EmptyState v-if="loadErr" state="error" title="合集刷新失败" :text="loadErr" retry @retry="load" />
     <div class="collection-intro">
-      <h1>{{ c.name }}</h1>
-      <p class="collection-count">{{ c.member_count }} 部影片</p>
+      <div class="collection-title"><h1>{{ c.name }}</h1><span class="collection-count">{{ c.member_count }} 部影片</span></div>
       <MediaOverview :text="c.overview || ''" :lines="2" />
     </div>
     <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
@@ -25,13 +24,12 @@
     </div>
     <div class="grid">
       <div v-for="m in c.members" :key="m.id" class="card">
-        <router-link class="poster-wrap" :to="'/m/' + m.id">
-          <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" :alt="m.title || '海报'" />
-          <ArtworkPlaceholder v-else class="no-poster" kind="poster" :label="m.title" />
+        <router-link class="collection-member" :to="'/m/' + m.id">
+          <div class="poster-wrap"><img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" alt="" />
+            <ArtworkPlaceholder v-else class="no-poster" kind="poster" :label="m.title" /></div>
+          <div class="t">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> · {{ m.version_count }} 个版本</span></div>
         </router-link>
-        <div class="t">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span>
-          <JzButton v-if="editing" @click="kick(m.id)" type="button">移出合集</JzButton>
-        </div>
+        <JzButton v-if="editing" @click="kick(m.id)" type="button">移出合集</JzButton>
       </div>
     </div>
     <EmptyState v-if="!c.members.length" state="empty" title="合集中还没有影片" text="去海报墙多选影片后“加入合集”，或从影片详情页加入。">
@@ -140,11 +138,18 @@ watch(() => route.params.id, load)
 onUnmounted(() => { loadSeq++ })
 </script>
 <style scoped>
-.collection-intro { max-width: 850px; margin-bottom: var(--jz-gap-2xl); }
-.collection-count { margin: var(--jz-gap-s) 0 0; font-size: var(--jz-font-m); color: var(--jz-text-dim); }
+.collection-intro { max-width: 850px; margin-block: var(--jz-gap-2xl) var(--jz-gap-3xl); }
+.collection-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--jz-gap-s) var(--jz-gap-l); }
+.collection-title h1 { font-size: clamp(1.75rem, 3.4vw, 3rem); margin: 0; }
+.collection-count, .card .t > span { font-size: var(--jz-font-m); color: var(--jz-text-dim); font-weight: 400; }
+.collection-member { display: block; color: var(--jz-text); text-decoration: none; border-radius: var(--jz-radius-m); }
+.collection-member:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 3px; }
+.collection-detail .grid { padding: 0; }
+.collection-detail .grid > .card { overflow: visible; }
 .poster-wrap { display: block; border-radius: var(--jz-radius-m); overflow: hidden; }
+.poster-wrap .no-poster { aspect-ratio: 2 / 3; }
 .card .t { line-height: 1.6; font-weight: 500; }
-.card .t button { display: block; margin-top: var(--jz-gap-s); }
+.card > button { margin-top: var(--jz-gap-xs); }
 @media (max-width: 700px) { .collection-intro { margin-bottom: var(--jz-gap-l); }.collection-detail .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--jz-gap-l) var(--jz-gap-s); } }
 
 .page { padding-bottom: 24px; }

@@ -128,7 +128,7 @@ function mockApi(url, method, body) {
     return { show_id: id, show_title: shows[0].title, show_year: 2023, show_backdrop_path: shows[0].backdrop_path,
       season, name: season === 0 ? '特别篇（SP）' : `第 ${season} 季`, poster_path: `posters/show-0-s${season}.svg`, overview: shows[0].overview,
       episode_count: seasonEpisodes.length, distinct_count: distinct, watched_count: 0,
-      total: seasonEpisodes.length, episodes: seasonEpisodes, has_more: false, next_episode: null, cast: [],
+      total: seasonEpisodes.length, episodes: seasonEpisodes, has_more: false, next_episode: null, cast: seasonEpisodes.length ? shows[0].cast : [],
       versions: seasonEpisodes.length ? [{ version: 1, distinct, count: seasonEpisodes.length }] : [] }
   }
   if (key === '/api/tv/episodes/603') return { ...episodes[2], id: 603, show_id: 901, library_id: 4, progress: null }
@@ -207,7 +207,7 @@ try {
     page.on('pageerror', error => errors.push(String(error)))
     page.on('console', message => { if (message.type() === 'error' && !message.text().includes('404 (Not Found)')) errors.push(message.text()) })
     const pass = name => { checks.push(name); console.log(`PASS ${viewport.width}px ${name}`) }
-    const go = async route => { await page.goto(base + route); await page.getByRole('navigation', { name: '主导航' }).waitFor(); await page.waitForLoadState('networkidle') }
+    const go = async route => { await page.goto(base + route); await page.locator('#main-content').waitFor(); await page.waitForLoadState('networkidle') }
     const fit = async () => assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, 'Page must not overflow horizontally')
     const screenshot = async (name, docsName, scene) => {
       await fit()
@@ -223,6 +223,10 @@ try {
     const gray = await page.locator('.season-uncollected-image').first().evaluate(el => getComputedStyle(el).filter)
     assert.match(gray, /grayscale/)
     await screenshot('show', 'tv-show', '虚构剧集详情：SP、部分收藏、未收藏正季与未播出新季；收藏范围为当前媒体库')
+    await page.locator('.missing-seasons').waitFor()
+    await page.getByRole('link', { name: '选择剧季', exact: true }).focus()
+    await page.keyboard.press('Enter')
+    await page.waitForFunction(() => document.activeElement.id === 'show-seasons')
     pass('SP and uncollected season cards retain artwork, labels and library scope')
 
     await page.locator('.season-card-main[href="/tv/201/s/3"]').focus()
@@ -238,12 +242,22 @@ try {
 
     const beforeCatalog = requests.filter(request => request.path === '/api/tv/shows/201/seasons/1/catalog').length
     await go('/tv/201/s/1')
+    const castSection = page.locator('.season-detail .cast-sec')
+    const assertListAboveCast = async rowSelector => {
+      const last = await page.locator(rowSelector).last().boundingBox()
+      const cast = await castSection.boundingBox()
+      assert.ok(last && cast && last.y + last.height <= cast.y, 'Episodes precede the cast in the visible layout')
+    }
     assert.equal(await page.getByRole('button', { name: '已收藏', exact: true }).getAttribute('aria-pressed'), 'true')
     assert.equal(requests.filter(request => request.path === '/api/tv/shows/201/seasons/1/catalog').length, beforeCatalog)
+    await assertListAboveCast('.ep-card')
     await screenshot('local-season', 'tv-season', '季页保留本地分集与播放作用域，可切换全部分集查看缺集及其他视频库来源')
+    await page.getByRole('link', { name: '选择剧集', exact: true }).click()
+    await page.waitForFunction(() => document.activeElement.id === 'season-episodes')
     await page.getByRole('button', { name: '全部分集', exact: true }).click()
     await page.locator('.catalog-episode').last().waitFor()
     assert.equal(await page.locator('.catalog-episode').count(), 8)
+    await assertListAboveCast('.catalog-episode')
     assert.equal(await page.locator('.catalog-uncollected').count(), 5)
     const source = page.locator('.catalog-sources a[href="/tv/901/s/1/e/603"]')
     await source.click(); await page.waitForURL('**/tv/901/s/1/e/603'); await page.waitForLoadState('networkidle')
@@ -335,6 +349,7 @@ try {
     errorCode = 'rate_limited'
     await go('/tv/201')
     await page.getByText(/资料服务暂时限制请求/).waitFor()
+    await page.locator('.collection-details summary').click()
     await page.getByRole('button', { name: '检查更新', exact: true }).click()
     await page.waitForFunction(() => !document.querySelector('.collection-error'))
     pass('stale metadata stays usable and service errors are human-readable')
@@ -362,7 +377,7 @@ try {
     await go('/tv/201'); assert.equal(await page.locator('.season-card').count(), 4)
     pass('turning recommendations off preserves detail information without wall requests')
 
-    await go('/settings?sec=sec-tmdb')
+    await go('/settings?sec=sec-maintenance')
     const maintenance = page.locator('.airing-maintenance')
     await maintenance.getByRole('button', { name: '立即检查播出资料', exact: true }).click()
     await maintenance.getByText('正在检查剧集播出资料…', { exact: true }).waitFor()
@@ -389,7 +404,7 @@ try {
     assert.match(await page.locator('.hero-no-still').innerText(), /第1-2集/)
     await screenshot('combined-file-detail')
     await go('/tv?media=1')
-    await page.locator('.cw-ep').getByText('S01E01-E02 · 第1-2集', { exact: true }).waitFor()
+    await page.getByText('S01E01-E02 · 第1-2集', { exact: true }).waitFor()
     await screenshot('combined-file-continue')
     pass('combined files show full Chinese ranges in season, detail and continue watching while retaining six episodes in three files')
     collectionScenario = ''

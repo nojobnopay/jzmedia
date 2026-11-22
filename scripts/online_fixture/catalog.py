@@ -27,7 +27,7 @@ from app.network.policy import NetworkPolicyError, resolve_policy_state
 from app.network.targets import TargetPolicy, TargetPolicyError
 from app.network.transport import PinnedBackend
 from app.online import catalog, runtime, service
-from app.routers import online, online_network, online_playback, viewing
+from app.routers import online, online_cache, online_network, online_playback, viewing
 from app.store import _base
 from app.store.online_network import load_online_network_state
 from app.viewing_http import _error_response, middleware as viewing_middleware
@@ -299,6 +299,10 @@ def _isolated_fixture(value, *, root_guard, static_dir=None, throttle_bytes_per_
         app.include_router(online.router)
         app.include_router(online_network.router)
         app.include_router(viewing.router)
+        # Opening an uncached title checks its source-scoped cache entry before
+        # resolving the catalogue. This fixture only serves that read operation.
+        app.router.routes.extend(route for route in online_cache.router.routes
+                                 if route.path == "/api/online/cache/lookup")
 
         # App.vue's read-only navigation context uses these empty isolated
         # responses; no scanner, filesystem library or production API runs.

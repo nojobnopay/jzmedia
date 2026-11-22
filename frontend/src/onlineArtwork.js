@@ -1,6 +1,6 @@
 // Only this bounded queue reads online posters. The browser never receives a
 // provider URL; every byte still passes the authenticated artwork gateway.
-export const ONLINE_ARTWORK_LIMIT = 512 * 1024
+export const ONLINE_ARTWORK_LIMIT = 1024 * 1024
 export const ONLINE_ARTWORK_BYTES = 16 * 1024 * 1024
 export const ONLINE_ARTWORK_CONCURRENCY = 2
 const MAX_OBJECTS = 128
@@ -8,6 +8,7 @@ const MAX_TASKS = 256
 const READ_SECONDS = 12
 const MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const VIEWING_CODES = new Set(['online_access_revoked', 'viewing_session_required', 'viewing_session_invalid', 'online_children_unavailable', 'viewing_locked'])
+const TERMINAL_ARTWORK_CODES = new Set(['unsupported_online_artwork', 'online_artwork_byte_limit', 'invalid_online_artwork_length', 'online_source_disabled'])
 const PATH = /^\/api\/online\/(?:catalog\/artwork\/src_[0-9a-f]{32}\/[0-9a-f]{32}|cache\/artwork\/itm_[0-9a-f]{32})$/
 
 export function onlineArtworkPath(value) {
@@ -42,6 +43,22 @@ async function boundedBody(response, signal, limit) {
     try { await reader.cancel() } catch { /* An aborted transport may already be closed. */ }
     reader.releaseLock()
   }
+}
+
+async function knownErrorCode(response, signal, allowed) {
+  try {
+    const { chunks, size } = await boundedBody(response, signal, 2048)
+    const body = new Uint8Array(size)
+    let offset = 0
+    for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength }
+    const code = JSON.parse(new TextDecoder().decode(body))?.code
+    return allowed.has(code) ? code : ''
+  } catch { return '' }
+}
+
+function requestTier(entry) {
+  if (!Number.isFinite(entry.priority)) return 2
+  return entry.retry ? 1 : 0
 }
 
 export function createOnlineArtworkQueue({
@@ -92,7 +109,7 @@ export function createOnlineArtworkQueue({
     scheduled = true
     Promise.resolve().then(() => {
       scheduled = false
-      queue.sort((a, b) => a.priority - b.priority || a.order - b.order)
+      queue.sort((a, b) => requestTier(a) - requestTier(b) || a.priority - b.priority || a.order - b.order)
       while (active < ONLINE_ARTWORK_CONCURRENCY && queue.length) {
         const entry = queue.shift()
         active++
@@ -101,7 +118,7 @@ export function createOnlineArtworkQueue({
     })
   }
   function retain(entry, blob, size, mime) {
-    // Retained URLs are bounded separately from the at-most-two 512 KiB reads.
+    // The retained URL budget is separate from the two in-flight reads.
     while (objects.size >= objectLimit || retainedBytes + size > byteBudget) {
       const leastVisible = [...objects.keys()].sort((a, b) => b.priority - a.priority || a.order - b.order)[0]
       release(leastVisible, true)
@@ -127,31 +144,25 @@ export function createOnlineArtworkQueue({
       if (control.signal.aborted || entry.cancelled || entry.epoch !== epoch) return
       const generation = response.headers?.get('X-Viewing-Generation')
       if (generation != null && /^\d{1,15}$/.test(generation)) dispatch('jzmedia:viewing-generation', { generation: Number(generation) })
+      const mime = (response.headers?.get('Content-Type') || '').split(';')[0].trim().toLowerCase()
       if (!response.ok) {
+        const authFailure = [401, 403].includes(response.status)
         let code = ''
-        if ([401, 403].includes(response.status)) {
-          try {
-            const { chunks, size } = await boundedBody(response, control.signal, 2048)
-            const body = new Uint8Array(size)
-            let offset = 0
-            for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength }
-            const value = JSON.parse(new TextDecoder().decode(body))?.code
-            if (VIEWING_CODES.has(value)) code = value
-          } catch { /* Unknown or oversized errors never become page content. */ }
-        } else {
-          try { await response.body?.cancel() } catch { /* Already closed. */ }
+        if (authFailure) {
+          code = await knownErrorCode(response, control.signal, VIEWING_CODES)
+        } else if ([502, 503].includes(response.status) && mime === 'application/json') {
+          code = await knownErrorCode(response, control.signal, TERMINAL_ARTWORK_CODES)
         }
         if (control.signal.aborted || entry.cancelled || entry.epoch !== epoch) return
-        const error = problem(code || 'artwork_http_error', [500, 502, 503, 504].includes(response.status), response.status)
+        const error = problem(code || 'artwork_http_error', !code && [500, 502, 503, 504].includes(response.status), response.status)
         settle(entry, null, error)
-        if ([401, 403].includes(response.status)) {
+        if (authFailure) {
           clear()
           if (code) dispatch('jzmedia:viewing-error', { code })
           else if (response.status === 401) dispatch('jzmedia:unauthorized')
         }
         return
       }
-      const mime = (response.headers?.get('Content-Type') || '').split(';')[0].trim().toLowerCase()
       if (!MIME_TYPES.has(mime)) throw problem('artwork_mime_unsupported')
       const length = response.headers?.get('Content-Length')
       if (length != null && (!/^\d{1,10}$/.test(length) || Number(length) > ONLINE_ARTWORK_LIMIT)) throw problem('artwork_byte_limit')
@@ -175,10 +186,10 @@ export function createOnlineArtworkQueue({
       schedule()
     }
   }
-  function enqueue(path, { priority = 0, onEvict } = {}) {
+  function enqueue(path, { priority = 0, retry = false, onEvict } = {}) {
     if (!onlineArtworkPath(path)) throw problem('artwork_path_invalid')
     if (pending.size >= MAX_TASKS) throw problem('artwork_queue_full')
-    const entry = { path, priority, onEvict, order: ++sequence, epoch, cancelled: false, settled: false }
+    const entry = { path, priority, retry, onEvict, order: ++sequence, epoch, cancelled: false, settled: false }
     entry.promise = new Promise((resolve, reject) => { entry.resolve = resolve; entry.reject = reject })
     pending.add(entry)
     queue.push(entry)

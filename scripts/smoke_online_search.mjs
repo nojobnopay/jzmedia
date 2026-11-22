@@ -116,6 +116,11 @@ try {
     const pass = name => { checks.push({ width, name }); console.log(`PASS ${width}px ${name}`) }
     const idle = () => page.waitForFunction(() => document.querySelector('[data-online-browser]')?.getAttribute('aria-busy') === 'false')
     const more = () => page.locator('[data-online-search-more]')
+    const chooseYear = async value => {
+      const select = page.locator('[data-online-year]')
+      if (!await select.isVisible()) await page.locator('[data-online-categories-open]').click()
+      await select.selectOption(value)
+    }
     try {
       await page.goto(base + '/online'); await idle()
       const initialMore = requests.filter(row => row.path.endsWith('/more')).length
@@ -133,10 +138,10 @@ try {
       assert.ok((await page.locator('[data-online-browser]').innerText()).includes('欧美剧'))
       pass('parent filter includes children and reuses collected data')
       await page.locator('#online-query').fill('尚未提交的另一个片名')
-      await page.locator('[data-online-year]').selectOption('2025'); await idle()
+      await chooseYear('2025'); await idle()
       const lastRead = requests.filter(row => row.path.includes('/search-sessions/')).at(-1)
       assert.equal(sessions.get(lastRead.path.split('/')[5]).query, '雨中放映室')
-      await page.locator('[data-online-year]').selectOption('custom')
+      await chooseYear('custom')
       await page.locator('[data-online-year-custom]').fill('1988')
       await page.locator('[data-online-year-form]').getByRole('button', { name: '应用年份' }).click(); await idle()
       assert.equal(await page.locator('[data-online-result]').count(), 0)

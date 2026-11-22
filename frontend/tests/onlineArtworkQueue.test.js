@@ -94,6 +94,30 @@ test('twenty posters are read without sending the queued requests early', async 
   assert.equal(queue.stats().active, 0)
 })
 
+test('waiting visible first attempts start before retries while keeping their on-screen order', async t => {
+  const calls = [], reads = []
+  const { queue } = setup({ request: url => {
+    const read = deferred()
+    calls.push(url); reads.push(read)
+    return read.promise
+  } })
+  t.after(() => queue.clear())
+  const tasks = [queue.enqueue(path(1)), queue.enqueue(path(2))]
+  await flush()
+  tasks.push(queue.enqueue(path(3), { retry: true, priority: 0 }),
+    queue.enqueue(path(4), { priority: 300 }), queue.enqueue(path(5), { priority: 200 }))
+  await flush()
+  assert.deepEqual(calls, [path(1), path(2)])
+  for (const [index, expected] of [path(5), path(4), path(3)].entries()) {
+    reads[index].resolve(response())
+    await flush()
+    assert.equal(calls[index + 2], expected)
+    assert.equal(queue.stats().active, 2)
+  }
+  reads[3].resolve(response()); reads[4].resolve(response())
+  await Promise.all(tasks.map(task => task.promise))
+})
+
 test('cancelled queued work and scope cleanup never create late object URLs', async () => {
   const pending = deferred(), calls = []
   const { queue, created } = setup({ request: (url, options) => { calls.push({ url, options }); return pending.promise } })
@@ -113,8 +137,12 @@ test('cancelled queued work and scope cleanup never create late object URLs', as
   assert.ok(calls.every(call => call.options.signal.aborted))
 })
 
-test('body read enforces the 512 KiB streaming limit and rejects oversized length before allocating a URL', async () => {
-  for (const result of [response({ chunks: [bytes(ONLINE_ARTWORK_LIMIT), bytes(1)] }), response({ length: String(ONLINE_ARTWORK_LIMIT + 1) })]) {
+test('body read accepts a complete 1 MiB poster and rejects an oversize stream or declared length', async () => {
+  const size = 1024 * 1024
+  const { queue } = setup({ request: async () => response({ chunks: [bytes(size / 2), bytes(size / 2)], length: String(size) }) })
+  assert.equal((await queue.enqueue(path(1)).promise).size, size)
+  queue.clear()
+  for (const result of [response({ chunks: [bytes(size), bytes(1)] }), response({ length: String(size + 1) })]) {
     const { queue, created } = setup({ request: async () => result })
     await assert.rejects(queue.enqueue(path(1)).promise, error => error.code === 'artwork_byte_limit' && error.retryable === false)
     await flush()
@@ -133,6 +161,22 @@ test('unsupported content and non-retryable HTTP failures stay terminal', async 
   }
   const { queue } = setup({ request: async () => response({ status: 503 }) })
   await assert.rejects(queue.enqueue(path(1)).promise, error => error.retryable && error.status === 503)
+})
+
+test('gateway image validation errors are terminal while transient server errors remain retryable', async () => {
+  for (const [status, code, retryable] of [
+    [502, 'unsupported_online_artwork', false], [502, 'online_artwork_byte_limit', false],
+    [502, 'invalid_online_artwork_length', false], [503, 'online_source_disabled', false],
+    [502, 'online_artwork_upstream_error', true], [503, 'online_artwork_unavailable', true],
+    [502, 'online_access_revoked', true], [502, 'https://example.invalid/upstream', true],
+    [403, 'unsupported_online_artwork', false],
+  ]) {
+    const chunks = [new TextEncoder().encode(JSON.stringify({ code }))]
+    const { queue, events } = setup({ request: async () => response({ status, mime: 'application/json; charset=utf-8', chunks }) })
+    await assert.rejects(queue.enqueue(path(1)).promise, error => error.retryable === retryable && error.status === status
+      && error.code === (retryable || status === 403 ? 'artwork_http_error' : code))
+    assert.deepEqual(events, [])
+  }
 })
 
 test('object URL byte and count budgets evict offscreen posters before visible ones', async () => {

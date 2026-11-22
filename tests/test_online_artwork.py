@@ -182,6 +182,25 @@ def test_fetch_uses_image_policy_and_returns_the_exact_bounded_image(environment
     assert all(reader.closed for reader in environment.readers)
 
 
+def test_one_mib_poster_is_reused_from_memory_and_disk(environment, tmp_path, monkeypatch):
+    disk = artwork.ArtworkDiskCache(tmp_path / "originals")
+    monkeypatch.setattr(artwork, "disk_cache", disk)
+    body = JPEG[:-2] + bytes(1024**2 - len(JPEG)) + JPEG[-2:]
+    environment.chunks = [body]
+    environment.headers["Content-Length"] = str(len(body))
+    token = lease(environment)
+    source_id = environment.source["id"]
+
+    assert artwork.fetch(object(), source_id, token) == (body, "image/jpeg")
+    assert artwork.cache.stats()["bytes"] == len(body)
+    assert disk.stats()["entries"] == 1
+    assert artwork.fetch(object(), source_id, token) == (body, "image/jpeg")
+    artwork.cache.clear()
+    assert artwork.fetch(object(), source_id, token) == (body, "image/jpeg")
+    assert artwork.cache.stats()["bytes"] == len(body)
+    assert len(environment.requests) == 1
+
+
 @pytest.mark.parametrize("headers,chunks,category", [
     ({"Content-Type": "image/svg+xml"}, [b"<svg/>"], "unsupported_online_artwork"),
     ({"Content-Type": "image/jpeg"}, [b"<html>not an image</html>"], "unsupported_online_artwork"),

@@ -1,43 +1,53 @@
 <template>
-  <div class="browse-page" :class="{ 'has-selection': selecting }">
+  <div class="browse-page cinema-browse" :class="{ 'has-selection': selecting, 'catalogue-tools-ready': !loadError && !scanOpen && !msg }">
   <header class="browse-heading">
     <h1>电影</h1>
-    <div v-if="!isChildren" class="browse-actions">
-      <router-link :to="toolsLink" class="manage-link"><AppIcon name="organize" :size="18" />扫描与整理<AppIcon name="chevron-right" :size="16" /></router-link>
-      <ActionMenu label="添加影片"><JzButton @click="scanOpen = !scanOpen" type="button" variant="ghost" icon="scan">扫描新文件</JzButton><JzButton @click="upDlg = true" type="button" variant="ghost" icon="upload">上传文件</JzButton></ActionMenu>
-    </div>
   </header>
-  <BrowseToolbar id="movie-browse" v-model="searchInput"
-    :label="!ai.open ? '搜索电影' : ai.result ? '追问当前片单' : '智能找片'"
-    :placeholder="!ai.open ? '搜片名 / 演员 / 标签' : ai.result ? '继续描述要求，例如：只换第 2 部' : '描述想看的作品、记得的情节或想要的片单'"
-    :submit-label="ai.open ? (ai.result ? '提交追问' : '找片') : ''"
-    :suggestions-enabled="!ai.open" :maxlength="ai.open ? 500 : undefined"
-    :loading="ai.open && ai.busy" :search-disabled="ai.open && (ai.expired || !ai.draft.trim())"
-    item-heading="电影" :suggest-open="suggestOpen" :suggest-no-match="suggestNoMatch"
-    :suggest-items="suggestItems" :suggest-persons="suggestPersons" :suggest-idx="suggestIdx"
-    :ai-open="ai.open" :ai-enabled="!isChildren" @update:ai-open="setAiOpen"
-    @input="!ai.open && onQInput($event)" @compositionstart="!ai.open && (composing = true)" @compositionend="!ai.open && onCompositionEnd()"
-    @enter="ai.open ? discovery.submit() : onSearchEnter($event)" @move="suggestMove" @close="closeSuggest" @blur="!ai.open && onQBlur()"
-    @pick-item="pickMovie" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="ai.open ? discovery.submit() : submitQuery()">
-    <template #filters>
-      <BrowseFilters :model-value="sel" :facets="facets" kind="movie" v-model:open="filtersOpen"
-        :scope-label="filterScope" :scope-key="curMediaId" :context-key="route.fullPath"
-        :loading="facetsLoading" :error="facetsError" @retry="loadFacets"
-        @open="closeSuggest" @apply="applyFilters" />
+  <BrowseFeature ref="featureRef" kind="movie" :first-item="firstFeatureItem" :scope="curMediaId" :recent-item="cwRef?.featuredItem"
+    :recent-ready="cwRef?.settled" :enabled="featureReady && showContinue && !ai.open && !selecting && !viewing.suspended"
+    @resume="resumeMovie">
+    <template #recent="{ featuredVersion }">
+      <ContinueWatchingRow v-if="browseReady && showContinue && !ai.open && !selecting && !viewing.suspended" ref="cwRef"
+        kind="movie" :media-library-id="curMediaId" :featured-version="featuredVersion" :has-catalogue="!!firstFeatureItem" @resume="resumeMovie" />
     </template>
-  </BrowseToolbar>
+    <template #tools>
+      <BrowseToolbar id="movie-browse" v-model="searchInput"
+        :label="!ai.open ? '搜索电影' : ai.result ? '追问当前片单' : '智能找片'"
+        :placeholder="!ai.open ? '搜片名 / 演员 / 标签' : ai.result ? '继续描述要求，例如：只换第 2 部' : '描述想看的作品、记得的情节或想要的片单'"
+        :submit-label="ai.open ? (ai.result ? '提交追问' : '找片') : ''"
+        :suggestions-enabled="!ai.open" :maxlength="ai.open ? 500 : undefined"
+        :loading="ai.open && ai.busy" :search-disabled="ai.open && (ai.expired || !ai.draft.trim())"
+        item-heading="电影" :suggest-open="suggestOpen" :suggest-no-match="suggestNoMatch"
+        :suggest-items="suggestItems" :suggest-persons="suggestPersons" :suggest-idx="suggestIdx"
+        :ai-open="ai.open" :ai-enabled="!isChildren" @update:ai-open="setAiOpen"
+        @input="!ai.open && onQInput($event)" @compositionstart="!ai.open && (composing = true)" @compositionend="!ai.open && onCompositionEnd()"
+        @enter="ai.open ? discovery.submit() : onSearchEnter($event)" @move="suggestMove" @close="closeSuggest" @blur="!ai.open && onQBlur()"
+        @pick-item="pickMovie" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="ai.open ? discovery.submit() : submitQuery()">
+        <template #filters>
+          <BrowseFilters :model-value="sel" :facets="facets" kind="movie" v-model:open="filtersOpen"
+            :scope-label="filterScope" :scope-key="curMediaId" :context-key="route.fullPath"
+            :loading="facetsLoading" :error="facetsError" @retry="loadFacets"
+            @open="closeSuggest" @apply="applyFilters" />
+        </template>
+        <div v-if="!isChildren" class="browse-actions">
+          <ActionMenu label="管理">
+            <router-link :to="toolsLink"><AppIcon name="organize" :size="18" />扫描与整理</router-link>
+            <JzButton icon="scan" variant="ghost" @click="scanOpen = !scanOpen">扫描新文件</JzButton>
+            <JzButton icon="upload" variant="ghost" @click="upDlg = true">上传文件</JzButton>
+          </ActionMenu>
+        </div>
+      </BrowseToolbar>
+    </template>
+  </BrowseFeature>
   <div id="movie-browse-ai"><AiSearchPanel v-if="ai.open" :state="ai" kind="movie" :scope-label="filterScope" :chips="selectedChips"
     @cancel="discovery.cancel" @retry="discovery.retry" @restart="discovery.restart" @ask="discovery.ask"
     @fill="discovery.fill" @remember="discovery.remember" @public="discovery.searchPublic" /></div>
   <ScanAction v-if="scanOpen" kind="movie" @done="onUpDone" />
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
 
-  <div v-show="!ai.open">
+  <div v-show="!ai.open" class="browse-results">
   <BrowseFilterSummary :chips="selectedChips" :query="appliedQuery" fallback-id="movie-browse-input"
     @remove="removeFilter" @clear="clearFilters" @clear-query="clearQuery" />
-
-  <ContinueWatchingRow v-if="showContinue" ref="cwRef" :media-library-id="curMediaId"
-    @open="openMovie" @resume="resumeMovie" />
 
   <BrowseResultsHeader v-if="items.length" :title="q.trim() || activeCount ? '筛选结果' : '全部影片'"
     :count="wallCountText" :sort="sort" :options="WALL_SORTS" :rating-source="sel.ratingSource"
@@ -45,26 +55,35 @@
 
   <div class="grid" :aria-busy="loading">
     <div v-for="m in items" :key="m.id" :data-browse-id="m.id" :class="['card', { sel: selectedIds.has(m.id) }]"
-      tabindex="0" role="link" @keydown.enter.self="onCard(m)" :title="m.added_at ? ('入库 ' + fmtDate(m.added_at)) : ''" @click="onCard(m)">
+      tabindex="0" :role="selecting ? 'button' : 'link'" :aria-pressed="selecting ? selectedIds.has(m.id) : undefined"
+      :aria-label="selecting ? '选择 ' + m.title : '查看 ' + m.title + ' 详情'"
+      @keydown.enter.self="onCard(m)" @keydown.space.self="onCardSpace($event, m)"
+      :title="m.added_at ? ('入库 ' + fmtDate(m.added_at)) : ''" @click="onCard(m)">
       <div class="poster-wrap">
         <button v-if="!isChildren" :class="['sel-circle', { on: selectedIds.has(m.id) }]"
           @click.stop="toggleSelect(m.id)" :aria-pressed="selectedIds.has(m.id)" aria-label="选择" type="button">
           <AppIcon name="check" :size="18" />
         </button>
-        <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" :alt="m.title || '海报'" />
-        <!-- 未匹配/无海报占位（评审 B9 后续）：刮削失败也留在墙上可见，点进详情可重新匹配 -->
-        <ArtworkPlaceholder v-else class="no-poster" kind="poster" :label="m.title" />
+        <WallPoster :src="posterUrl(m.poster_path)" :title="m.title" />
         <button v-if="!selecting" class="poster-play" :disabled="playBusy !== null"
           :title="'播放 ' + (m.title || '')" :aria-label="'播放 ' + (m.title || '')"
           @click.stop="playMovie(m)">
           <Spinner v-if="playBusy === m.id" :size="18" />
           <PlayerIcon v-else name="play" :size="24" />
         </button>
-        <ScoreBadge :score="m.tmdb_rating" source="tmdb" />
         <span v-if="m.watched" class="watched-badge"><AppIcon name="check" :size="14" />已看</span>
         <span v-if="!m.tmdb_id || m.needs_review" class="unmatched-badge" :title="!m.tmdb_id ? '尚未匹配 TMDB，点击卡片进详情匹配' : '请进入详情确认匹配结果'">{{ !m.tmdb_id ? '未匹配' : '待确认' }}</span>
       </div>
-      <div class="t"><span class="card-title" :title="m.title">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span><span v-if="hasScore(m.custom_rating)" class="custom-mini"><AppIcon name="heart-filled" :size="12" />{{ fmtScore(m.custom_rating) }}</span></span><span v-if="m.region || (m.genres || []).length" class="card-meta meta">{{ [m.region, (m.genres || []).slice(0, 2).join('/')].filter(Boolean).join(' · ') }}</span></div>
+      <div class="t">
+        <span class="card-title" :title="m.title">{{ m.title }}</span>
+        <div class="card-metadata">
+          <span v-if="m.year">{{ m.year }}</span>
+          <span v-if="m.version_count > 1" :title="m.version_count + ' 个版本'">×{{ m.version_count }}</span>
+          <ScoreBadge :score="m.tmdb_rating" source="tmdb" />
+          <ScoreBadge :score="m.custom_rating" source="custom" />
+        </div>
+        <span v-if="m.region || m.genres?.length" class="card-meta">{{ [m.region, (m.genres || []).slice(0, 2).join('/')].filter(Boolean).join(' · ') }}</span>
+      </div>
     </div>
   </div>
   <EmptyState v-if="loading && !items.length || !firstLoaded && !loadError" state="loading" title="正在加载影片" text="请稍候…" />
@@ -195,7 +214,7 @@
 import { useAssistantPage } from '../assistantPage.js'
 import ContentPolicyButton from '../components/ContentPolicyButton.vue'
 import { isChildren, isPrivate, viewing } from '../viewing.js'
-import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
+import WallPoster from '../components/WallPoster.vue'
 
 import AppIcon from '../components/AppIcon.vue'
 
@@ -224,11 +243,11 @@ import { currentMediaId, preferredVideoLibId, mediaParam, switchLib, switchMedia
 import ScoreBadge from '../components/ScoreBadge.vue'
 import Spinner from '../components/Spinner.vue'
 import UploadDialog from '../components/UploadDialog.vue'
+import BrowseFeature from '../components/BrowseFeature.vue'
 import ContinueWatchingRow from '../components/ContinueWatchingRow.vue'
 import PlayerModal from '../components/PlayerModal.vue'
 import { getCaps } from '../caps.js'
 import { fmtBytes, fmtDate } from '../format.js'
-import { hasScore, fmtScore } from '../ratings.js'
 import { WALL_SORTS, loadWallSort, normalizeWallSort, saveWallSort,
          toggleWallSort, wallSortParams } from '../wallSort.js'
 
@@ -303,6 +322,19 @@ function setAiOpen(value, reveal = false) {
 }
 
 const cwRef = ref(null)
+const featureRef = ref(null)
+const browseReady = ref(false)
+const featureReady = ref(false)
+const loadedWallKey = ref('')
+let mediaRevision = 0
+const firstFeatureItem = computed(() => items.value.length && loadedWallKey.value === historyKey() ? items.value[0] : null)
+watch(curMediaId, () => {
+  mediaRevision++
+  resetBatchScope()
+  loadSeq++
+  items.value = []
+  hasMore.value = false
+}, { flush: 'sync' })
 const showContinue = computed(() =>
   !activeCount.value && !q.value.trim())
 const playVid = ref(null)
@@ -455,6 +487,7 @@ function buildParams(offset = 0) {
 }
 async function load() {
   const seq = ++loadSeq
+  const key = historyKey()
   loading.value = true
   loadingMore.value = false
   loadError.value = ''
@@ -463,6 +496,7 @@ async function load() {
     const d = await api('/api/search?' + buildParams(0))
     if (seq !== loadSeq) return          // 更新的筛选已接管，丢弃过期回包
     items.value = d.items || []
+    loadedWallKey.value = key
     hasMore.value = !!d.has_more
     loadError.value = ''
   } catch (e) {
@@ -630,7 +664,11 @@ function onCard(m) {
   if (selecting.value) toggleSelect(m.id)
   else router.push('/m/' + m.id)
 }
-function openMovie(id) { router.push('/m/' + id) }
+function onCardSpace(event, movie) {
+  if (!selecting.value) return
+  event.preventDefault()
+  toggleSelect(movie.id)
+}
 // 继续观看行 ▶：本页直接续播（断点已存在，PlayerModal 自己会按 version_id 续起）
 function resumeMovie(m) {
   playVid.value = Number((m.progress && m.progress.version_id) || m.id)
@@ -693,27 +731,51 @@ function selectAllVisible() {
 function clearSelection() {
   selectedIds.value = new Set()
 }
-async function batchCall(ops) {
-  if (batching.value) return
+function resetBatchScope() {
+  clearSelection()
+  tagDlg.value = false
+  colDlg.value = false
+  delDlg.value = false
+  pendingTags.value = []
+  newTag.value = ''
+  newCol.value = ''
+  colQ.value = ''
+  delPlans.value = []
+  previewIds.value = []
+  batchMsg.value = ''
+  batching.value = false
+}
+function currentBatch(revision) {
+  return !disposed && revision === mediaRevision
+}
+async function batchRequest(path, payload, errorPrefix, success) {
+  if (batching.value || !selectedIds.value.size) return
+  const revision = mediaRevision
   batching.value = true
   batchMsg.value = ''
   try {
-    const d = await api('/api/movies/batch', {
-      method: 'POST',
-      body: JSON.stringify({ ids: [...selectedIds.value], ops })
-    })
+    const response = await api(path, { method: 'POST', body: JSON.stringify(payload) })
+    if (currentBatch(revision)) await success(response, revision)
+  } catch (e) {
+    if (currentBatch(revision)) batchMsg.value = errorPrefix + e.message
+  } finally {
+    if (currentBatch(revision)) batching.value = false
+  }
+}
+async function refreshAfterBatch(revision) {
+  await loadFacets()
+  if (!currentBatch(revision)) return
+  await load()
+  if (currentBatch(revision)) await refreshContinue()
+}
+function batchCall(ops) {
+  return batchRequest('/api/movies/batch', { ids: [...selectedIds.value], ops }, '批量失败：', async (d, revision) => {
     batchMsg.value = `完成：${d.affected_versions} 个文件版本`
     clearSelection()
     tagDlg.value = false
     pendingTags.value = []
-    await loadFacets()
-    await load()
-    await refreshContinue()
-  } catch (e) {
-    batchMsg.value = '批量失败：' + e.message
-  } finally {
-    batching.value = false
-  }
+    await refreshAfterBatch(revision)
+  })
 }
 async function batchWatched(w) {
   await batchCall({ watched: w })
@@ -756,101 +818,52 @@ function openColDlg() {
 // 整片删除：先预览影响（片名+版本/附属/大小），二次确认后执行
 const delDlg = ref(false)
 const delPlans = ref([])
+const previewIds = ref([])
 const delSummary = ref({ total_movies: 0, total_versions: 0, total_files: 0, total_bytes: 0 })
 const delDone = ref(false)
 const showAllDel = ref(false)
 const visibleDelPlans = computed(() => showAllDel.value ? delPlans.value : delPlans.value.slice(0, 20))
-async function openDelDlg() {
+function openDelDlg() {
   if (batching.value) return
-  batchMsg.value = ''
   delDone.value = false
   showAllDel.value = false
-  batching.value = true
-  try {
-    const d = await api('/api/movies/batch-delete', {
-      method: 'POST',
-      body: JSON.stringify({ ids: [...selectedIds.value], dry_run: true })
-    })
+  const ids = [...selectedIds.value]
+  return batchRequest('/api/movies/batch-delete', { ids, dry_run: true }, '删除预览失败：', d => {
+    previewIds.value = ids
     delPlans.value = d.plans || []
     delSummary.value = {
       total_movies: d.total_movies || 0, total_versions: d.total_versions || 0,
       total_files: d.total_files || 0, total_bytes: d.total_bytes || 0
     }
     delDlg.value = true
-  } catch (e) {
-    batchMsg.value = '删除预览失败：' + e.message
-  } finally {
-    batching.value = false
-  }
+  })
 }
-async function confirmDel() {
-  if (batching.value) return
-  batching.value = true
-  batchMsg.value = ''
-  try {
-    const d = await api('/api/movies/batch-delete', {
-      method: 'POST',
-      body: JSON.stringify({ ids: [...selectedIds.value], dry_run: false, confirm: true })
-    })
+function confirmDel() {
+  if (!delDlg.value || !delPlans.value.length || delDone.value) return
+  return batchRequest('/api/movies/batch-delete', { ids: previewIds.value, dry_run: false, confirm: true }, '删除失败：', async (d, revision) => {
     delDone.value = true
     batchMsg.value = `已删除 ${d.deleted_movies}/${d.total_movies} 部（${d.total_files} 个文件）`
     clearSelection()
-    await loadFacets()
-    await load()
-    await refreshContinue()
-  } catch (e) {
-    batchMsg.value = '删除失败：' + e.message
-  } finally {
-    batching.value = false
-  }
-}async function joinCollection(cid) {
-  if (batching.value) return
-  batching.value = true
-  batchMsg.value = ''
-  try {
-    const r = await api(`/api/collections/${cid}/members`, {
-      method: 'POST',
-      body: JSON.stringify({ movie_ids: [...selectedIds.value] })
-    })
-    batchMsg.value = (r && r.skipped)
-      ? `已加入合集（跳过 ${r.skipped} 部：不属于该媒体库）` : '已加入合集'
+    await refreshAfterBatch(revision)
+  })
+}
+function joinCollection(cid) {
+  return batchRequest(`/api/collections/${cid}/members`, { movie_ids: [...selectedIds.value] }, '加入失败：', async r => {
+    batchMsg.value = r?.skipped ? `已加入合集（跳过 ${r.skipped} 部：不属于该媒体库）` : '已加入合集'
     clearSelection()
     await loadFacets()
-    try {
-      const lq = mediaParam() != null ? ('?media_library=' + mediaParam()) : ''
-      colItems.value = (await api('/api/collections' + lq)).items || []
-    } catch (e) { /* 忽略 */ }
-  } catch (e) {
-    batchMsg.value = '加入失败：' + e.message
-  } finally {
-    batching.value = false
-  }
+  })
 }
-async function createAndJoin() {
-  if (batching.value) return
+function createAndJoin() {
   const name = newCol.value.trim()
   if (!name) return
-  batching.value = true
-  batchMsg.value = ''
-  try {
-    const d = await api('/api/collections', {
-      method: 'POST',
-      body: JSON.stringify({ name, member_ids: [...selectedIds.value],
-                             media_library_id: currentMediaId() })
-    })
+  const payload = { name, member_ids: [...selectedIds.value], media_library_id: curMediaId.value }
+  return batchRequest('/api/collections', payload, '创建失败：', async d => {
     batchMsg.value = `已建合集「${d.name}」`
     newCol.value = ''
     clearSelection()
     await loadFacets()
-    try {
-      const lq = mediaParam() != null ? ('?media_library=' + mediaParam()) : ''
-      colItems.value = (await api('/api/collections' + lq)).items || []
-    } catch (e) { /* 忽略 */ }
-  } catch (e) {
-    batchMsg.value = '创建失败：' + e.message
-  } finally {
-    batching.value = false
-  }
+  })
 }
 // 库页上传：多选文件 / 整个文件夹 → POST /api/uploads 逐个顺序上传。
 // 文件夹模式透传 webkitRelativePath，后端原样还原结构；落盘即调 scan_one，
@@ -864,9 +877,11 @@ onBeforeRouteLeave(() => {
     anchor: ai.open ? null : captureAnchor(), scrollTop: ai.open ? ai.wallTop : window.scrollY })
 })
 async function restoreWall() {
-  const snapshot = readBrowse(historyKey())
+  const key = historyKey()
+  const snapshot = readBrowse(key)
   if (snapshot) {
     items.value = snapshot.items
+    loadedWallKey.value = key
     hasMore.value = snapshot.hasMore
     filtersOpen.value = false
   } else await load()
@@ -877,6 +892,8 @@ async function restoreWall() {
   await nextTick()
   await new Promise(resolve => requestAnimationFrame(resolve))
   const restoredAi = await discovery.restore()
+  featureReady.value = true
+  await nextTick()
   if (!restoredAi && !ai.open) restoreBrowsePosition(snapshot)
   if (snapshot && !disposed) refreshSnapshot(snapshot)
 }
@@ -907,16 +924,23 @@ async function refreshSnapshot(snapshot) {
 }
 
 let unsubLib = null
+let readingRoute = false
 onMounted(async () => {
   try { await loadLibs(api) } catch (e) { /* 后端不可用时按单库旧行为 */ }
   if (disposed) return
   readUrl()
+  browseReady.value = true
   await loadFacets()
   if (disposed) return
   await restoreWall()
   if (disposed) return
   window.addEventListener('keydown', escExit)
-  unsubLib = onLibChange(() => { if (route.path !== '/') return; curMediaId.value = currentMediaId(); loadFacets(); load() })
+  unsubLib = onLibChange(() => {
+    if (readingRoute || route.path !== '/' || curMediaId.value === currentMediaId()) return
+    curMediaId.value = currentMediaId()
+    loadFacets()
+    load()
+  })
   // 无限滚动（评审 P1-11）：哨兵进入视口前 600px 自动加载下一页；按钮仍保留作兜底
   try {
     if (window.IntersectionObserver && loadSentinel.value) {
@@ -943,7 +967,8 @@ function escExit(e) {
 }
 watch(() => route.query, () => {
   if (route.path !== '/') return
-  readUrl()
+  readingRoute = true
+  try { readUrl() } finally { readingRoute = false }
   // Facets describe the whole media library, so applying filters need not reload them.
   if (facetsScope !== currentMediaId()) loadFacets()
   load()
@@ -971,8 +996,6 @@ useAssistantPage('movie', () => {
 </script>
 <style scoped>
 
-.meta { color: var(--jz-text-dim); font-size: 0.75rem; }
-.custom-mini { color: var(--jz-danger); font-size: 0.75rem; }
 .card.sel { outline: 2px solid var(--jz-accent); }
 .card.sel img { filter: brightness(.75); }
 .sel-circle {
@@ -982,7 +1005,7 @@ useAssistantPage('movie', () => {
   border: 2px solid rgba(255,255,255,.85); background: var(--jz-overlay-soft); color: transparent;
   opacity: 0; transition: opacity .15s; cursor: pointer;
 }
-.poster-wrap:hover .sel-circle, .sel-circle.on { opacity: 1; }
+.poster-wrap:hover .sel-circle, .sel-circle:focus-visible, .sel-circle.on { opacity: 1; }
 .sel-circle.on { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); }
 @media (hover: none) { .sel-circle { opacity: 1; } }
 .floatbar {

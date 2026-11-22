@@ -14,6 +14,7 @@ import signal
 
 from PIL import Image
 
+from app.online.limits import MAX_IMAGE_BYTES
 from scripts.online_fixture.tv import FIXTURE_TOKEN, MARKER, fixture_root, isolated_fixture, prepare_media
 
 
@@ -37,7 +38,7 @@ def install_documentation_artwork(origin):
             image = image.convert("RGB")
             image.thumbnail((240, 360), Image.Resampling.LANCZOS)
             image.quantize(colors=256).save(path, optimize=True)
-        if path.stat().st_size > 512 * 1024:
+        if path.stat().st_size > MAX_IMAGE_BYTES:
             raise ValueError(f"Documentation poster exceeds gateway limit: {item['id']}")
         origin.assets.add(path.name)
 

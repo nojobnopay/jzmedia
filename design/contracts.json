@@ -27,18 +27,6 @@
       "reason": "只有支持的在线条目显示播放图标，不支持的条目保留禁用说明"
     },
     {
-      "source": "frontend/src/App.vue",
-      "expression": "item.icon",
-      "assets": [
-        "movie",
-        "tv",
-        "collections",
-        "play"
-      ],
-      "reason": "主导航navItems的固定语义值",
-      "values_source": "frontend/src/App.vue"
-    },
-    {
       "source": "frontend/src/components/FsBrowser.vue",
       "expression": "item.icon",
       "assets": [

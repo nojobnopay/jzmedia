@@ -1,5 +1,5 @@
 <template>
-  <div v-if="ep" class="tv-page media-detail episode-detail">
+  <div v-if="ep" class="tv-page media-detail episode-detail cinema-detail">
     <nav class="crumbs" aria-label="当前位置">
       <router-link :to="aiNavigationContext(route.path)?.origin || '/tv'">{{ aiNavigationContext(route.path) ? '返回片单' : '剧集' }}</router-link><span class="dim"> / </span>
       <router-link :to="'/tv/' + ep.show_id">{{ ep.show_title }}</router-link>

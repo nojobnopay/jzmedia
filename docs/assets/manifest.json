@@ -983,29 +983,6 @@
       "review_basis": "2026-10-03 对照 app/routers/files/planner.py:_target_for、executor.py:_move_one 及 routes.py:_restore_one：就地整理保留自建父目录、正片与同茎字幕随行、目标存在时拒绝覆盖、支持还原原始位置；临时重生成与现文件逐字节一致。"
     },
     {
-      "file": "screenshots/tv-airing-catalog.webp",
-      "page": "user-guide/watch-tv.md",
-      "scene": "未收藏新季的只读官方分集目录：尚未播出与未收藏分别标注，无播放或已看操作",
-      "verified_at": "2026-10-24",
-      "app_version": "0.30.2",
-      "source_commit": "9bfe776",
-      "source_state": "当前工作区剧集播出与收藏界面",
-      "source": "真实 Vue 界面与全模拟 API；虚构剧集及 AI 生成的原创剧集海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网；不证明 TMDB 实际可用性",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "full-page",
-      "recording_script": "node scripts/smoke_tv_airing.mjs --capture-docs",
-      "fixtures": "scripts/smoke_tv_airing.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "fixture_sha256": "fc5e6fbcdf673cdae15b05d0a604445ab0faa86800c7906b37ff732a9d0cc807",
-      "format": "WebP q86",
-      "bytes": 89534,
-      "sha256": "e064350a5f1891768f4bcaacdd7a8aa6806cc9e23e4b1792714db6a3493a7e26"
-    },
-    {
       "file": "screenshots/cast-picker-mobile.webp",
       "page": "user-guide/playback-controls.md",
       "scene": "手机投屏面板的接收方式和模拟电视选择",
@@ -1743,98 +1720,6 @@
       "sha256": "fcaced66b747347f6dd142e0f265186e9488fa344ca6b0ede09b35026ea5cd19"
     },
     {
-      "file": "screenshots/movie-library.webp",
-      "page": "user-guide/find-movies.md",
-      "scene": "紧凑继续观看、完整虚构海报墙与独立排序",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "full-page",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 204130,
-      "sha256": "e42af1a939445a90aa0cf51194b68a5b6b29055cd73322fa807c79d393ec759f"
-    },
-    {
-      "file": "screenshots/movie-filters.webp",
-      "page": "user-guide/find-movies.md",
-      "scene": "电影墙右侧的全部筛选面板、分组条件与固定应用操作",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "viewport",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 77738,
-      "sha256": "65dca88811aee3eb635c7f6594df8aecd4f4742a8c820f85634cdb82222da9c8"
-    },
-    {
-      "file": "screenshots/mobile-library.webp",
-      "page": "user-guide/find-movies.md",
-      "scene": "390px 手机的搜索、继续观看、排序与三列海报墙",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 390,
-        "height": 844,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "full-page",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 134736,
-      "sha256": "caef360fc74e3810976d90374940b597631d11653d135d2a294c343ebeed2520"
-    },
-    {
-      "file": "screenshots/collections.webp",
-      "page": "user-guide/collections.md",
-      "scene": "虚构合集详情及成员海报",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "full-page",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 84290,
-      "sha256": "06fddd82fb9ae885bbcb8872e94d8874490d0a7122e86911c0c4f067124bd56e"
-    },
-    {
       "file": "screenshots/library-connection.webp",
       "page": "user-guide/libraries.md",
       "scene": "媒体库连接及分组视频库条目",
@@ -1904,121 +1789,6 @@
       "sha256": "20fcdef167e46d981d324e63540d30d937120c2f119475eb9eabcdcb4c7ab2ae"
     },
     {
-      "file": "screenshots/movie-detail.webp",
-      "page": "user-guide/movie-versions.md",
-      "scene": "电影详情、播放版本与继续观看入口",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "full-page",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 153424,
-      "sha256": "c8088e0105fc7f6384df405f3e8e07635ef4e31a263d0ca90a2852bfaa9f537e"
-    },
-    {
-      "file": "screenshots/tv-show.webp",
-      "page": "user-guide/watch-tv.md",
-      "scene": "虚构剧集详情、播出与收藏状态、本地及官方季目录",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "full-page",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 181988,
-      "sha256": "49f2665e021d0a0d696704beb0500233dd52ac5989f858d102a74dd0b7835498"
-    },
-    {
-      "file": "screenshots/tv-season.webp",
-      "page": "user-guide/watch-tv.md",
-      "scene": "季页分集、剧照和播放状态",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "full-page",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 226828,
-      "sha256": "3da2d76583d9394d21343df1cfcef95678ea6c217032d1e6e391acb593a29ad5"
-    },
-    {
-      "file": "screenshots/upload-movie.webp",
-      "page": "user-guide/files.md",
-      "scene": "电影上传目标与固定底部操作",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "viewport",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 71036,
-      "sha256": "a91ba3724b7c1ff9482a1772c2ec2e2a9fb54f7338be915d2df7daee94c918f4"
-    },
-    {
-      "file": "screenshots/upload-tv.webp",
-      "page": "user-guide/files.md",
-      "scene": "剧集散文件上传、所属剧与季号",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "viewport",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 42728,
-      "sha256": "195a51e8d3e9c5b1c5e237f2fd603212eefd852e7201e7b1a89d21a70a60bfc0"
-    },
-    {
       "file": "screenshots/movie-cast.webp",
       "page": "user-guide/movie-versions.md",
       "scene": "虚构电影的演职员头像墙与影片信息",
@@ -2063,52 +1833,6 @@
       "format": "WebP q86",
       "bytes": 68528,
       "sha256": "02bb52e876b0ecce91ddf3f6ee63d4a14dec25992b47d732ee1e20a2e49ac2db"
-    },
-    {
-      "file": "screenshots/movie-posters.webp",
-      "page": "user-guide/movie-metadata.md",
-      "scene": "换海报候选：原创模拟海报与当前选择标记",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "viewport",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 59296,
-      "sha256": "01c1e378988504f630b802ccb011b5227332937b0a24d6541aa32cb1ddc732b1"
-    },
-    {
-      "file": "screenshots/movie-multiselect.webp",
-      "page": "user-guide/collections.md",
-      "scene": "电影海报多选与批量操作浮条",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "viewport",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 188032,
-      "sha256": "170fa604267daa3803618d2966dcee8bf722ca4498d3dd0c3f17b6ed6ac67e27"
     },
     {
       "file": "screenshots/person.webp",
@@ -2272,52 +1996,6 @@
       "sha256": "21a6010d1f6fab418113bcc4cc1922e33748e236ff22e3d9972f9651b225c8f8"
     },
     {
-      "file": "screenshots/tv-versions.webp",
-      "page": "user-guide/watch-tv.md",
-      "scene": "同季 V1/V2 版本分组与版本筛选",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "full-page",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 229740,
-      "sha256": "c0865c24d0fd80e7fca80cc76843ec7d9d15df547231d081fcd0c3470544fc5d"
-    },
-    {
-      "file": "screenshots/tv-extras.webp",
-      "page": "user-guide/watch-tv.md",
-      "scene": "虚构幕后花絮与删减片段的独立播放入口",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1d",
-      "source_state": "当前工作区文档素材核对；源代码哈希 190df97f8cd1a49bd96e1cdb46c8e1caa795e7bce7a8a04a8cfeac59d3eae1b8",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "element",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
-      "fixture_sha256": "952866ff86d75c3c262ded0a9a658f1b7abca3e64bc24d9f8fa40bcdc81ba621",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "format": "WebP q86",
-      "bytes": 5654,
-      "sha256": "a3adcf28748afd9e450a43d24099360dafcb3dd1575cc285799a52edc1b6b356"
-    },
-    {
       "file": "screenshots/tv-organize-panel.webp",
       "page": "user-guide/tv-organizing.md",
       "scene": "剧集统一检查、持久待办与整理历史入口",
@@ -2456,187 +2134,12 @@
       "sha256": "8e54689cb5d9f4c3570cf02f25bb9ac3654454ce4655eb5f09a1144b78067335"
     },
     {
-      "file": "screenshots/online-browse.webp",
-      "page": "user-guide/watch-online.md",
-      "scene": "在线视频源、分类、年份和海报墙",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1dc0a6448b2aa5a67e14e886fd1f29b92ab",
-      "source_state": "当前工作区；前端源码及演示数据摘要见下",
-      "source_sha256": "35394f8b618a9f94d390d56d2dd0e0e7e8ae10961979a1cce161dcca47c54afd",
-      "source_digest_scope": [
-        "frontend/src/**/*"
-      ],
-      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
-      "fixture_sha256": "977a21737c322778bb0cc10850e6a447be7085788397a66c5e623c957b317360",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "bytes": 188810,
-      "sha256": "209822474607771bf87f9e56e97001d16840fc925703e059b7b0c6b0ba3f40d0"
-    },
-    {
-      "file": "screenshots/online-mobile.webp",
-      "page": "user-guide/watch-online.md",
-      "scene": "手机宽度下的在线视频浏览",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1dc0a6448b2aa5a67e14e886fd1f29b92ab",
-      "source_state": "当前工作区；前端源码及演示数据摘要见下",
-      "source_sha256": "35394f8b618a9f94d390d56d2dd0e0e7e8ae10961979a1cce161dcca47c54afd",
-      "source_digest_scope": [
-        "frontend/src/**/*"
-      ],
-      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
-      "viewport": {
-        "width": 390,
-        "height": 844,
-        "device_scale_factor": 1
-      },
-      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
-      "fixture_sha256": "977a21737c322778bb0cc10850e6a447be7085788397a66c5e623c957b317360",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "bytes": 34660,
-      "sha256": "68ff3dd4e86e3595755aa315c2b96e528591bc639a40f7cb7f795da3d4edcb0f"
-    },
-    {
-      "file": "screenshots/online-records.webp",
-      "page": "user-guide/watch-online.md",
-      "scene": "在线收藏及继续观看、历史入口",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1dc0a6448b2aa5a67e14e886fd1f29b92ab",
-      "source_state": "当前工作区；前端源码及演示数据摘要见下",
-      "source_sha256": "35394f8b618a9f94d390d56d2dd0e0e7e8ae10961979a1cce161dcca47c54afd",
-      "source_digest_scope": [
-        "frontend/src/**/*"
-      ],
-      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
-      "fixture_sha256": "977a21737c322778bb0cc10850e6a447be7085788397a66c5e623c957b317360",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "bytes": 162460,
-      "sha256": "b4acd914d573a94ce9633f116f59a70e27418ba8be3379838ea5214d32be9614"
-    },
-    {
-      "file": "screenshots/online-detail.webp",
-      "page": "user-guide/watch-online.md",
-      "scene": "在线详情的续播、线路与分集",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1dc0a6448b2aa5a67e14e886fd1f29b92ab",
-      "source_state": "当前工作区；前端源码及演示数据摘要见下",
-      "source_sha256": "35394f8b618a9f94d390d56d2dd0e0e7e8ae10961979a1cce161dcca47c54afd",
-      "source_digest_scope": [
-        "frontend/src/**/*"
-      ],
-      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
-      "fixture_sha256": "977a21737c322778bb0cc10850e6a447be7085788397a66c5e623c957b317360",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "bytes": 71452,
-      "sha256": "d6c0ab73179e8cfc823bebe1d348b069955b55aa227c707f0e648c1765fd76be"
-    },
-    {
-      "file": "screenshots/online-episodes.webp",
-      "page": "user-guide/watch-online.md",
-      "scene": "长剧集范围、排序与上次观看定位",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1dc0a6448b2aa5a67e14e886fd1f29b92ab",
-      "source_state": "当前工作区；前端源码及演示数据摘要见下",
-      "source_sha256": "35394f8b618a9f94d390d56d2dd0e0e7e8ae10961979a1cce161dcca47c54afd",
-      "source_digest_scope": [
-        "frontend/src/**/*"
-      ],
-      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
-      "fixture_sha256": "977a21737c322778bb0cc10850e6a447be7085788397a66c5e623c957b317360",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "bytes": 65702,
-      "sha256": "6513e64df18806120738c654d0b1402ff25c764f10183fab9c2888bdda0f839d"
-    },
-    {
-      "file": "screenshots/online-hosts.webp",
-      "page": "user-guide/watch-online.md",
-      "scene": "媒体主机检查与确认对话框",
-      "verified_at": "2026-11-10",
-      "app_version": "0.40.3",
-      "source_commit": "ceeba1dc0a6448b2aa5a67e14e886fd1f29b92ab",
-      "source_state": "当前工作区；前端源码及演示数据摘要见下",
-      "source_sha256": "35394f8b618a9f94d390d56d2dd0e0e7e8ae10961979a1cce161dcca47c54afd",
-      "source_digest_scope": [
-        "frontend/src/**/*"
-      ],
-      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
-      "fixture_sha256": "977a21737c322778bb0cc10850e6a447be7085788397a66c5e623c957b317360",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "bytes": 73098,
-      "sha256": "a173b540858e8592816fb2268b214101efb706a810e4f32b826ad3c48dc5b107"
-    },
-    {
-      "file": "screenshots/online-sources.webp",
-      "page": "user-guide/watch-online.md",
-      "scene": "在线点播开关与已启用来源列表",
-      "verified_at": "2026-11-20",
-      "app_version": "0.41.5",
-      "source_commit": "3654cbbd96abde1c41c71d5cc2cf5c5e2d59633f",
-      "source_state": "当前工作区；前端源码及演示数据摘要见下",
-      "source_sha256": "9a4f59985c20c1d1235b3eceeaa4731a672dd18f7bbbf0d9648b45735f1038f3",
-      "source_digest_scope": [
-        "frontend/src/**/*"
-      ],
-      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
-      "fixture_sha256": "9ebb1bfc6cc424970f8617b27808dc9747177f7295af9a4acf8cbbe0f9519c50",
-      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
-      "bytes": 49856,
-      "sha256": "d6d30e86a42cc6d5116245c59ccde1002b6b68999a67c332f72fd7ea316c2d14"
-    },
-    {
       "file": "screenshots/ai-settings-go.webp",
       "page": "user-guide/settings.md",
       "scene": "OpenCode Go 预设、用途限制与明确标注的模拟测试响应；密钥是虚构值",
-      "verified_at": "2026-11-19",
-      "app_version": "0.40.3",
-      "source_commit": "e050f82",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
       "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
       "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
       "viewport": {
@@ -2647,16 +2150,16 @@
       "recording_script": "scripts/smoke_ai_ui.mjs --capture-search",
       "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
       "format": "WebP q86",
-      "bytes": 64220,
-      "sha256": "b85c22316d4145a74d0af6bd719e7d9b06203931481cf68dca2a81b402d1e572"
+      "bytes": 66828,
+      "sha256": "1ee538da4acc479c441821a6f054483399814d7c972e1f08600280ba595c65b4"
     },
     {
       "file": "screenshots/ai-search-preview.webp",
       "page": "user-guide/find-movies.md",
       "scene": "模拟片单的推荐理由、范围与后续操作",
-      "verified_at": "2026-11-19",
-      "app_version": "0.40.3",
-      "source_commit": "e050f82",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
       "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
       "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
       "viewport": {
@@ -2668,8 +2171,8 @@
       "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
       "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
       "format": "WebP q86",
-      "bytes": 70592,
-      "sha256": "d264d2cb2707d9d1582a9cb45705cb977b71e5eca4f68199d6621a6e6d43eda2"
+      "bytes": 68342,
+      "sha256": "5becd2c83bafa4c68622ec2f7debb592a6824628ceb5013ffdca00689a4a30a7"
     },
     {
       "file": "screenshots/ai-match-movie.webp",
@@ -2710,6 +2213,503 @@
       "format": "WebP q86",
       "bytes": 46230,
       "sha256": "ea8a22cb7fa6d0a20c8f67c5bcb75209f2c2ec9da8d05ff18becc34bcdddf19d"
+    },
+    {
+      "file": "screenshots/movie-filters.webp",
+      "page": "user-guide/find-movies.md",
+      "scene": "电影墙右侧的全部筛选面板、分组条件与固定应用操作",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区文档素材核对；源代码哈希 8a52bd68b8194298bf1a2604f5556befb709d568987a56c2e0111afe483c5975",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs --only movie-filters",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "fixture_sha256": "d782b5dbcf6167866960971ae18056ef242f339dd3b8c0910381818d93a7b383",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "format": "WebP q86",
+      "bytes": 63658,
+      "sha256": "9762c05c256cc54d8b80eccdd7c9045934590fe4483f0de59644b42533a6d6a4"
+    },
+    {
+      "file": "screenshots/collections.webp",
+      "page": "user-guide/collections.md",
+      "scene": "虚构合集详情及成员海报",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区文档素材核对；源代码哈希 8a52bd68b8194298bf1a2604f5556befb709d568987a56c2e0111afe483c5975",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "full-page",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs --only collection-detail",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "fixture_sha256": "d782b5dbcf6167866960971ae18056ef242f339dd3b8c0910381818d93a7b383",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "format": "WebP q86",
+      "bytes": 86824,
+      "sha256": "cf207424747690e4b3af05c144872076cee485e9cd12c7106103897630306f20"
+    },
+    {
+      "file": "screenshots/upload-movie.webp",
+      "page": "user-guide/files.md",
+      "scene": "电影上传目标与固定底部操作",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区文档素材核对；源代码哈希 8a52bd68b8194298bf1a2604f5556befb709d568987a56c2e0111afe483c5975",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs --only upload-dialog",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "fixture_sha256": "d782b5dbcf6167866960971ae18056ef242f339dd3b8c0910381818d93a7b383",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "format": "WebP q86",
+      "bytes": 76460,
+      "sha256": "fad90a1a3e1113422b1a3dfd067319bbd4a17b51bf28ed363d8f7ca6ec0ddb62"
+    },
+    {
+      "file": "screenshots/upload-tv.webp",
+      "page": "user-guide/files.md",
+      "scene": "剧集散文件上传、所属剧与季号",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区文档素材核对；源代码哈希 8a52bd68b8194298bf1a2604f5556befb709d568987a56c2e0111afe483c5975",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs --only tv-upload-dialog",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "fixture_sha256": "d782b5dbcf6167866960971ae18056ef242f339dd3b8c0910381818d93a7b383",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "format": "WebP q86",
+      "bytes": 76448,
+      "sha256": "49bb7b1397e960b775d0257339d5ceeb13cb2eac332af9fd979f44334a4a2baf"
+    },
+    {
+      "file": "screenshots/movie-posters.webp",
+      "page": "user-guide/movie-metadata.md",
+      "scene": "换海报候选：原创模拟海报与当前选择标记",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区文档素材核对；源代码哈希 8a52bd68b8194298bf1a2604f5556befb709d568987a56c2e0111afe483c5975",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs --only movie-posters",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "fixture_sha256": "d782b5dbcf6167866960971ae18056ef242f339dd3b8c0910381818d93a7b383",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "format": "WebP q86",
+      "bytes": 65000,
+      "sha256": "9b5f4aa2edf049fc5dac8b69c944b8002499824663f36dc1fd93fce19ae9d721"
+    },
+    {
+      "file": "screenshots/tv-extras.webp",
+      "page": "user-guide/watch-tv.md",
+      "scene": "虚构幕后花絮与删减片段的独立播放入口",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区文档素材核对；源代码哈希 8a52bd68b8194298bf1a2604f5556befb709d568987a56c2e0111afe483c5975",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs --only tv-extras",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "fixture_sha256": "d782b5dbcf6167866960971ae18056ef242f339dd3b8c0910381818d93a7b383",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "format": "WebP q86",
+      "bytes": 5670,
+      "sha256": "5b0bce0acd75d7e1cefea738322bed6b0af1278a6011989161aeb7928623c631"
+    },
+    {
+      "file": "screenshots/movie-library.webp",
+      "page": "user-guide/find-movies.md",
+      "scene": "桌面主视觉、精确续播与海报墙",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区文档素材核对；源代码哈希 c52338a881850ae74ff2af2be001f3cd54b9fdd770f46263119161b44e9417de",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs --only movie-wall",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "fixture_sha256": "d782b5dbcf6167866960971ae18056ef242f339dd3b8c0910381818d93a7b383",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "format": "WebP q86",
+      "bytes": 179072,
+      "sha256": "40985483c90ffd7aaab16b50a1fdd8015ca11193970a97a59f47d0dec642484b"
+    },
+    {
+      "file": "screenshots/mobile-library.webp",
+      "page": "user-guide/find-movies.md",
+      "scene": "390px 手机的搜索、继续观看、排序与三列海报墙",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区文档素材核对；源代码哈希 c52338a881850ae74ff2af2be001f3cd54b9fdd770f46263119161b44e9417de",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs --only movie-wall",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "fixture_sha256": "d782b5dbcf6167866960971ae18056ef242f339dd3b8c0910381818d93a7b383",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "format": "WebP q86",
+      "bytes": 62110,
+      "sha256": "d1934a7f24d4e610cde5cc746213cc832a0ee1cd393e8fa724849167d43e35e6"
+    },
+    {
+      "file": "screenshots/movie-multiselect.webp",
+      "page": "user-guide/collections.md",
+      "scene": "电影海报多选与批量操作浮条",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区文档素材核对；源代码哈希 c52338a881850ae74ff2af2be001f3cd54b9fdd770f46263119161b44e9417de",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs --only movie-multiselect",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "fixture_sha256": "d782b5dbcf6167866960971ae18056ef242f339dd3b8c0910381818d93a7b383",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "format": "WebP q86",
+      "bytes": 226388,
+      "sha256": "1118fb520167d530ea23c2bc4f60838e61f569ae9fa8f2c1271409d56cc4dd57"
+    },
+    {
+      "file": "screenshots/tv-show.webp",
+      "page": "user-guide/watch-tv.md",
+      "scene": "虚构剧集详情：SP、部分收藏、未收藏正季与未播出新季；收藏范围为当前媒体库",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区剧集播出与收藏界面",
+      "source": "真实 Vue 界面与全模拟 API；虚构剧集及 AI 生成的原创剧集海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网；不证明 TMDB 实际可用性",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "full-page",
+      "recording_script": "node scripts/smoke_tv_airing.mjs --capture-docs",
+      "fixtures": "scripts/smoke_tv_airing.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "fixture_sha256": "5b246746ee8b859f1a3166acce67dd8b96bb0380b17f7cc51980c36b3b31a2d5",
+      "format": "WebP q86",
+      "bytes": 190224,
+      "sha256": "7bce79d28657efa030eeaf42e6c1d24554b228c64c4adf8c3edc3c3f03ebba10"
+    },
+    {
+      "file": "screenshots/tv-airing-catalog.webp",
+      "page": "user-guide/watch-tv.md",
+      "scene": "未收藏新季的只读官方分集目录：尚未播出与未收藏分别标注，无播放或已看操作",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区剧集播出与收藏界面",
+      "source": "真实 Vue 界面与全模拟 API；虚构剧集及 AI 生成的原创剧集海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网；不证明 TMDB 实际可用性",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "full-page",
+      "recording_script": "node scripts/smoke_tv_airing.mjs --capture-docs",
+      "fixtures": "scripts/smoke_tv_airing.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "fixture_sha256": "5b246746ee8b859f1a3166acce67dd8b96bb0380b17f7cc51980c36b3b31a2d5",
+      "format": "WebP q86",
+      "bytes": 97690,
+      "sha256": "462e56ddb60beead848ee358fd97db691121b58c57868fb68f1626968abc1462"
+    },
+    {
+      "file": "screenshots/tv-season.webp",
+      "page": "user-guide/watch-tv.md",
+      "scene": "季页保留本地分集与播放作用域，可切换全部分集查看缺集及其他视频库来源",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区剧集播出与收藏界面",
+      "source": "真实 Vue 界面与全模拟 API；虚构剧集及 AI 生成的原创剧集海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网；不证明 TMDB 实际可用性",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "full-page",
+      "recording_script": "node scripts/smoke_tv_airing.mjs --capture-docs",
+      "fixtures": "scripts/smoke_tv_airing.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "fixture_sha256": "5b246746ee8b859f1a3166acce67dd8b96bb0380b17f7cc51980c36b3b31a2d5",
+      "format": "WebP q86",
+      "bytes": 119736,
+      "sha256": "bc0c1736f53d715267c0e9eb08447cfb66bd639e4be4daf5ddc2a08d8fe2ae4d"
+    },
+    {
+      "file": "screenshots/movie-detail.webp",
+      "page": "user-guide/movie-versions.md",
+      "scene": "电影详情、播放版本与继续观看入口",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区文档素材核对；源代码哈希 093cc5cf81c8a7cb05a641c4251db4b08aca20af23aa8429dc1de90283d2a657",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "full-page",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs --only movie-detail",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "fixture_sha256": "d782b5dbcf6167866960971ae18056ef242f339dd3b8c0910381818d93a7b383",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "format": "WebP q86",
+      "bytes": 161848,
+      "sha256": "e2b46d6efe0e566b5498588a94c44f92f85fa6f0381f5dce77b3321d22cb9b14"
+    },
+    {
+      "file": "screenshots/tv-versions.webp",
+      "page": "user-guide/watch-tv.md",
+      "scene": "同季 V1/V2 版本分组与版本筛选",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "4349523",
+      "source_state": "当前工作区文档素材核对；源代码哈希 093cc5cf81c8a7cb05a641c4251db4b08aca20af23aa8429dc1de90283d2a657",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "full-page",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs --only tv-versions",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json",
+      "fixture_sha256": "d782b5dbcf6167866960971ae18056ef242f339dd3b8c0910381818d93a7b383",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "format": "WebP q86",
+      "bytes": 239876,
+      "sha256": "bc3068989cd70ee16421c9675c28304577a5f355c8ae9f38c955699c3ac80aa5"
+    },
+    {
+      "file": "screenshots/online-browse.webp",
+      "page": "user-guide/watch-online.md",
+      "scene": "在线视频源、分类、年份和海报墙",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "43495236c024edecb48a51d0ec5e344b53f12e48",
+      "source_state": "当前工作区；前端源码及演示数据摘要见下",
+      "source_sha256": "69b04292cb1eda6b84437ceef78308a5034620ba2ede36d4419893db5c26ed92",
+      "source_digest_scope": [
+        "frontend/src/**/*"
+      ],
+      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
+      "fixture_sha256": "b8d42f52c738aea4f9f59b4958d31cf0f722f7d6cea047cbe7eaf44069b1c54f",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "bytes": 192156,
+      "sha256": "398e9ef572640411cce31368aa750adc44b6abb0173782f0023dc2afa33f419e"
+    },
+    {
+      "file": "screenshots/online-mobile.webp",
+      "page": "user-guide/watch-online.md",
+      "scene": "手机宽度下的在线视频浏览",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "43495236c024edecb48a51d0ec5e344b53f12e48",
+      "source_state": "当前工作区；前端源码及演示数据摘要见下",
+      "source_sha256": "69b04292cb1eda6b84437ceef78308a5034620ba2ede36d4419893db5c26ed92",
+      "source_digest_scope": [
+        "frontend/src/**/*"
+      ],
+      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "device_scale_factor": 1
+      },
+      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
+      "fixture_sha256": "b8d42f52c738aea4f9f59b4958d31cf0f722f7d6cea047cbe7eaf44069b1c54f",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "bytes": 53420,
+      "sha256": "99d7c3ffcf8622ff5f7aad5b354291334fa69d298da177c8d60037af44801253"
+    },
+    {
+      "file": "screenshots/online-records.webp",
+      "page": "user-guide/watch-online.md",
+      "scene": "在线收藏及继续观看、历史入口",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "43495236c024edecb48a51d0ec5e344b53f12e48",
+      "source_state": "当前工作区；前端源码及演示数据摘要见下",
+      "source_sha256": "69b04292cb1eda6b84437ceef78308a5034620ba2ede36d4419893db5c26ed92",
+      "source_digest_scope": [
+        "frontend/src/**/*"
+      ],
+      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
+      "fixture_sha256": "b8d42f52c738aea4f9f59b4958d31cf0f722f7d6cea047cbe7eaf44069b1c54f",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "bytes": 164016,
+      "sha256": "37b8d70f125f8ddf32584c1638bafa0b2e1063b63c3077ca1055b8c6b97cc1ef"
+    },
+    {
+      "file": "screenshots/online-detail.webp",
+      "page": "user-guide/watch-online.md",
+      "scene": "在线详情的续播、线路与分集",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "43495236c024edecb48a51d0ec5e344b53f12e48",
+      "source_state": "当前工作区；前端源码及演示数据摘要见下",
+      "source_sha256": "69b04292cb1eda6b84437ceef78308a5034620ba2ede36d4419893db5c26ed92",
+      "source_digest_scope": [
+        "frontend/src/**/*"
+      ],
+      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
+      "fixture_sha256": "b8d42f52c738aea4f9f59b4958d31cf0f722f7d6cea047cbe7eaf44069b1c54f",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "bytes": 74632,
+      "sha256": "a5f5ad38ea48d34c0ca16f5c4bf9b0e8459efbbfc4c4027b21f9f2847048490d"
+    },
+    {
+      "file": "screenshots/online-episodes.webp",
+      "page": "user-guide/watch-online.md",
+      "scene": "长剧集范围、排序与上次观看定位",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "43495236c024edecb48a51d0ec5e344b53f12e48",
+      "source_state": "当前工作区；前端源码及演示数据摘要见下",
+      "source_sha256": "69b04292cb1eda6b84437ceef78308a5034620ba2ede36d4419893db5c26ed92",
+      "source_digest_scope": [
+        "frontend/src/**/*"
+      ],
+      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
+      "fixture_sha256": "b8d42f52c738aea4f9f59b4958d31cf0f722f7d6cea047cbe7eaf44069b1c54f",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "bytes": 67338,
+      "sha256": "0caea23acaba31edaea70501cdbf15fdf76f210bf46f179bf1028d64110f8c88"
+    },
+    {
+      "file": "screenshots/online-hosts.webp",
+      "page": "user-guide/watch-online.md",
+      "scene": "媒体主机检查与确认对话框",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "43495236c024edecb48a51d0ec5e344b53f12e48",
+      "source_state": "当前工作区；前端源码及演示数据摘要见下",
+      "source_sha256": "69b04292cb1eda6b84437ceef78308a5034620ba2ede36d4419893db5c26ed92",
+      "source_digest_scope": [
+        "frontend/src/**/*"
+      ],
+      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
+      "fixture_sha256": "b8d42f52c738aea4f9f59b4958d31cf0f722f7d6cea047cbe7eaf44069b1c54f",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "bytes": 74704,
+      "sha256": "b72114b821219eea79e5a8c3382851c558841aa703a124e0ef74b7176f567d94"
+    },
+    {
+      "file": "screenshots/online-sources.webp",
+      "page": "user-guide/watch-online.md",
+      "scene": "在线点播开关与已启用来源列表",
+      "verified_at": "2026-11-22",
+      "app_version": "0.42.0",
+      "source_commit": "43495236c024edecb48a51d0ec5e344b53f12e48",
+      "source_state": "当前工作区；前端源码及演示数据摘要见下",
+      "source_sha256": "69b04292cb1eda6b84437ceef78308a5034620ba2ede36d4419893db5c26ed92",
+      "source_digest_scope": [
+        "frontend/src/**/*"
+      ],
+      "source": "真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "node scripts/smoke_online_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/",
+      "fixture_sha256": "b8d42f52c738aea4f9f59b4958d31cf0f722f7d6cea047cbe7eaf44069b1c54f",
+      "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
+      "bytes": 50272,
+      "sha256": "c4c0609650660bfc2075694b5ac6adfb194341697329dac4229f07fcce3812ae"
     }
   ],
   "provenance_scope": "per_asset",

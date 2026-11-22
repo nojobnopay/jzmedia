@@ -1,6 +1,6 @@
 // Real Vue App and Router, in-memory API and local demo artwork only.
 // Run one check at a time under the repository's bounded validation wrapper.
-// node scripts/smoke_online_ui.mjs [--baseline|--settings-only] [--width 1440|390|375|320] [--capture-docs|--capture-preview]
+// node scripts/smoke_online_ui.mjs [--baseline|--settings-only] [--width 1440|430|390|375|320] [--capture-docs|--capture-preview]
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -13,15 +13,16 @@ import { build } from '../frontend/node_modules/vite/dist/node/index.js'
 import vue from '../frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
 import { artworkFingerprint, createFixture, movies, shows } from './fixtures/uiReviewData.mjs'
+import { ONLINE_ARTWORK_LIMIT } from '../frontend/src/onlineArtwork.js'
 
 const root = fileURLToPath(new URL('../', import.meta.url)), args = process.argv.slice(2)
-let baseline = false, settingsOnly = false, captureDocs = false, capturePreview = false, widths = [1440, 390, 375, 320]
+let baseline = false, settingsOnly = false, captureDocs = false, capturePreview = false, widths = [1440, 430, 390, 375, 320]
 for (let index = 0; index < args.length; index++) {
   if (args[index] === '--baseline') baseline = true
   else if (args[index] === '--settings-only') settingsOnly = true
   else if (args[index] === '--capture-docs' || args[index] === '--capture-preview') { captureDocs = true; capturePreview = args[index] === '--capture-preview'; widths = [1440, 390] }
   else if (args[index] === '--width') { const width = Number(args[++index]); assert.ok(widths.includes(width)); widths = [width] }
-  else if (args[index] === '--help') { console.log('node scripts/smoke_online_ui.mjs [--baseline|--settings-only] [--width 1440|390|375|320] [--capture-docs|--capture-preview]'); process.exit(0) }
+  else if (args[index] === '--help') { console.log('node scripts/smoke_online_ui.mjs [--baseline|--settings-only] [--width 1440|430|390|375|320] [--capture-docs|--capture-preview]'); process.exit(0) }
   else throw new Error('Unknown argument: ' + args[index])
 }
 assert.ok(!(settingsOnly && (baseline || captureDocs)), 'Settings checks use current source and isolated fixtures')
@@ -207,6 +208,13 @@ async function capture(page, name, width) {
       return rect.width && rect.height && rect.bottom > 0 && rect.top < innerHeight && rect.right > 0 && rect.left < innerWidth
     }).map(element => ({ state: element.dataset.onlineArtworkState, label: element.getAttribute('aria-label') || element.querySelector('img')?.alt })),
     brokenImages: [...document.images].filter(image => image.complete && !image.naturalWidth).map(image => image.alt) }))
+  if (name === 'home') {
+    const card = page.locator('.online-results .card').first()
+    const poster = await card.locator('[data-online-result]').boundingBox()
+    const title = await card.locator('.card-title').boundingBox()
+    Object.assign(metrics, { firstPosterTop: poster.y, firstTitleTop: title.y, firstTitleBottom: title.y + title.height })
+    if (!baseline && width <= 700) assert.ok(metrics.firstTitleBottom <= page.viewportSize().height, 'First result title fits in the phone viewport')
+  }
   report.screenshots.push({ name, width, file, metrics, framing: baseline && name.startsWith('records-') ? 'Original records section below the poster wall' : 'Viewport' })
   assert.ok(metrics.scrollWidth <= metrics.width + 1, `${name} ${width}px has horizontal overflow`)
   assert.deepEqual(metrics.brokenImages, [], `${name} has broken rendered images`)
@@ -214,6 +222,40 @@ async function capture(page, name, width) {
   console.log(`CAPTURE ${label} ${name} ${width}px`)
 }
 async function settle(page) { await page.waitForLoadState('networkidle') }
+async function checkPhoneFilters(page) {
+  const trigger = page.locator('[data-online-categories-open]')
+  const dialog = page.getByRole('dialog', { name: '筛选内容' })
+  const year = page.getByLabel('年份', { exact: true })
+  const draft = '尚未提交的片名'
+  const reads = () => state.requests.filter(entry => ['/api/online/catalog/browse', '/api/online/catalog/search'].includes(entry.path))
+  await page.locator('#online-query').fill(draft)
+  assert.equal(await year.isVisible(), false)
+  const initial = reads().length
+  await trigger.click()
+  await dialog.getByLabel('查找分类').fill('冒险')
+  await dialog.getByRole('button', { name: '冒险片' }).waitFor()
+  await year.selectOption('custom')
+  await dialog.getByLabel('指定年份').fill('1988')
+  await page.keyboard.press('Escape')
+  assert.equal(await trigger.evaluate(el => document.activeElement === el), true)
+  await trigger.click()
+  assert.equal(await dialog.getByLabel('查找分类').inputValue(), '')
+  assert.equal(await year.inputValue(), '')
+  assert.equal(reads().length, initial, 'Filtering the category list and cancelling a custom year does not fetch a catalogue page')
+  const selected = await year.locator('option').nth(1).getAttribute('value')
+  await year.selectOption(selected)
+  await dialog.waitFor({ state: 'hidden' })
+  await settle(page)
+  assert.equal(await trigger.locator('[data-online-selected-year]').textContent(), ' · ' + selected)
+  assert.equal(reads().length, initial + 1)
+  assert.equal(reads().at(-1).query.year, selected)
+  assert.equal(await page.locator('#online-query').inputValue(), draft)
+  await page.locator('[data-online-refresh]').click()
+  await settle(page)
+  assert.equal(reads().length, initial + 2, 'One refresh sends one catalogue request')
+  assert.equal(reads().at(-1).query.year, selected)
+  assert.ok(await page.locator('[data-online-refresh] [data-online-checked-at]').isVisible())
+}
 async function paint(page) { await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))) }
 async function go(page, base, route = '/online') { await page.goto(base + route); await page.locator('.online-page').waitFor(); await settle(page) }
 async function records(page, base, tab) {
@@ -357,7 +399,7 @@ try {
       if (assets.has(key)) {
         const asset = assets.get(key), bytes = await readFile(path.join(root, asset.master))
         assert.equal(createHash('sha256').update(bytes).digest('hex'), asset.sha256)
-        assert.ok(bytes.length <= 512 * 1024)
+        assert.ok(bytes.length <= ONLINE_ARTWORK_LIMIT)
         res.writeHead(200, { 'Content-Type': 'image/webp' }); res.end(bytes); return
       }
       if (key.startsWith('/api/')) {
@@ -401,6 +443,16 @@ try {
     if (settingsOnly) { await checkSourceSettings(page, base, width); await context.close(); continue }
     await go(page, base)
     await page.locator('[data-online-result]').first().waitFor()
+    if (!baseline && width <= 700) {
+      const nav = page.getByRole('navigation', { name: '主导航' })
+      assert.equal(await nav.locator('.nav-library, .nav-single-library').count(), 0)
+      const brand = await nav.locator('.brand').boundingBox()
+      const mode = await nav.locator('.nav-viewing button').first().boundingBox()
+      const tops = await nav.locator('.nav-channels a, .nav-secondary summary').evaluateAll(elements => elements.map(el => el.getBoundingClientRect().top))
+      assert.ok(Math.abs(brand.y + brand.height / 2 - mode.y - mode.height / 2) <= 2, 'Online brand and viewing mode share a row')
+      assert.equal(tops.length, 5)
+      assert.ok(tops.every(top => top === tops[0] && top >= mode.y + mode.height - 1), 'Online channels and More share the next row')
+    }
     await capture(page, 'home', width)
     if (captureDocs) {
       if (width === 1440) {
@@ -427,6 +479,7 @@ try {
       continue
     }
     await touchTargets(page, width)
+    if (!baseline && width <= 700) await checkPhoneFilters(page)
     if (!baseline) assert.equal(await page.locator('[data-online-continue-row] [data-online-state-item]').count(), 12)
     state.delay = 'browse'
     await page.goto(base + '/online')
@@ -571,6 +624,7 @@ try {
     const assetsDir = path.join(root, 'docs/assets'), entries = []
     const appVersion = (await readFile(path.join(root, 'version.properties'), 'utf8')).match(/^versionName=(.+)$/m)[1]
     for (const [name, scene, width, description] of samples) {
+      if (!widths.includes(width)) continue
       const shot = report.screenshots.find(item => item.name === scene && item.width === width)
       assert.ok(shot, 'Missing documentation screenshot ' + name)
       const file = `screenshots/${name}.webp`, destination = path.join(assetsDir, file)
@@ -579,7 +633,7 @@ try {
       entries.push({ file, page: 'user-guide/watch-online.md', scene: description, verified_at: new Date().toISOString().slice(0, 10),
         app_version: appVersion, source_commit: report.commit, source_state: '当前工作区；前端源码及演示数据摘要见下', source_sha256: report.source_sha256,
         source_digest_scope: ['frontend/src/**/*'], source: '真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库',
-        viewport: { width, height: width > 700 ? 1000 : 844, device_scale_factor: 1 }, recording_script: 'node scripts/smoke_online_ui.mjs --capture-docs',
+        viewport: { width, height: width > 700 ? 1000 : 844, device_scale_factor: 1 }, recording_script: 'node scripts/smoke_online_ui.mjs --capture-docs' + (widths.length === 1 ? ' --width ' + width : ''),
         fixtures: 'scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/', fixture_sha256: createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).update(report.fixture_sha256).digest('hex'),
         artwork_sha256: artworkFingerprint, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
     }

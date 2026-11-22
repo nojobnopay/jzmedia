@@ -222,12 +222,82 @@ test('progress from another version cannot replace the selected version progress
   })
   const selector = ui.find(node => node.type === 'select' && node.props['aria-label'] === '播放版本')
   selector.props.onChange({ target: { value: '11' } })
-  selected.resolve({ position: 90, position_text: '当前版本进度', duration: 600 })
+  selected.resolve({ version_id: 11, position: 2180.9, duration: 6900 })
   await flush()
-  old.resolve({ position: 180, position_text: '旧版本进度', duration: 600 })
+  assert.ok(button(ui, '从 36:20 继续'))
+  old.resolve({ version_id: 1, position: 180, duration: 600 })
   await flush()
-  assert.match(ui.text(), /当前版本进度/)
-  assert.doesNotMatch(ui.text(), /旧版本进度/)
+  const play = button(ui, '从 36:20 继续')
+  assert.ok(play)
+  assert.doesNotMatch(ui.text(), /3:00/)
+  play.props.onClick()
+  await flush()
+  assert.match(ui.text(), /播放器11/)
+})
+
+test('movie versions foreground edition and quality, disambiguate collisions, and respect a selection made during probing', async t => {
+  const probe = deferred()
+  const versions = [
+    { id: 1, edition: '院线版', spec: '1080p', file_path: '电影/原版.mkv' },
+    { id: 2, edition: '修复版', file_path: 'folder/高清.mkv' },
+    { id: 3, edition: '院线版', spec: '1080p', file_path: 'D:\\电影\\配音.mkv' },
+    { id: 4, file_path: '默片.mp4' },
+    { id: 5, file_path: 'other/默片.mp4' },
+  ]
+  const ui = await detailPage(t, { metadata: { versions }, api: path => {
+    if (path === '/api/stream/versions') return probe.promise
+    if (path === '/api/stream/progress?version_id=2') return { version_id: 2, position: 3800, duration: 9000 }
+  } })
+  const selector = () => ui.find(n => n.props['aria-label'] === '播放版本')
+  selector().props.onChange({ target: { value: '2' } })
+  await flush()
+  assert.ok(button(ui, '从 1:03:20 继续'))
+  probe.resolve({ best_version_id: 1, versions: versions.map(v => ({
+    version_id: v.id, playable: true, method: 'direct', height: v.id === 2 ? 2160 : 0,
+    duration_text: v.id === 2 ? '2:30:00' : '1:50:00',
+  })) })
+  await flush()
+  assert.equal(selector().props.value, 2)
+  assert.deepEqual(selector().children.filter(n => n.type === 'option').map(n => nodeText(n).trim()), [
+    '院线版 · 1080p · 原版.mkv', '修复版 · 4K', '院线版 · 1080p · 配音.mkv', '默片.mp4 · #4', '默片.mp4 · #5',
+  ])
+  assert.match(ui.text(), /2:30:00 · 4K/)
+  assert.ok(button(ui, '从 1:03:20 继续'))
+  assert.deepEqual(ui.requests.filter(r => r.path.startsWith('/api/stream/progress?')).map(r => r.path), ['/api/stream/progress?version_id=2'])
+})
+
+test('movie play action clears the old clock on switch and matches player completion and legacy-duration behavior', async t => {
+  const pending = deferred()
+  const versions = Array.from({ length: 8 }, (_, i) => ({ id: i + 1, file_path: (i + 1) + '.mkv' }))
+  const saves = [
+    { position: 2180, duration: 6900 }, pending.promise, { position: 15, duration: 600 },
+    { position: 0, duration: 0 }, { version_id: 42, position: 90, duration: 900 },
+    { position: 145, duration: 180 }, { position: 145, duration: 10 }, { position: 60, duration: 0 },
+  ]
+  const ui = await detailPage(t, { metadata: { versions }, api: path => {
+    if (path === '/api/stream/versions') return { versions: versions.map(v => ({ version_id: v.id, playable: true })), best_version_id: 1 }
+    const id = new URL(path, 'http://fixture/').searchParams.get('version_id')
+    if (id) return saves[Number(id) - 1]
+  } })
+  const change = async id => {
+    ui.find(n => n.props['aria-label'] === '播放版本').props.onChange({ target: { value: id } })
+    await flush()
+  }
+  assert.ok(button(ui, '从 36:20 继续'))
+  await change(2)
+  assert.ok(button(ui, '播放影片'))
+  assert.doesNotMatch(ui.text(), /36:20/)
+  pending.reject(new Error('暂时无法读取'))
+  await flush()
+  assert.ok(button(ui, '播放影片'))
+  for (const id of [3, 4, 5, 6]) {
+    await change(id)
+    assert.ok(button(ui, '播放影片'))
+  }
+  await change(7)
+  assert.ok(button(ui, '从 2:25 继续'))
+  await change(8)
+  assert.ok(button(ui, '从 1:00 继续'))
 })
 
 test('a player watched event fixes its movie identity before the write and stops following after navigation', async t => {

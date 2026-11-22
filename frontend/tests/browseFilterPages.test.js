@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as Vue from 'vue'
 import { loadSfc } from './helpers/loadSfc.js'
-import { renderHarness, flush, deferred } from './helpers/renderHarness.js'
+import { renderHarness, flush, deferred, nodeText } from './helpers/renderHarness.js'
 
 const vue = { ...Vue, vShow: {}, vModelText: {}, vModelSelect: {}, vModelCheckbox: {} }
 const blank = { setup: () => () => Vue.h('div') }
@@ -10,7 +10,7 @@ const facets = label => ({ genres: [{ value: label, count: 1 }], regions: [], co
   years: [], decades: [], tags: [], status: [], collections: [],
   watched: { watched: 0, unwatched: 1 }, ratings: { tmdb: [], custom: [], douban: [] } })
 
-async function wall(t, kind, { query = {}, snapshot = null } = {}) {
+async function wall(t, kind, { query = {}, snapshot = null, components = {}, writeRequest, item } = {}) {
   const globals = {
     localStorage: { getItem: () => null, setItem() {} },
     window: { addEventListener() {}, removeEventListener() {}, scrollY: 40 },
@@ -34,9 +34,9 @@ async function wall(t, kind, { query = {}, snapshot = null } = {}) {
   const requests = [], facetRequests = [], saved = [], replaced = []
   const facetPath = kind === 'movie' ? '/api/facets' : '/api/tv/facets'
   const listPath = kind === 'movie' ? '/api/search' : '/api/tv/shows'
-  const listRow = kind === 'movie'
+  const listRow = item || (kind === 'movie'
     ? { id: 1, title: '合成电影', tmdb_id: 101, genres: [], version_count: 1 }
-    : { id: 1, title: '合成剧集', tmdb_id: 101, genres: [], season_count: 1, episode_count: 1 }
+    : { id: 1, title: '合成剧集', tmdb_id: 101, genres: [], season_count: 1, episode_count: 1 })
   const setRoute = destination => {
     route.path = destination.path
     route.query = destination.query
@@ -64,6 +64,7 @@ async function wall(t, kind, { query = {}, snapshot = null } = {}) {
       onBeforeRouteLeave: callback => { beforeLeave = callback },
     },
     '../api.js': { posterUrl: path => path, api: (path, options) => {
+      if (writeRequest && options) return writeRequest(path, options)
       assert.equal(options, undefined, 'Browsing tests may only send read requests')
       requests.push(path)
       if (path.startsWith(facetPath + '?')) {
@@ -92,6 +93,7 @@ async function wall(t, kind, { query = {}, snapshot = null } = {}) {
     '../components/ContinueWatchingRow.vue': { default: continueStub },
     ...Object.fromEntries(['PlayerModal', 'AiSearchPanel', 'ScanAction', 'ActionMenu', 'UploadDialog']
       .map(name => [`../components/${name}.vue`, { default: blank }])),
+    ...components,
   })
   ui = renderHarness(component)
   await flush()
@@ -104,6 +106,133 @@ async function wall(t, kind, { query = {}, snapshot = null } = {}) {
 }
 
 for (const kind of ['movie', 'tv']) {
+  test(kind + ' wall keeps titles separate and replaces failed posters without retrying stale URLs', async t => {
+    const item = Vue.reactive({ id: 201, tmdb_id: 501, title: '一部名字很长的作品', year: 2023,
+      version_count: 2, season_count: 3, episode_count: 16, genres: ['悬疑'], region: '华语',
+      tmdb_rating: 8.6, custom_rating: 7.2, status: 'Ended', poster_path: '/posters/201.jpg' })
+    const ui = await wall(t, kind, { item })
+    ui.facetRequests[0].resolve(facets('悬疑'))
+    await flush()
+    const byClass = name => ui.find(node => node.props.class?.split(' ').includes(name))
+    const image = () => ui.find(node => node.type === 'img' && node.parent === byClass('poster-wrap'))
+    const reads = ui.requests.slice()
+
+    assert.equal(nodeText(byClass('card-title')), item.title)
+    const metadata = nodeText(byClass('card-metadata'))
+    assert.match(metadata, /2023.*8\.6/)
+    assert.match(nodeText(byClass('card-meta')), kind === 'movie' ? /华语 · 悬疑/ : /3 季 · 16 集 · 已完结/)
+    if (kind === 'movie') {
+      assert.match(metadata, /2023.*×2.*7\.2/)
+      assert.equal(byClass('poster-play').props['aria-label'], '播放 ' + item.title)
+    }
+    const original = image()
+    assert.equal(original.props.loading, 'lazy')
+    original.props.onError({ currentTarget: original })
+    await flush()
+    assert.equal(image(), undefined)
+    assert.ok(byClass('artwork-placeholder'))
+    item.poster_path = '/posters/301.jpg'
+    await flush()
+    assert.equal(image().props.src, '/posters/301.jpg')
+    original.props.onError({ currentTarget: original })
+    await flush()
+    assert.equal(image().props.src, '/posters/301.jpg', 'late load failures cannot displace replacement art')
+    const replacement = image()
+    item.poster_path = ''
+    await flush()
+    assert.ok(byClass('artwork-placeholder'))
+    item.poster_path = '/posters/201.jpg'
+    await flush()
+    replacement.props.onError({ currentTarget: replacement })
+    await flush()
+    assert.equal(image().props.src, '/posters/201.jpg', 'an old path can work again after the poster changes')
+    assert.deepEqual(ui.requests, reads)
+  })
+}
+
+test('movie selections and pending deletion previews cannot cross media libraries', async t => {
+  const previews = []
+  const dialog = { setup: (_props, { slots }) => () => Vue.h('section', { role: 'dialog' }, slots.default?.()) }
+  const ui = await wall(t, 'movie', { components: { '../components/JzDialog.vue': { default: dialog } }, writeRequest(path, options) {
+    assert.equal(path, '/api/movies/batch-delete')
+    assert.deepEqual(JSON.parse(options.body), { ids: [1], dry_run: true })
+    const request = deferred()
+    previews.push(request)
+    return request.promise
+  } })
+  ui.facetRequests[0].resolve(facets('剧情'))
+  await flush()
+  const select = () => ui.find(node => node.props['aria-label'] === '选择').props.onClick({ stopPropagation() {} })
+  const toolbar = () => ui.find(node => node.props['aria-label'] === '多选操作')
+  const remove = () => ui.find(node => node.props.title === '删除选中影片').props.onClick()
+  const preview = { plans: [{ id: 1, title: '第一库预览' }], total_movies: 1 }
+  select(); await flush(); remove()
+  ui.switchMedia(9)
+  await flush()
+  assert.equal(toolbar(), undefined)
+  select(); await flush(); remove()
+  previews[0].resolve(preview)
+  await flush()
+  assert.equal(toolbar().props['aria-busy'], true, 'a late preview cannot release the new batch')
+  assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+  previews[1].resolve({ ...preview, plans: [{ id: 1, title: '第二库预览' }] })
+  await flush()
+  assert.match(ui.text(), /第二库预览/)
+  ui.switchMedia(11)
+  await flush()
+  assert.equal(toolbar(), undefined)
+  assert.doesNotMatch(ui.text(), /第一库预览|第二库预览/)
+  assert.equal(previews.length, 2, 'changing scopes never submits deletion')
+})
+
+test('TV shelf refresh waits for the final episode save and ignores a previous media library', async t => {
+  let save, reloads = 0
+  const ui = await wall(t, 'tv', { components: {
+    '../components/ContinueWatchingRow.vue': { default: { setup(_props, { emit, expose }) {
+      expose({ ready: async () => {}, reload: () => { reloads++ } })
+      return () => Vue.h('button', { onClick: () => emit('resume', { title: '节目', progress: { version_id: 45 } }) }, '续播集')
+    } } },
+    '../components/PlayerModal.vue': { default: { setup(_props, { emit, expose }) {
+      save = deferred()
+      expose({ saveFinal: () => save.promise })
+      return () => Vue.h('button', { onClick: () => emit('close') }, '关闭本集')
+    } } },
+  } })
+  ui.facetRequests[0].resolve(facets('剧情'))
+  await flush()
+  async function click(text) { ui.find(node => node.text === text).props.onClick(); await flush() }
+  await click('续播集')
+  await click('关闭本集')
+  assert.equal(reloads, 0)
+  save.resolve()
+  await flush()
+  assert.equal(reloads, 1)
+  await click('续播集')
+  await click('关闭本集')
+  ui.switchMedia(9)
+  save.resolve()
+  await flush()
+  assert.equal(reloads, 1)
+})
+
+for (const kind of ['movie', 'tv']) {
+  test(kind + ' route library switches send one wall request with the destination sort', async t => {
+    const ui = await wall(t, kind)
+    ui.facetRequests[0].resolve(facets('旧库'))
+    await flush()
+    const at = ui.requests.length
+    ui.route.query = { media: '9', sort: 'rating', order: 'asc' }
+    await flush()
+    ui.switchMedia(9) // The global navigation acknowledges the successful route change.
+    await flush()
+    const wallRequests = ui.requests.slice(at).filter(path => path.startsWith(ui.listPath + '?'))
+    assert.equal(wallRequests.length, 1)
+    const params = new URLSearchParams(wallRequests[0].split('?')[1])
+    assert.equal(params.get('media_library'), '9')
+    assert.equal(params.get('sort'), 'rating')
+    assert.equal(params.get('order'), 'asc')
+    assert.equal(ui.facetRequests.length, 2)
+  })
   test(kind + ' filters clear the previous library immediately and ignore late successes or errors', async t => {
     const ui = await wall(t, kind)
     assert.equal(ui.filter.props.loading, true)

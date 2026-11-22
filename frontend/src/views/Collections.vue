@@ -1,10 +1,12 @@
 <template>
   <div class="browse-page collections-page">
-    <header class="browse-heading"><h1>合集</h1><JzButton v-if="!isChildren" :disabled="creating" icon="plus" variant="primary" :aria-expanded="createOpen" aria-controls="collection-create" @click="createOpen = !createOpen">新建合集</JzButton></header>
+    <header class="browse-heading">
+      <div class="collections-heading"><h1>合集</h1><span v-if="!loading && !loadError">{{ loadedQuery ? '找到 ' : '' }}{{ items.length }} 个合集</span></div>
+      <JzButton v-if="!isChildren" :disabled="creating" icon="plus" :aria-expanded="createOpen" aria-controls="collection-create" @click="createOpen = !createOpen">新建合集</JzButton>
+    </header>
     <form class="bar collection-search" role="search" aria-label="搜索合集" @submit.prevent="load"><input ref="searchInput" v-model="q" aria-label="搜索合集" placeholder="搜合集名" /><JzButton type="submit" icon="search">搜索</JzButton></form>
     <form v-show="createOpen" id="collection-create" class="bar collection-create" @submit.prevent="create"><input ref="nameInput" v-model="name" :disabled="creating" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><JzButton :disabled="!name.trim()" :loading="creating" type="submit" icon="plus">创建</JzButton><JzButton :disabled="creating" type="button" @click="createOpen = false">取消</JzButton></form>
     <p v-if="msg" role="status">{{ msg }}</p>
-    <div class="collections-heading"><h2 class="sec-h">我的合集</h2><span v-if="!loading && !loadError">{{ items.length }} 个合集</span></div>
     <EmptyState v-if="loading" state="loading" title="正在加载合集" text="请稍候…" />
     <EmptyState v-else-if="loadError" state="error" title="合集加载失败" :text="loadError" retry @retry="load" />
     <EmptyState v-else-if="!items.length" :state="loadedQuery ? 'no-results' : 'empty'"
@@ -15,8 +17,8 @@
     </EmptyState>
     <div v-else class="grid collections-grid">
       <router-link v-for="c in items" :key="c.id" class="card collection-card" :to="'/c/' + c.id">
-        <div class="poster-wrap"><img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" :alt="c.name || '合集'" /><ArtworkPlaceholder v-else class="cover-empty" kind="collection" :label="c.name" /></div>
-        <div class="collection-card-body"><h3>{{ c.name }}</h3><span>{{ c.member_count }} 部影片</span></div>
+        <div class="poster-wrap"><img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" alt="" /><ArtworkPlaceholder v-else class="cover-empty" kind="collection" :label="c.name" /></div>
+        <div class="collection-card-body"><h2>{{ c.name }}</h2><span>{{ c.member_count }} 部影片</span></div>
       </router-link>
     </div>
     <details v-if="!isChildren && (suggest.length || topups.length)" ref="seriesSection" class="collection-section"
@@ -496,15 +498,15 @@ useAssistantPage('collections', () => {
 .collection-search { max-width: 640px; padding: 0; margin: 0 0 var(--jz-gap-xl); }
 .collection-search input, .collection-create input { flex: 1 1 180px; min-width: 0; }
 .collection-create { padding: var(--jz-gap-l); border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); background: var(--jz-surface); }
-.collections-heading { display: flex; align-items: baseline; gap: var(--jz-gap-s); margin: var(--jz-gap-2xl) 0 var(--jz-gap-l); }
-.sec-h { margin: 0; font-size: 1.125rem; font-weight: 600; }
+.collections-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--jz-gap-s) var(--jz-gap-m); }
+.collections-heading h1 { font-size: clamp(1.625rem, 3.1vw, 2.75rem); }
 .collections-heading > span { color: var(--jz-text-dim); font-size: var(--jz-font-s); }
-.collections-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.collections-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 .collection-card { color: inherit; text-decoration: none; min-width: 0; }
-.collection-card .poster-wrap { aspect-ratio: 2 / 3; border: 1px solid var(--jz-border); }
+.collection-card .poster-wrap { aspect-ratio: 2 / 3; }
 .cover-empty { height: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; color: var(--jz-text-faint); background: var(--jz-surface-2); }
 .collection-card-body { padding-top: var(--jz-gap-m); }
-.collection-card-body h3 { font-size: var(--jz-font-l); font-weight: 600; line-height: 1.5; margin: 0 0 4px; overflow-wrap: anywhere; }
+.collection-card-body h2, .collection-card-body h3 { font-size: var(--jz-font-l); font-weight: 600; line-height: 1.5; margin: 0 0 4px; overflow-wrap: anywhere; }
 .collection-card-body > span { color: var(--jz-text-dim); font-size: var(--jz-font-s); }
 .collection-section { margin-top: var(--jz-gap-3xl); padding-top: var(--jz-gap-xl); border-top: 1px solid var(--jz-border); }
 .collection-section summary { cursor: pointer; font-size: var(--jz-font-m); font-weight: 500; line-height: 1.6; }
@@ -520,9 +522,8 @@ button { white-space: nowrap; min-height: var(--jz-control-current); }
 a { color: var(--jz-link); }
 @media (max-width: 700px) {
   .collection-search { margin-bottom: var(--jz-gap-m); }
-  .collections-heading { margin-block: var(--jz-gap-l) var(--jz-gap-m); }
   .collections-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .collection-card-body h3 { font-size: var(--jz-font-m); }
+  .collection-card-body h2, .collection-card-body h3 { font-size: var(--jz-font-m); }
   .collection-section { margin-top: var(--jz-gap-2xl); padding-top: var(--jz-gap-l); }
 }
 </style>

@@ -48,9 +48,11 @@ def test_recent_played_filters_thresholds_and_order():
     assert b not in ids and c not in ids and d not in ids
     assert ids.index(e) < ids.index(a)            # 按最后播放时间倒序
 
-    ids2 = _ids(_recent(include_finished="true"))
+    history = _recent(include_finished="true")
+    ids2 = _ids(history)
     assert d in ids2 and b in ids2                # 含已看完（自动阈值 + 手动已看）
     assert ids2.index(e) < ids2.index(d) < ids2.index(a)
+    assert {row['id'] for row in history if row['can_resume']} & {a, b, c, d, e} == {a, e}
 
     item = next(x for x in _recent() if x["id"] == a)
     p = item["progress"]

@@ -19,12 +19,12 @@ from . import health, image_pool, service
 from .artwork_cache import ArtworkCache, ArtworkCacheBusy
 from .artwork_disk import ArtworkDiskCache
 from .catalog import CatalogError
+from .limits import MAX_IMAGE_BYTES as MAX_BODY_BYTES
 
 
 MAX_RECORDS = 512
 MAX_URL_BYTES = 2 * 1024**2
 MAX_AGE_SECONDS = 1800
-MAX_BODY_BYTES = 512 * 1024
 MAX_READ_SECONDS = 10
 _SOURCE_ID = re.compile(r"src_[0-9a-f]{32}\Z")
 _TOKEN = re.compile(r"[0-9a-f]{32}\Z")

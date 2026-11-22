@@ -117,6 +117,7 @@ try {
     let page = await context.newPage()
     currentPage = page
     await page.goto(`${base}/?media=1`)
+    await page.locator('.app-nav .nav-secondary > summary').click()
     await page.locator('.app-nav .nav-tools').getByRole('link', { name: '设置', exact: true }).click()
     await page.waitForURL(url => url.pathname === '/settings' && url.searchParams.get('sec') === 'sec-status')
     await page.locator('.settings-directory').waitFor()

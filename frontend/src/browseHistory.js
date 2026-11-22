@@ -17,7 +17,11 @@ export function browseKey(path, mediaId, params) {
 }
 export function saveBrowse(key, snapshot) {
   snapshots.delete(key)
-  snapshots.set(key, clone(snapshot))
+  const focused = globalThis.document?.activeElement?.closest('[data-browse-focus], [data-browse-id]')
+  const focus = focused?.dataset.browseFocus
+    ? { entry: focused.dataset.browseFocus }
+    : focused ? { poster: focused.dataset.browseId } : null
+  snapshots.set(key, clone({ ...snapshot, focus }))
   returns.set(`${snapshot.path}:${snapshot.mediaId ?? ''}`, { path: snapshot.path, query: clone(snapshot.query) })
   while (snapshots.size > MAX) snapshots.delete(snapshots.keys().next().value)
 }
@@ -31,7 +35,22 @@ export function captureAnchor(root = document) {
   return el ? { id: el.dataset.browseId, offset: el.getBoundingClientRect().top } : null
 }
 export function restoreBrowsePosition(snapshot) {
-  const el = snapshot?.anchor && [...document.querySelectorAll('[data-browse-id]')].find(el => el.dataset.browseId === snapshot.anchor.id)
+  const posters = [...document.querySelectorAll('[data-browse-id]')]
+  const el = snapshot?.anchor && posters.find(el => el.dataset.browseId === snapshot.anchor.id)
   const top = el ? window.scrollY + el.getBoundingClientRect().top - snapshot.anchor.offset : snapshot?.scrollTop || 0
   window.scrollTo({ top: Math.max(0, top), behavior: 'instant' })
+  // The list can finish restoring after the user has already focused search or a dialog.
+  if (!snapshot?.focus || (document.activeElement !== document.body && document.activeElement?.id !== 'main-content')) return
+  const target = snapshot.focus.entry
+    ? [...document.querySelectorAll('[data-browse-focus]')].find(item => item.dataset.browseFocus === snapshot.focus.entry)
+    : posters.find(item => item.dataset.browseId === snapshot.focus.poster)
+  if (!target) return
+  target.focus({ preventScroll: true })
+  const row = target.closest('.cw-row')
+  if (row) {
+    const card = target.getBoundingClientRect()
+    const bounds = row.getBoundingClientRect()
+    if (card.left < bounds.left) row.scrollLeft += card.left - bounds.left
+    else if (card.right > bounds.right) row.scrollLeft += card.right - bounds.right
+  }
 }

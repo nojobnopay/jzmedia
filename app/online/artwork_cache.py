@@ -6,12 +6,13 @@ import math
 import threading
 import time
 
+from .limits import MAX_IMAGE_BYTES
+
 
 MAX_CACHE_BYTES = 16 * 1024**2
 MAX_CACHE_RECORDS = 512
 MAX_CACHE_SECONDS = 600
 MAX_PENDING_READS = 64
-MAX_IMAGE_BYTES = 512 * 1024
 
 
 class ArtworkCacheBusy(RuntimeError):

@@ -17,12 +17,12 @@ let source=root,label='goal-after',demo=false,core=false,only='',captureDocsMode
 for(let i=0;i<args.length;i++) { if(args[i]==='--source')source=path.resolve(args[++i]);else if(args[i]==='--label')label=args[++i];else if(args[i]==='--demo')demo=true;else if(args[i]==='--core')core=true;else if(args[i]==='--only')only=args[++i];else if(args[i]==='--capture-docs')captureDocsMode=true;else if(args[i]==='--before-label')beforeLabel=args[++i];else if(args[i]==='--gallery-only')galleryOnly=true;else throw new Error('Unknown argument '+args[i]) }
 assert.match(label,/^[a-z0-9-]+$/)
 assert.match(beforeLabel,/^[a-z0-9-]+$/)
-assert.ok(!captureDocsMode||(!demo&&!only&&!core&&source===root&&label==='goal-after'),'Documentation capture requires a complete current-source goal-after review')
+assert.ok(!captureDocsMode||(!demo&&!galleryOnly&&!core&&!label.includes('before')&&source===root),'Documentation capture requires a current-source visual review')
 const output=path.join(root,'output/playwright',label),temp=await mkdtemp(path.join(os.tmpdir(),'jzmedia-visual-')),dist=path.join(temp,'dist')
 const fixture=createFixture(),results=[],external=[],issues=[],timers=new Set()
 let server,browser
 const coreScenes=[
-  {name:'movie-wall',route:'/?media=1',expect:'.grid > .card',count:13}, {name:'tv-wall',route:'/tv?media=1',expect:'.grid > .card',count:6},
+  {name:'movie-wall',route:'/?media=1',viewportOnly:true,expect:'.grid > .card',count:13}, {name:'tv-wall',route:'/tv?media=1',viewportOnly:true,expect:'.grid > .card',count:6},
   {name:'collections',route:'/collections',expect:'.grid > .card',count:4}, {name:'collection-detail',route:'/c/301',expect:'.grid > .card',count:4},
   {name:'movie-detail',route:'/m/101'}, {name:'movie-unmatched',route:'/m/113'},
   {name:'show-detail',route:'/tv/201'}, {name:'season-detail',route:'/tv/201/s/1'},
@@ -67,8 +67,8 @@ const scenes=[...coreScenes,...(core?[]:[...tutorialScenes,
   {name:'collections-empty',route:'/collections',mode:'empty'},
   {name:'collections-error',route:'/collections',mode:'error',apiPath:'/api/collections',expectedText:'合集加载失败'},
   {name:'movie-error',route:'/',mode:'error'}, {name:'movie-loading',route:'/',mode:'loading'},
-  {name:'upload-dialog',route:'/',action:async page=>{ await page.locator('summary').filter({hasText:'添加影片'}).click();await page.getByRole('button',{name:'上传文件',exact:true}).click();await page.getByRole('dialog').waitFor() }},
-  {name:'tv-upload-dialog',route:'/tv',action:async page=>{await page.locator('summary').filter({hasText:'添加剧集'}).click();await page.getByRole('button',{name:'上传文件',exact:true}).click();await page.getByRole('dialog').waitFor();await page.getByLabel('多选文件',{exact:true}).check()}},
+  {name:'upload-dialog',route:'/',action:async page=>{ await page.locator('.browse-actions summary').click();await page.getByRole('button',{name:'上传文件',exact:true}).click();await page.getByRole('dialog').waitFor() }},
+  {name:'tv-upload-dialog',route:'/tv',action:async page=>{await page.locator('.browse-actions summary').click();await page.getByRole('button',{name:'上传文件',exact:true}).click();await page.getByRole('dialog').waitFor();await page.getByLabel('多选文件',{exact:true}).check()}},
   {name:'collection-delete-dialog',route:'/c/301',action:async page=>{await page.locator('summary').filter({hasText:'管理合集'}).click();await page.getByRole('button',{name:'删除合集',exact:true}).click();await page.getByRole('dialog').waitFor()}},
 ])]
 async function sourceFingerprint() {
@@ -87,14 +87,16 @@ async function sourceFingerprint() {
 const source_sha256=await sourceFingerprint()
 const esc=s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;')
 async function gallery(){
-  const before=await readFile(path.join(root,'output/playwright',beforeLabel,'manifest.json'),'utf8').then(JSON.parse).catch(()=>null)
-  const after=await readFile(path.join(root,'output/playwright/goal-after/manifest.json'),'utf8').then(JSON.parse).catch(()=>null)
-  const all=after?.results||before?.results||results
-  const content=all.filter(r=>r.viewport.width!==375).map(r=>{const old=before?.results.find(b=>b.name===r.name&&b.viewport.width===r.viewport.width);const latest=after?.results.find(b=>b.name===r.name&&b.viewport.width===r.viewport.width);return `<section><h2>${esc(r.name)} · ${r.viewport.width}px</h2><div class="pair">${[[old,beforeLabel,'改前'],[latest,'goal-after','改后']].map(([item,folder,title])=>item?`<figure><figcaption>${title} ${item.metrics.firstCardY!=null?'· 首卡 '+item.metrics.firstCardY+'px':''}</figcaption><a href="../${folder}/${item.file}"><img loading="lazy" src="../${folder}/${item.file}" alt="${esc(r.name)} ${title}"></a></figure>`:'<p>待生成</p>').join('')}</div></section>`}).join('')
+  const baselineLabel=label.includes('before')?label:beforeLabel
+  const before=await readFile(path.join(root,'output/playwright',baselineLabel,'manifest.json'),'utf8').then(JSON.parse).catch(()=>null)
+  const afterLabel=label.includes('before')?label.replace('before','after'):label
+  const after=await readFile(path.join(root,'output/playwright',afterLabel,'manifest.json'),'utf8').then(JSON.parse).catch(()=>null)
+  const all=before&&after ? after.results.filter(r=>before.results.some(b=>b.name===r.name&&b.viewport.width===r.viewport.width)) : after?.results||before?.results||results
+  const content=all.filter(r=>r.viewport.width!==375).map(r=>{const old=before?.results.find(b=>b.name===r.name&&b.viewport.width===r.viewport.width);const latest=after?.results.find(b=>b.name===r.name&&b.viewport.width===r.viewport.width);return `<section><h2>${esc(r.name)} · ${r.viewport.width}px</h2><div class="pair">${[[old,baselineLabel,'改前'],[latest,afterLabel,'改后']].map(([item,folder,title])=>item?`<figure><figcaption>${title} ${item.metrics.firstCardY!=null?'· 首卡 '+item.metrics.firstCardY+'px':''}</figcaption><a href="../${folder}/${item.file}"><img loading="lazy" src="../${folder}/${item.file}" alt="${esc(r.name)} ${title}"></a></figure>`:'<p>待生成</p>').join('')}</div></section>`}).join('')
   const dir=path.join(root,'output/playwright/ui-review');await mkdir(dir,{recursive:true})
   if(before&&after){
     const comparisons=after.results.map(current=>{const previous=before.results.find(r=>r.name===current.name&&r.viewport.width===current.viewport.width);if(!previous)return null;return {name:current.name,viewport:current.viewport,first_card:{before:previous.metrics.firstCardY,after:current.metrics.firstCardY,delta:current.metrics.firstCardY!=null&&previous.metrics.firstCardY!=null?current.metrics.firstCardY-previous.metrics.firstCardY:null},toolbar:{before:previous.metrics.toolbar,after:current.metrics.toolbar},settings_content:{before:previous.metrics.settingsContent,after:current.metrics.settingsContent},hero:{before:previous.metrics.hero,after:current.metrics.hero}}}).filter(Boolean)
-    await writeFile(path.join(dir,'comparisons.json'),JSON.stringify({before_label:beforeLabel,after_label:'goal-after',comparable:before.fixture_sha256===after.fixture_sha256,fixture_sha256:after.fixture_sha256,before_source:before.source_sha256,after_source:after.source_sha256,comparisons},null,2)+'\n')
+    await writeFile(path.join(dir,'comparisons.json'),JSON.stringify({before_label:baselineLabel,after_label:afterLabel,comparable:before.fixture_sha256===after.fixture_sha256,fixture_sha256:after.fixture_sha256,before_source:before.source_sha256,after_source:after.source_sha256,comparisons},null,2)+'\n')
   }
   await writeFile(path.join(dir,'index.html'),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>jzmedia UI 同数据对照</title><style>body{background:#141414;color:#eee;margin:0;padding:24px;font:15px/1.5 system-ui}h1{margin:0}p{color:#aaa}section{border-top:1px solid #444;margin-top:32px}h2{font-size:20px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:20px}figure{margin:0;min-width:0}figcaption{padding:10px;background:#252525}img{width:100%;height:auto}a{color:inherit}@media(max-width:700px){.pair{grid-template-columns:1fr}}</style><h1>jzmedia · 界面对照</h1><p>相同虚构数据、原创新海报、相同视口。图像检查不能替代业务验收。每个场景的API错误、溢出与测量见manifest.json。</p>${content}</html>`)
 }
@@ -117,7 +119,7 @@ async function captureDocs() {
   const appVersion=JSON.parse(await readFile(path.join(root,'frontend/package.json'),'utf8')).version
   const sourceCommit=execFileSync('git',['rev-parse','--short','HEAD'],{cwd:root,encoding:'utf8'}).trim()
   const samples=[
-    ['movie-library','movie-wall',1440,'user-guide/find-movies.md','紧凑继续观看、完整虚构海报墙与独立排序'],
+    ['movie-library','movie-wall',1440,'user-guide/find-movies.md','桌面主视觉、精确续播与海报墙'],
     ['movie-filters','movie-filters',1440,'user-guide/find-movies.md','电影墙右侧的全部筛选面板、分组条件与固定应用操作'],
     ['mobile-library','movie-wall',390,'user-guide/find-movies.md','390px 手机的搜索、继续观看、排序与三列海报墙'],
     ['collections','collection-detail',1440,'user-guide/collections.md','虚构合集详情及成员海报'],
@@ -150,12 +152,13 @@ async function captureDocs() {
     ['organize-preview','organize-preview',1440,'user-guide/organizing.md','电影就地整理预览、勾选范围与逐行动作；未执行移动'],
   ]
   for(const [name,scene,width,page,description] of samples){
+    if(only&&!only.split(',').includes(scene))continue
     const result=results.find(r=>r.name===scene&&r.viewport.width===width)
     assert.ok(result?.file&&!result.errors.length&&!result.metrics.overflow,'Documentation source must pass the current review: '+name)
     const file='screenshots/'+name+'.webp',destination=path.join(assets,file)
     execFileSync(ffmpeg,['-hide_banner','-loglevel','error','-y','-i',path.join(output,result.file),'-quality','86',destination])
     const bytes=await readFile(destination)
-    entries.push({file,page,scene:description,verified_at:new Date().toISOString().slice(0,10),app_version:appVersion,source_commit:sourceCommit,source_state:'当前工作区文档素材核对；源代码哈希 '+source_sha256,source:'真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网',viewport:{...result.viewport,device_scale_factor:1},capture_mode:result.screenshot_mode,recording_script:'node scripts/ui_visual_review.mjs --capture-docs',fixtures:'scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json',fixture_sha256:fixtureFingerprint,artwork_sha256:artworkFingerprint,format:'WebP q86',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')})
+    entries.push({file,page,scene:description,verified_at:new Date().toISOString().slice(0,10),app_version:appVersion,source_commit:sourceCommit,source_state:'当前工作区文档素材核对；源代码哈希 '+source_sha256,source:'真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网',viewport:{...result.viewport,device_scale_factor:1},capture_mode:result.screenshot_mode,recording_script:'node scripts/ui_visual_review.mjs --capture-docs'+(only?' --only '+scene:''),fixtures:'scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json',fixture_sha256:fixtureFingerprint,artwork_sha256:artworkFingerprint,format:'WebP q86',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')})
     console.log('CAPTURE '+file)
   }
   const manifestFile=path.join(assets,'manifest.json'),manifest=JSON.parse(await readFile(manifestFile,'utf8'))
@@ -198,11 +201,12 @@ try {
   if(demo){console.log(`隔离 UI 演示（全部虚构数据与 AI 原创电影素材）：${base}`);console.log('无 .env / 后端 / 数据库 / NAS；Ctrl+C 结束。');await new Promise(resolve=>{process.once('SIGTERM',resolve);process.once('SIGINT',resolve)})}
   else{
     browser=await chromium.launch({headless:true})
-    for(const requestedViewport of [{width:1440,height:1000},{width:390,height:844},{width:375,height:812}]){
+    for(const requestedViewport of [{width:1440,height:1000},{width:1366,height:768},{width:390,height:844},{width:375,height:812}]){
       for(const scene of scenes.filter(scene=>(!scene.viewports||scene.viewports.includes(requestedViewport.width))&&(!only||only.split(',').includes(scene.name)))){
+        if(requestedViewport.width===1366 && !['movie-wall','tv-wall'].includes(scene.name))continue
         const viewport={...requestedViewport,height:scene.height||requestedViewport.height}
         fixture.state.scene=scene.name;fixture.state.mode=scene.mode||'normal';fixture.state.failurePath=scene.apiPath||'/api/search';fixture.state.step=scene.step||1;fixture.state.unexpected=[]
-        const context=await browser.newContext({viewport,serviceWorkers:'block',reducedMotion:'reduce'})
+        const context=await browser.newContext({viewport,hasTouch:viewport.width<=700,isMobile:viewport.width<=700,serviceWorkers:'block',reducedMotion:'reduce'})
         await context.route('**/*',route=>{if(new URL(route.request().url()).origin!==base){external.push(route.request().url());return route.abort()}return route.continue()})
         const page=await context.newPage(),errors=[],failedRequests=[];page.setDefaultTimeout(8000)
         page.on('pageerror',error=>errors.push(String(error)))
@@ -226,17 +230,17 @@ try {
           const metrics=await page.evaluate(()=>{
             const rect=selector=>{const e=document.querySelector(selector);if(!e)return null;const r=e.getBoundingClientRect();return {x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height)}}
             const card=rect('.grid .card, .season-card, .ep-card')
-            return {overflow:document.documentElement.scrollWidth>innerWidth+1,firstCardY:card?.y??null,toolbar:rect('.browse-toolbar'),heading:rect('.browse-heading'),settingsContent:rect('.settings-main, .settings-content'),hero:rect('.media-hero'),h1:document.querySelector('h1')?.textContent?.trim(),activeElement:{tag:document.activeElement?.tagName,text:document.activeElement?.textContent?.trim().slice(0,80)},scrollY,skipLink:(()=>{const e=document.querySelector('.skip-link');const s=getComputedStyle(e);return {focused:e.matches(':focus'),top:s.top,position:s.position}})(),imageCount:document.images.length,brokenImages:[...document.images].filter(i=>i.complete&&!i.naturalWidth).map(i=>i.src),overflowElements:[...document.querySelectorAll('body *')].filter(e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.right>innerWidth+1&&s.position!=='fixed'&&!e.closest('.cw-track, .cast-wall, .similar-row')}).slice(0,6).map(e=>({tag:e.tagName,cls:e.className,width:Math.round(e.getBoundingClientRect().width)}))}
+            return {overflow:document.documentElement.scrollWidth>innerWidth+1,firstCardY:card?.y??null,firstTitle:rect('.cinema-browse .grid .card-title'),navigation:rect('.app-nav'),toolbar:rect('.browse-toolbar'),heading:rect('.browse-heading'),settingsContent:rect('.settings-main, .settings-content'),hero:rect('.browse-feature, .media-hero'),h1:document.querySelector('h1')?.textContent?.trim(),activeElement:{tag:document.activeElement?.tagName,text:document.activeElement?.textContent?.trim().slice(0,80)},scrollY,skipLink:(()=>{const e=document.querySelector('.skip-link');const s=getComputedStyle(e);return {focused:e.matches(':focus'),top:s.top,position:s.position}})(),imageCount:document.images.length,brokenImages:[...document.images].filter(i=>i.complete&&!i.naturalWidth).map(i=>i.src),overflowElements:[...document.querySelectorAll('body *')].filter(e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.right>innerWidth+1&&s.position!=='fixed'&&!e.closest('.cw-track, .cast-wall, .similar-row')}).slice(0,6).map(e=>({tag:e.tagName,cls:e.className,width:Math.round(e.getBoundingClientRect().width)}))}
           })
           if(scene.name==='movie-unmatched')metrics.posterFallback=await page.locator('.poster-empty').evaluate(element=>{const s=getComputedStyle(element);return {display:s.display,align:s.alignItems,justify:s.justifyContent,font:parseFloat(s.fontSize),iconWidth:element.querySelector('svg')?.getBoundingClientRect().width,label:element.querySelector('span')?.textContent}})
           if(scene.name.endsWith('-dialog'))metrics.dialog=await page.getByRole('dialog').last().evaluate(element=>{const r=element.getBoundingClientRect(),f=element.querySelector('.jz-dialog-footer')?.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,footerBottom:f?.bottom??null,scrollLocked:document.body.style.overflow==='hidden',focusInside:element.contains(document.activeElement),activeTag:document.activeElement?.tagName,activeText:document.activeElement?.textContent?.trim().slice(0,90)}})
           const file=`${scene.name}-${viewport.width}.png`
           if(viewport.width!==375&&scene.capture)await page.locator(scene.capture).screenshot({path:path.join(output,file),animations:'disabled'})
-          else if(viewport.width!==375)await page.screenshot({path:path.join(output,file),fullPage:!scene.name.endsWith('-dialog')&&!scene.overlay,animations:'disabled'})
+          else if(viewport.width!==375)await page.screenshot({path:path.join(output,file),fullPage:!scene.viewportOnly&&!scene.name.endsWith('-dialog')&&!scene.overlay,animations:'disabled'})
           const expectedError=scene.mode==='error'
           const actualErrors=expectedError?errors.filter(e=>!e.includes('503')):errors
           const actualFailures=failedRequests.filter(r=>!(expectedError&&r.status===503&&r.url===(scene.apiPath||'/api/search')))
-          const entry={name:scene.name,route:scene.route,viewport,file:viewport.width===375?null:file,screenshot_mode:scene.capture?'element':scene.name.endsWith('-dialog')||scene.overlay?'viewport':'full-page',metrics,errors:actualErrors,failedRequests:actualFailures,unexpected:[...fixture.state.unexpected],expectedFailure:expectedError?failedRequests:[]}
+          const entry={name:scene.name,route:scene.route,viewport,file:viewport.width===375?null:file,screenshot_mode:scene.capture?'element':scene.viewportOnly||scene.name.endsWith('-dialog')||scene.overlay?'viewport':'full-page',metrics,errors:actualErrors,failedRequests:actualFailures,unexpected:[...fixture.state.unexpected],expectedFailure:expectedError?failedRequests:[]}
           if(scene.name==='movie-unmatched'&&!label.includes('before')){const f=metrics.posterFallback;assert.equal(f.display,'flex');assert.equal(f.align,'center');assert.equal(f.justify,'center');assert.ok(f.iconWidth>=24,'Missing-poster uses a legible shared asset');assert.ok(f.label?.trim(),'Missing-poster retains the media title')}
           if(scene.name.endsWith('-dialog')&&!label.includes('before')){
             assert.ok(metrics.dialog.x>=0&&metrics.dialog.y>=0&&metrics.dialog.right<=viewport.width+1&&metrics.dialog.bottom<=viewport.height+1,'Dialog fits viewport')
@@ -254,7 +258,7 @@ try {
         await context.close()
       }
     }
-    let commit;try{commit=execFileSync('git',['rev-parse','HEAD'],{cwd:source,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim()}catch{commit=source.includes('goal-before')?'06b2a4f (frozen source)':'source archive'}
+    let commit;try{commit=execFileSync('git',['rev-parse','HEAD'],{cwd:source,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim()}catch{commit='source archive'}
     const fixture_sha256=fixtureFingerprint
     let mergedResults=results
     if(only){

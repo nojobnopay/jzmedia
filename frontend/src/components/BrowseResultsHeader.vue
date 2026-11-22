@@ -33,16 +33,16 @@ const ratingLabel = computed(() => ({ tmdb: 'TMDB', douban: '豆瓣', custom: '�
 </script>
 <style scoped>
 .wall-head { display: flex; gap: var(--jz-gap-l); flex-wrap: wrap; align-items: center; margin: var(--jz-gap-2xl) 0 var(--jz-gap-l); }
-h2 { margin: 0; font-size: 1.125rem; line-height: 1.4; font-weight: 600; }
+h2 { margin: 0; font-size: clamp(1.25rem, 1.65vw, 1.6rem); line-height: 1.3; font-weight: 650; }
 .wall-count { display: inline-block; margin-left: var(--jz-gap-s); font-size: var(--jz-font-s); font-weight: 400; color: var(--jz-text-dim); }
 .wall-sort { margin-left: auto; display: flex; gap: var(--jz-gap-xs); align-items: center; min-width: 0; }
 .wall-sort label { display: flex; gap: var(--jz-gap-s); align-items: center; font-size: var(--jz-font-s); color: var(--jz-text-dim); }
 .wall-sort select { width: 100%; min-height: var(--jz-control-current); border: 0; background: transparent; padding: var(--jz-gap-s) 0 var(--jz-gap-s) var(--jz-gap-m); text-overflow: ellipsis; }
-.sort-box { display: inline-flex; align-items: center; width: 142px; min-height: var(--jz-control-current); box-sizing: border-box; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s); background: var(--jz-surface-2); padding-right: 10px; }
+.sort-box { display: inline-flex; align-items: center; width: 125px; min-height: var(--jz-control-current); box-sizing: border-box; border-radius: var(--jz-radius-s); background: var(--jz-surface); padding-right: 8px; }
 .sort-note { color: var(--jz-text-dim); font-size: var(--jz-font-s); }
 @media (max-width: 700px) {
   .wall-head { margin: var(--jz-gap-m) 0 var(--jz-gap-s); gap: var(--jz-gap-xs); }
-  h2 { font-size: 1rem; }
+  h2 { font-size: 1.125rem; }
   .wall-count { margin-left: var(--jz-gap-xs); }
   .sort-label { display: none; }
   .wall-sort select { font-size: var(--jz-font-s); }

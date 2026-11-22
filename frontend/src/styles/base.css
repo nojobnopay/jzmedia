@@ -1,22 +1,29 @@
 /* Application foundations. Shared tokens live in tokens.css; page layout stays in styles/. */
 @media (min-width: 701px) { html { scrollbar-gutter: stable; } }
 body { font-family: var(--jz-font-family); margin: 0; background: var(--jz-bg); color: var(--jz-text); }
-.app-nav { --jz-help-color: var(--jz-text); --jz-help-font-size: var(--jz-font-m); --jz-help-line-height: 1.4; padding: 8px clamp(20px, 3vw, 56px); background: var(--jz-surface); display: flex; gap: 24px; align-items: center; border-bottom: 1px solid var(--jz-border); }
+.app-nav { --jz-help-color: var(--jz-text); --jz-help-font-size: var(--jz-font-m); --jz-help-line-height: 1.4; padding: 8px clamp(20px, 3vw, 56px); background: var(--jz-bg); display: flex; gap: clamp(18px, 3vw, 48px); align-items: center; border-bottom: 1px solid var(--jz-border); }
 .app-nav a { color: var(--jz-text); text-decoration: none; }
-.nav-channels, .nav-tools { display: flex; align-items: center; gap: 4px; }
+.nav-identity { display: contents; }
+#phone-nav-context:empty { display: none; }
+.nav-channels, .nav-tools, .nav-secondary { display: flex; align-items: center; gap: 4px; }
 .nav-tools { margin-left: auto; min-width: 0; }
 .nav-context { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; margin-left: 8px; }
 .viewing-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; background: var(--jz-surface-2); border-radius: var(--jz-radius-m); }
 .jz-dialog-mask.viewing-verification-mask { background: var(--jz-bg); }
 .app-nav .nav-link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: var(--jz-touch-target); padding: 0 12px; box-sizing: border-box; position: relative; border-radius: var(--jz-radius-m); color: var(--jz-text); font-size: var(--jz-font-m); line-height: 1.4; white-space: nowrap; }
-.app-nav .nav-link:hover { background: var(--jz-surface-2); text-decoration: none; }
-.app-nav .nav-link.is-current { background: var(--jz-surface-2); font-weight: 600; }
+.app-nav .nav-link:hover { background: rgba(150, 150, 150, .12); text-decoration: none; }
+.app-nav .nav-link.is-current { font-weight: 700; }
 .app-nav .nav-link.is-current::after { content: ''; position: absolute; bottom: 3px; left: calc(50% - 12px); width: 24px; height: 2px; background: var(--jz-accent); border-radius: 1px; }
-.app-nav a:focus-visible, .nav-library:focus-within { outline: 2px solid var(--jz-accent); outline-offset: 3px; }
-.app-nav .brand { display: inline-flex; align-items: center; min-height: var(--jz-touch-target); gap: 8px; font-weight: 800; letter-spacing: 0.5px; border-radius: var(--jz-radius-s); }
+.app-nav a:focus-visible, .nav-library:focus-within { outline: 2px solid var(--jz-link); outline-offset: 2px; }
+.app-nav .brand { display: inline-flex; align-items: center; min-height: var(--jz-touch-target); gap: 8px; font-size: 1.22rem; font-weight: 750; letter-spacing: -.025em; border-radius: var(--jz-radius-s); }
 .app-nav .brand img { border-radius: var(--jz-radius-s); display: block; }
-.nav-library { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 240px; padding: 0 10px; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-m); background: var(--jz-surface-2); }
-.lib-switch { min-width: 0; min-height: var(--jz-touch-target); width: 100%; background: var(--jz-surface-2); color: var(--jz-text); border: 0; padding: 6px 0 6px 0; font-size: var(--jz-font-m); text-overflow: ellipsis; }
+.nav-library, .nav-single-library { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 220px; border-radius: var(--jz-radius-s); }
+.nav-single-library { font-size: var(--jz-font-m); color: var(--jz-text-dim); }
+.nav-single-library > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lib-switch { min-width: 0; min-height: var(--jz-touch-target); width: 100%; background: transparent; color: var(--jz-text); border: 0; padding: 6px 0; font-size: var(--jz-font-m); text-overflow: ellipsis; }
+.app-nav .nav-viewing > .jz-button { border-color: transparent; background: transparent; }
+.app-nav .nav-viewing > .jz-button:hover { background: rgba(150, 150, 150, .12); }
+.nav-context > :first-child:not(.nav-viewing) { margin-right: 4px; padding-right: 12px; border-right: 1px solid var(--jz-border-strong); }
 .lib-switch:focus-visible { outline: none; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--poster-min, 150px), 1fr)); gap: 12px; padding: 12px; }
 .card { background: var(--jz-surface-2); border-radius: var(--jz-radius-m); overflow: hidden; cursor: pointer; }
@@ -110,29 +117,38 @@ input[type="range"] { padding: 0; }
 .auth-hint code { color: var(--jz-link); }
 
 @media (min-width: 701px) and (max-width: 1050px) {
- .app-nav { gap: 12px; }
+ .app-nav { gap: 12px; padding-inline: 12px; }
  .app-nav .brand span { display: none; }
  .app-nav .brand { min-width: var(--jz-touch-target); justify-content: center; }
  .app-nav .nav-link { padding-inline: 8px; }
- .nav-library { max-width: 180px; }
+ .nav-library, .nav-single-library { max-width: 15vw; }
+}
+@media (min-width: 701px) {
+ .app-nav:has(+ .app-content > .cinema-browse:first-child .browse-feature--landscape) {
+   position: relative; z-index: 2; margin-bottom: -61px; border-bottom-color: transparent;
+   background: linear-gradient(to bottom, rgba(7, 10, 14, .92), rgba(7, 10, 14, .66) 70%, transparent);
+ }
 }
 @media (max-width: 700px) {
- .app-nav { --jz-help-line-height: 1.2; display: grid; grid-template-columns: 44px repeat(5, minmax(0, 1fr)); gap: 0 4px; padding: 4px max(var(--jz-mobile-gutter), env(safe-area-inset-right)) 4px max(var(--jz-mobile-gutter), env(safe-area-inset-left)); }
- .app-nav--online { grid-template-columns: 44px repeat(6, minmax(0, 1fr)); }
+ .app-nav { display: grid; grid-template-columns: repeat(4, minmax(44px, 1fr)); gap: 0; padding: 0 max(var(--jz-mobile-gutter), env(safe-area-inset-right)) 0 max(var(--jz-mobile-gutter), env(safe-area-inset-left)); }
+ .app-nav--online { grid-template-columns: repeat(5, minmax(44px, 1fr)); }
+ .nav-identity { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; border-bottom: 1px solid var(--jz-border); }
+ .app-nav .brand { flex: none; font-size: 1.1rem; gap: 6px; }
+ #phone-nav-context { flex: 1; min-width: 0; }
  .nav-channels, .nav-tools { display: contents; }
- .app-nav .brand { justify-content: center; min-height: var(--jz-touch-target); }
- .app-nav .brand span { display: none; }
- .app-nav .nav-link { flex-direction: column; gap: 2px; min-width: 0; min-height: 52px; padding: 4px 2px 6px; font-size: var(--jz-font-m); line-height: 1.2; }
- .app-nav .nav-link.is-current::after { bottom: 2px; }
- .nav-context { grid-column: 1 / -1; grid-row: 2; width: 100%; margin: 4px 0 0; }
- .nav-library { flex: 1; max-width: none; box-sizing: border-box; }
- .app-nav .lib-switch { font-size: 1rem; }
+ .nav-channels .nav-link { padding-inline: 2px; }
+ .app-nav .nav-secondary { display: block; }
+ .app-nav .nav-secondary > summary { justify-content: center; min-height: var(--jz-touch-target); border: 0; background: transparent; padding: 0 2px; gap: 0; }
+ .app-nav .nav-secondary > summary svg { display: none; }
+ .nav-context { gap: 4px; margin: 0; min-height: var(--jz-touch-target); }
+ .nav-context > :first-child:not(.nav-viewing) { margin: 0; padding: 0; border: 0; }
+ .nav-context .nav-viewing > .jz-button { min-width: var(--jz-touch-target); }
+ .nav-context .nav-viewing > .jz-button:not(.jz-button--icon) { padding-inline: 4px; gap: 4px; }
+ .app-nav .lib-switch { min-width: var(--jz-touch-target); font-size: 1rem; }
 }
-
-@media (max-width: 380px) {
- .app-nav--online { grid-template-columns: 44px repeat(4, minmax(44px, 1fr)); }
- .app-nav--online .nav-tools > .nav-link { grid-row: 2; }
- .app-nav--online .nav-context { grid-row: 3; }
+@media (max-width: 374px) {
+ .nav-identity:has(.nav-library, .nav-single-library):has(.nav-viewing > .jz-button--icon) .brand { min-width: var(--jz-touch-target); justify-content: center; }
+ .nav-identity:has(.nav-library, .nav-single-library):has(.nav-viewing > .jz-button--icon) .brand span { display: none; }
 }
 
 @media (max-width: 700px) {

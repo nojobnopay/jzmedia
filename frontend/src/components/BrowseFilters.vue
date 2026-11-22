@@ -1,16 +1,16 @@
 <template>
   <div class="browse-filter-triggers">
     <JzButton v-for="item in quickGroups" :key="item.key"
-      :class="['filter-trigger', { 'filter-trigger--secondary': item.secondary, 'filter-trigger--selected': hasGroup(item.key) }]"
+      :class="['filter-trigger', { 'filter-trigger--selected': hasGroup(item.key) }]"
       :aria-label="item.label" aria-haspopup="dialog" :aria-expanded="mode === 'quick' && activeGroup === item.key"
       :aria-controls="dialogId" :data-filter-trigger="item.key" @click="start('quick', item.key, $event)">
       {{ item.label }}<AppIcon name="chevron-down" :size="13" />
     </JzButton>
-    <JzButton ref="allTrigger" class="filter-trigger filter-trigger--all" :class="{ 'filter-trigger--selected': activeCount > 0 }"
+    <JzButton ref="allTrigger" variant="ghost" class="filter-trigger filter-trigger--all" :class="{ 'filter-trigger--selected': activeCount > 0 }"
       :aria-label="activeCount ? '全部筛选，已选 ' + activeCount + ' 项' : '全部筛选'" aria-haspopup="dialog" :aria-expanded="mode === 'drawer'" :aria-controls="dialogId"
       data-filter-trigger="all" @click="start('drawer', 'genres', $event)">
       <AppIcon name="filter" :size="18" />
-      全部筛选<span v-if="activeCount" class="filter-trigger-count" aria-hidden="true">{{ activeCount }}</span>
+      筛选<span v-if="activeCount" class="filter-trigger-count" aria-hidden="true">{{ activeCount }}</span>
     </JzButton>
   </div>
   <JzDialog :id="dialogId" :open="!!mode" :title="dialogTitle" :presentation="mode === 'drawer' ? 'drawer' : 'popover'"
@@ -79,8 +79,8 @@ const allTrigger = ref(null)
 const dialogId = `browse-filters-${getCurrentInstance().uid}`
 let trigger = null
 const quickGroups = [
-  { key: 'genres', label: '类型' }, { key: 'location', label: '地区', secondary: true },
-  { key: 'period', label: '年代', secondary: true }, { key: 'watched', label: '观看' },
+  { key: 'genres', label: '类型' }, { key: 'location', label: '地区' },
+  { key: 'period', label: '年代' }, { key: 'watched', label: '观看' },
 ]
 const groups = computed(() => [
   { key: 'genres', label: '类型' }, { key: 'location', label: '地区 / 国家' },
@@ -143,7 +143,6 @@ onUnmounted(() => window.removeEventListener('resize', updateAnchor))
 .browse-filter-triggers { display: contents; }
 .filter-trigger { flex: none; padding-inline: var(--jz-gap-m); background: transparent; white-space: nowrap; }
 .filter-trigger--selected { border-color: var(--jz-danger-border); background: var(--jz-selected); }
-.filter-trigger--all { background: var(--jz-surface-3); }
 .filter-trigger-count { min-width: 18px; padding: 1px 4px; border-radius: 4px; background: var(--jz-text); color: var(--jz-bg); font-size: var(--jz-font-s); line-height: 1.3; }
 .browse-filters-scope { margin: 6px 0 0; font-size: var(--jz-font-s); color: var(--jz-text-dim); overflow-wrap: anywhere; }
 .browse-filters-count-note { color: var(--jz-text-dim); font-size: var(--jz-font-s); margin: 0 0 var(--jz-gap-l); }
@@ -163,7 +162,7 @@ onUnmounted(() => window.removeEventListener('resize', updateAnchor))
 .browse-filters-reset { margin-right: auto; }
 .browse-filters-apply { min-width: 96px; }
 @media (max-width: 700px) {
-  .filter-trigger--secondary { display: none; }
+  .filter-trigger:not(.filter-trigger--all) { display: none; }
   .filter-trigger { padding-inline: var(--jz-gap-m); }
 }
 </style>

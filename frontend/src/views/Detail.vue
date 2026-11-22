@@ -1,5 +1,5 @@
 <template>
-  <div class="detail media-detail movie-detail" v-if="m">
+  <div class="detail media-detail movie-detail cinema-detail" v-if="m">
     <div class="hero media-hero">
       <MediaBackdrop :src="m.tmdb_id ? scopedArtworkUrl(`/api/movies/${m.id}/backdrop?tmdb=${m.tmdb_id}`) : ''" />
       <div class="hero-inner">
@@ -12,51 +12,54 @@
           </span>
         </div>
         <div class="hero-main">
-          <img v-if="m.poster_path" :src="posterSrc" class="poster zoomable" :alt="(m.title || '海报') + ' 海报'" title="查看大图" tabindex="0" role="button" @keydown.enter="openPoster" @keydown.space.prevent="openPoster" @click="openPoster" />
+          <img v-if="m.poster_path && failedPoster !== posterSrc" :key="posterSrc" :src="posterSrc" class="poster zoomable" :alt="(m.title || '海报') + ' 海报'" title="查看大图" tabindex="0" role="button" @error="failedPoster = $event.currentTarget.getAttribute('src')" @keydown.enter="openPoster" @keydown.space.prevent="openPoster" @click="openPoster" />
+          <JzButton v-else-if="m.poster_path" class="poster poster-retry" icon="image" @click="openPoster">查看海报</JzButton>
           <ArtworkPlaceholder v-else class="poster poster-empty" kind="poster" :label="m.title" />
           <div class="hero-info">
             <div class="hero-heading">
-              <h1>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span></h1>
-              <div v-if="m.edition || m.spec || m.watched" class="detail-badges"><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.watched" class="watched-chip"><AppIcon name="check" :size="14" />已看</span></div>
-              <HeroRatings :tmdb="m.tmdb_rating" :douban="m.douban_rating" :custom="m.custom_rating" />
+              <h1>{{ m.title }}</h1>
               <p v-if="metaLine" class="meta-line">{{ metaLine }}</p>
+              <div v-if="m.watched || (!showVersionSelect && (m.edition || m.spec))" class="detail-badges"><span v-if="!showVersionSelect && m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="!showVersionSelect && m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.watched" class="watched-chip"><AppIcon name="check" :size="14" />已看</span></div>
+              <HeroRatings :tmdb="m.tmdb_rating" :douban="m.douban_rating" :custom="m.custom_rating" />
             </div>
             <div class="play-row">
-              <JzButton class="play-main" variant="primary" :disabled="heroBlocked" :title="heroBlockTip" @click="openHeroPlay"><PlayerIcon name="play" :size="20" /> {{ heroResume ? '继续观看' : '播放影片' }}</JzButton>
+              <JzButton class="play-main" variant="primary" :disabled="heroBlocked" :title="heroBlockTip" @click="openHeroPlay"><PlayerIcon name="play" :size="20" /> {{ heroResume ? '从 ' + heroResume + ' 继续' : '播放影片' }}</JzButton>
 
-              <JzButton :loading="watchedBusy" @click="toggleWatched">{{ m.watched ? '标记未看' : '标记已看' }}</JzButton>
-              <ActionMenu v-if="!isChildren">
-                <ContentPolicyButton kind="movie" :ids="[m.id]" @saved="load" />
-                <JzButton @click="openEdit('edit')" type="button" variant="ghost" icon="edit" title="修改标题、简介、评分、标签等资料">编辑资料</JzButton>
-                <JzButton @click="openEdit('match')" type="button" variant="ghost" icon="match" title="重新搜索 TMDB 并绑定资料">重新匹配</JzButton>
-                <JzButton @click="refreshMovieInfo" :disabled="refreshBusy" type="button" variant="ghost" icon="refresh" title="重新获取 TMDB 资料并重写 NFO 与海报">{{ refreshBusy ? '更新中…' : '更新资料' }}</JzButton>
-                <JzButton icon="file" :disabled="metaBusy" title="选择要重写的资料文件（NFO/海报）" @click="repairOpen = !repairOpen" type="button" variant="ghost">修复资料文件</JzButton>
-                <JzButton @click="collectionsOpen = !collectionsOpen" type="button" variant="ghost" icon="collections" title="加入或移出合集">管理所属合集</JzButton>
-                <JzButton @click="goFiles" type="button" variant="ghost" icon="folder" title="在文件管理中打开所在目录">文件管理</JzButton>
-              </ActionMenu>
+              <div v-if="showVersionSelect" class="play-options version-choice">
+                <label for="movie-play-version" class="version-label">版本</label>
+                <select id="movie-play-version" :value="heroVid ?? ''" class="ver-sel" aria-label="播放版本"
+                  :disabled="!!requestedVersion() && mediaLoading" @change="selectHeroVersion($event.target.value)">
+                  <option v-if="!heroVid" value="" disabled>选择播放版本</option>
+                  <option v-for="v in heroOptions" :key="v.id" :value="v.id" :disabled="!!verBlocked[v.id]">
+                    {{ versionLabels.get(v.id) }}{{ verBlocked[v.id] ? '（无效）' : (showFriendly && verFriendly(v.id) ? ' · 浏览器友好' : '') }}
+                  </option>
+                </select>
+              </div>
+              <div class="movie-utility-actions">
+                <JzButton :loading="watchedBusy" @click="toggleWatched">{{ m.watched ? '标记未看' : '标记已看' }}</JzButton>
+                <ActionMenu v-if="!isChildren">
+                  <ContentPolicyButton kind="movie" :ids="[m.id]" @saved="load" />
+                  <JzButton @click="openEdit('edit')" type="button" variant="ghost" icon="edit" title="修改标题、简介、评分、标签等资料">编辑资料</JzButton>
+                  <JzButton @click="openEdit('match')" type="button" variant="ghost" icon="match" title="重新搜索 TMDB 并绑定资料">重新匹配</JzButton>
+                  <JzButton @click="refreshMovieInfo" :disabled="refreshBusy" type="button" variant="ghost" icon="refresh" title="重新获取 TMDB 资料并重写 NFO 与海报">{{ refreshBusy ? '更新中…' : '更新资料' }}</JzButton>
+                  <JzButton icon="file" :disabled="metaBusy" title="选择要重写的资料文件（NFO/海报）" @click="repairOpen = !repairOpen" type="button" variant="ghost">修复资料文件</JzButton>
+                  <JzButton @click="collectionsOpen = !collectionsOpen" type="button" variant="ghost" icon="collections" title="加入或移出合集">管理所属合集</JzButton>
+                  <JzButton @click="goFiles" type="button" variant="ghost" icon="folder" title="在文件管理中打开所在目录">文件管理</JzButton>
+                </ActionMenu>
+              </div>
             </div>
             <p v-if="versionNotice" class="resume-hint" role="status">{{ versionNotice }}
               <JzButton v-if="!mediaLoading" size="compact" variant="ghost" @click="load()">重新核对版本</JzButton>
             </p>
-            <div v-if="showVersionSelect || heroResume" class="play-options">
-              <select v-if="showVersionSelect" :value="heroVid ?? ''" class="ver-sel" aria-label="播放版本"
-                :disabled="!!requestedVersion() && mediaLoading" @change="selectHeroVersion($event.target.value)">
-                <option v-if="!heroVid" value="" disabled>选择播放版本</option>
-                <option v-for="v in heroOptions" :key="v.id" :value="v.id" :disabled="!!verBlocked[v.id]">
-                  {{ verLabel(v) }}{{ verBlocked[v.id] ? '（无效）' : (verFriendly(v.id) ? ' 浏览器友好' : '') }}
-                </option>
-              </select>
-              <span v-if="heroResume" class="resume-hint">{{ heroResume }}</span>
-            </div>
             <MediaOverview :text="m.overview_display || ''" />
             <div v-if="!isChildren && ((!m.tmdb_id && !m.match_source) || m.needs_review)" class="review-notice">
               <span>{{ !m.tmdb_id && !m.match_source ? '影片资料尚未匹配' : '请确认影片是否匹配正确' }}</span>
               <JzButton v-if="m.tmdb_id || m.match_source" :disabled="!!nrBusy" @click="confirmMatch" type="button" icon="match">匹配正确</JzButton>
               <JzButton :aria-expanded="editing === 'match'" @click="openEdit('match')" type="button" icon="match">{{ !m.tmdb_id && !m.match_source ? '匹配资料' : '重新匹配' }}</JzButton>
             </div>
-            <div v-if="mediaBadge || mediaUnplayable || noFfmpeg" class="media-row">
+            <div v-if="mediaBadge || verBlocked[heroVid] || noFfmpeg" class="media-row">
               <span v-if="mediaBadge" class="media-badge">{{ mediaBadge }}</span>
-              <span v-if="mediaUnplayable" class="media-warn" :title="mediaError">无效文件，无法播放</span>
+              <span v-if="verBlocked[heroVid]" class="media-warn" :title="verErr[heroVid]">当前版本无法播放</span>
               <span v-if="noFfmpeg" class="media-warn" title="服务器缺 ffmpeg：转码/重封装不可用，直链与电视播放不受影响">转码不可用（缺 ffmpeg）</span>
             </div>
             <div v-else-if="mediaLoading" class="media-row"><span class="media-loading">媒体信息探测中…</span></div>
@@ -235,6 +238,7 @@ import { api, posterUrl, scopedArtworkUrl } from '../api.js'
 import { usePolling } from '../usePolling.js'
 import { getCaps } from '../caps.js'
 import { isPlaybackComplete } from '../progress.js'
+import { fmtTime } from '../playerLabels.js'
 import HeroRatings from '../components/HeroRatings.vue'
 import SimilarRow from '../components/SimilarRow.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -331,47 +335,41 @@ const metaLine = computed(() => {
   return parts.join(' · ')
 })
 // 在线播放 P0：版本媒体徽章 + 断点提示（播放器弹窗在 P1–P4 接入）
-const mediaInfo = ref(null)
 const mediaLoading = ref(false)
-const mediaError = ref('')
 const noFfmpeg = ref(false)
 const progressInfo = ref(null)
+function heightLabel(height) {
+  if (Number(height) === 2160) return '4K'
+  return height > 0 ? height + 'p' : ''
+}
 const mediaBadge = computed(() => {
-  const mi = mediaInfo.value
+  const mi = verList.value.find(v => Number(v.version_id) === Number(heroVid.value))
   if (!mi || !mi.playable) return ''
   const parts = []
   if (mi.duration_text) parts.push(mi.duration_text)
-  const h = Number(mi.height) || 0
-  if (h >= 2000) parts.push('4K')
-  else if (h >= 1000) parts.push('1080p')
-  else if (h >= 650) parts.push('720p')
-  else if (h > 0) parts.push(h + 'p')
+  if (mi.height) parts.push(heightLabel(mi.height))
   if (mi.vcodec) parts.push(String(mi.vcodec).toUpperCase())
   if (Number(mi.bit_depth) > 8) parts.push(mi.bit_depth + 'bit')
   if (Number(mi.dv_profile) > 0) parts.push('DV P' + mi.dv_profile)
   else if (mi.hdr) parts.push(String(mi.hdr).toUpperCase())
-  const na = (mi.audio || []).length
+  const na = Number(mi.audio_count)
   if (na > 1) parts.push(`音频${na}轨`)
   else if (na === 1 && mi.acodec) parts.push(String(mi.acodec).toUpperCase())
-  const ns = (mi.subs || []).length
+  const ns = Number(mi.sub_count)
   if (ns) parts.push(`字幕${ns}`)
   return parts.join(' · ')
 })
-const mediaUnplayable = computed(() => mediaInfo.value && !mediaInfo.value.playable)
-const resumeText = computed(() => {
-  const p = progressInfo.value
-  const pos = Number(p?.position) || 0
-  if (!p || !(pos > 15)) return ''
-  let dur = Number(p.duration) || 0
-  // 旧版本用 HLS 增长清单时长写坏过存档：dur < position 视为不可信，回落探测总长
-  if (dur > 0 && dur < pos) dur = Number(mediaInfo.value?.duration) || 0
-  if (!dur) dur = Number(mediaInfo.value?.duration) || 0
-  if (isPlaybackComplete(pos, dur)) return ''
-  return `上次看到 ${p.position_text || ''}`
+const heroResume = computed(() => {
+  const pos = Number(progressInfo.value?.position)
+  if (heroBlocked.value || !Number.isFinite(pos) || pos <= 15) return ''
+  const dur = Number(progressInfo.value.duration)
+  // Match PlayerModal: older HLS saves can contain a playlist duration shorter than the position.
+  return isPlaybackComplete(pos, dur >= pos ? dur : 0) ? '' : fmtTime(pos)
 })
 async function loadMedia(context = loadContext()) {
   if (!currentLoad(context)) return
   const generation = ++mediaGeneration
+  const selection = selectionRevision
   const current = () => currentLoad(context) && generation === mediaGeneration
   const requested = requestedVersion()
   if (requested) {
@@ -379,7 +377,6 @@ async function loadMedia(context = loadContext()) {
     versionNotice.value = '正在核对片单中选择的播放版本…'
   }
   mediaLoading.value = true
-  mediaError.value = ''
   // P1：一次取齐全版本（媒体+四档决策+最优版），带客户端实测 caps（打分随能力变化）
   try {
     const caps = await getCaps()
@@ -391,18 +388,6 @@ async function loadMedia(context = loadContext()) {
     })
     if (!current()) return
     verList.value = agg.versions || []
-    bestVid.value = agg.best_version_id || null
-    const cur = verList.value.find(x => Number(x.version_id) === Number(context.id))
-    mediaInfo.value = cur && cur.playable
-      ? { playable: true, duration_text: cur.duration_text, duration: cur.duration,
-          height: cur.height, vcodec: cur.vcodec, acodec: '',
-          hdr: cur.hdr || '', dv_profile: cur.dv_profile || 0,
-          bit_depth: cur.bit_depth || 0,
-          audio: new Array(cur.audio_count).fill({}), subs: new Array(cur.sub_count).fill({}) }
-      : (cur ? { playable: false, probe_error: cur.probe_error } : null)
-    if (mediaInfo.value && !mediaInfo.value.playable) {
-      mediaError.value = mediaInfo.value.probe_error || '无法识别媒体流'
-    }
     verBlocked.value = {}
     verErr.value = {}
     verMethod.value = {}
@@ -420,20 +405,18 @@ async function loadMedia(context = loadContext()) {
         const otherPlayable = heroOptions.value.some(v => !verBlocked.value[v.id])
         versionNotice.value = '片单中选择的播放版本已不可用。' + (otherPlayable ? '请选择其他可用版本，或重新核对。' : '请重新核对版本。')
       } else versionNotice.value = verBlocked.value[requested] ? '选中的版本无法播放：' + verErr.value[requested] : ''
-    } else heroVid.value = bestVid.value || Number(context.id)
-  } catch (e) {
+    } else heroVid.value = listedChoice() || agg.best_version_id || Number(context.id)
+  } catch {
     if (!current()) return
-    mediaInfo.value = null
-    mediaError.value = String(e.message || e)
-    heroVid.value = requested ? null : Number(context.id)
+    verList.value = []
+    heroVid.value = requested ? null : listedChoice() || Number(context.id)
     if (requested) {
-      verList.value = []
       versionNotice.value = '暂时无法核对片单中选择的播放版本，请重试。'
     }
   } finally {
     if (current()) mediaLoading.value = false
   }
-  if (!current()) return
+  if (!current() || (selection !== selectionRevision && heroVid.value === chosenVersion.value)) return
   await refreshProgress(heroVid.value, context)
 }
 // 在线播放 P1：版本选播弹窗（播放单位=版本行 id）+ 播完标已看（阈值逻辑 P3 进弹窗内）
@@ -444,13 +427,13 @@ const verBlocked = ref({})
 const verErr = ref({})
 const verMethod = ref({})
 const verList = ref([])
-const bestVid = ref(null)
 // “浏览器友好”= direct/remux/audio_transcode（零/近零 CPU：仅换容器或只转音轨），视频重编版不打标
 const verFriendly = (id) => ['direct', 'remux', 'audio_transcode'].includes(verMethod.value[id])
 // P4 hero 主播放键：默认当前行，多版本可下拉切换（无效版本禁用）
 const heroVid = ref(null)
 const versionNotice = ref('')
 const chosenVersion = ref(null)
+let selectionRevision = 0
 function requestedVersion() {
   const match = aiNavigationContext(route.path)?.version
   return match ? chosenVersion.value || match : null
@@ -462,11 +445,16 @@ const heroOptions = computed(() => {
   return rows.filter(v => ids.has(Number(v.id)))
 })
 const showVersionSelect = computed(() => heroOptions.value.length > 1 || !!versionNotice.value && heroOptions.value.length > 0)
+const showFriendly = computed(() => heroOptions.value.some(v => verMethod.value[v.id] && !verBlocked.value[v.id] && !verFriendly(v.id)))
+function listedChoice() {
+  return heroOptions.value.some(v => Number(v.id) === chosenVersion.value) ? chosenVersion.value : null
+}
 function selectHeroVersion(value) {
   if (requestedVersion() && mediaLoading.value) return
   const id = Number(value)
   if (!heroOptions.value.some(v => Number(v.id) === id) || verBlocked.value[id]) return
-  if (requestedVersion()) chosenVersion.value = id
+  chosenVersion.value = id
+  selectionRevision++
   heroVid.value = id
   versionNotice.value = ''
   refreshProgress(id)
@@ -481,14 +469,29 @@ const heroRemoteLib = computed(() => {
   const v = (m.value?.versions || []).find(x => Number(x.id) === Number(heroVid.value))
   return isRemoteVideoLib(v?.library_id ?? m.value?.library_id)
 })
-const heroResume = computed(() => resumeText.value)
 function baseName(p) {
-  return String(p || '').split('/').pop()
+  return String(p || '').split(/[\\/]/).pop()
 }
-function verLabel(v) {
-  const extra = [v.edition, v.spec].filter(Boolean).join('·')
-  return baseName(v.file_path) + (extra ? `（${extra}）` : '')
+function duplicates(values) {
+  const seen = new Set(), repeated = new Set()
+  for (const value of values) {
+    if (seen.has(value)) repeated.add(value)
+    seen.add(value)
+  }
+  return repeated
 }
+const versionLabels = computed(() => {
+  const probes = new Map(verList.value.map(v => [Number(v.version_id), v]))
+  const rows = heroOptions.value.map(v => {
+    const probe = probes.get(Number(v.id))
+    const summary = [v.edition || probe?.edition, v.spec || probe?.spec || heightLabel(probe?.height)].filter(Boolean).join(' · ')
+    return { id: v.id, summary, file: baseName(v.file_path || probe?.file_path) }
+  })
+  const shared = duplicates(rows.map(v => v.summary))
+  const names = rows.map(v => !v.summary || shared.has(v.summary) ? [v.summary, v.file].filter(Boolean).join(' · ') : v.summary)
+  const ambiguous = duplicates(names)
+  return new Map(rows.map((v, i) => [v.id, !names[i] ? '版本 ' + v.id : names[i] + (ambiguous.has(names[i]) ? ' · #' + v.id : '')]))
+})
 function openHeroPlay() {
   if (heroBlocked.value || !heroVid.value) return
   const v = (m.value?.versions || []).find(x => Number(x.id) === Number(heroVid.value))
@@ -657,7 +660,7 @@ async function refreshProgress(vid, context = loadContext()) {
   try {
     const p = await api(`/api/stream/progress?version_id=${vid}`, { signal: context.signal })
     if (!current()) return
-    progressInfo.value = (p && Number(p.position) > 0) ? p : null
+    if (p && (p.version_id == null || Number(p.version_id) === Number(vid))) progressInfo.value = p
   } catch (e) { if (current()) progressInfo.value = null }
 }
 async function toggleWatched() {
@@ -700,7 +703,6 @@ async function load() {
     m.value = null
     sideFiles.value = null
     hint.value = null
-    mediaInfo.value = null
     progressInfo.value = null
     verBlocked.value = {}
     verErr.value = {}
@@ -714,7 +716,7 @@ async function load() {
     loadErr.value = '加载失败：' + e.message
     return
   }
-  heroVid.value = requestedVersion() ? null : Number(context.id)
+  heroVid.value = requestedVersion() ? null : listedChoice() || Number(context.id)
   // The visible review notice opens matching on demand; loading metadata must
   // not replace the viewing page with an automatically expanded maintenance form.
   loadMedia(context)
@@ -774,6 +776,7 @@ let posterController = null
 let posterWriteContext = null
 // 换海报后原地覆盖文件（URL 不变）→ 用版本参数强制取新图；posterVer 用于同页即时刷新
 const posterVer = ref(0)
+const failedPoster = ref('')
 const posterSrc = computed(() =>
   posterUrl(m.value?.poster_path, posterVer.value || m.value?.updated_at))
 async function openPoster() {
@@ -1115,7 +1118,6 @@ watch(() => currentMovieId(), id => {
   m.value = null
   sideFiles.value = null
   hint.value = null
-  mediaInfo.value = null
   verBlocked.value = {}
   verErr.value = {}
   verMethod.value = {}
@@ -1125,6 +1127,13 @@ watch(() => currentMovieId(), id => {
 }, { flush: 'sync' })   // 同组件切片重载（评审 B8/R05-Q3）
 </script>
 <style scoped>
+.play-row .version-choice { flex: 0 1 12rem; flex-wrap: nowrap; min-width: 0; margin: 0; }
+.version-choice .ver-sel { flex: 1; width: 0; }
+.movie-utility-actions { display: flex; align-items: center; gap: var(--jz-gap-s); }
+.version-label { white-space: nowrap; color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+@media (max-width: 700px) {
+  .play-row .version-choice { flex-grow: 1; }
+}
 .top-right { display: flex; gap: 8px; align-items: center; }.saved-flash { color: var(--jz-success); font-size: 0.875rem; }.poster.zoomable { cursor: zoom-in; }.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }.poster-dlg { text-align: center; }.poster-dlg .bar { justify-content: center; }.needs-review { color: var(--jz-danger); font-size: 0.875rem; border: 1px solid var(--jz-danger-border); border-radius: 999px; padding: 1px 4px 1px 10px; margin-left: 8px; vertical-align: middle; display: inline-flex; align-items: center; gap: 4px; }.edition-chip { color: var(--jz-blue-chip); font-size: 0.875rem; border: 1px solid var(--jz-info-border); border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.edition-chip.spec { color: var(--jz-success); border-color: var(--jz-success-border); }.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }.media-badge { color: var(--jz-link); font-size: 0.875rem; border: 1px solid var(--jz-info-border); border-radius: 999px; padding: 1px 10px; }.media-warn { color: var(--jz-warn); font-size: 0.8125rem; border: 1px dashed var(--jz-warn-border); border-radius: 999px; padding: 1px 10px; }.media-loading { color: var(--jz-text-faint); font-size: 0.8125rem; }.resume-hint { color: var(--jz-text-dim); font-size: 0.8125rem; }.ver-sel { background: var(--jz-surface-3); color: var(--jz-text-dim); border: 1px solid var(--jz-border-strong); border-radius: 8px; padding: 6px 8px; max-width: 320px; }.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }.pre-sel { background: var(--jz-surface-3); color: var(--jz-text-dim); border: 1px solid var(--jz-warn-border); border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }.src { color: var(--jz-text-faint); font-weight: normal; }.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed var(--jz-border-strong); color: var(--jz-text-dim); }.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--jz-info-border); color: var(--jz-blue-chip); cursor: pointer; }.watched-chip { color: var(--jz-success); font-size: 0.875rem; border: 1px solid var(--jz-success-border); border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.hint-row { margin-top: 6px; color: var(--jz-text-dim); font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.hint-row .fhint { color: var(--jz-text-faint); font-size: 0.75rem; }.crew { margin: 8px 0; font-size: 0.9375rem; }.role { color: var(--jz-text-faint); margin-right: 8px; font-size: 0.875rem; }.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: var(--jz-surface-3); border: 1px solid var(--jz-border); cursor: pointer; font-size: 0.9375rem; }.actor-chip:hover { border-color: var(--jz-blue-chip); color: var(--jz-blue-chip); }.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }.cast-card { cursor: pointer; min-width: 0; }.cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: var(--jz-surface-3); }.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: var(--jz-text-faint); border: 1px solid var(--jz-border); }.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }.facts .fact span:first-child { color: var(--jz-text-faint); min-width: 48px; flex-shrink: 0; }.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }.facts a { color: var(--jz-blue-chip); margin-right: 10px; }.arch-dlg { max-width: 720px; }.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }.arch-list li { display: flex; gap: 8px; align-items: center; background: var(--jz-surface-3); border: 1px solid var(--jz-border); border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }.arch-from { color: var(--jz-text-faint); overflow-wrap: anywhere; }.arch-arrow { color: var(--jz-blue-chip); }.arch-to { color: var(--jz-success); overflow-wrap: anywhere; }.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }.dlg { background: var(--jz-surface); border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.hint.warn { color: var(--jz-warn); }
 /* 推荐行样式单源：SimilarRow.vue */
 .poster-pick-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }

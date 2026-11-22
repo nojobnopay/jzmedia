@@ -116,6 +116,7 @@ test('only transient failures retry once after a delay, never terminal or author
   timers[0].callback()
   await flush()
   assert.equal(calls.length, 2)
+  assert.deepEqual(calls.map(call => call.options.retry), [false, true])
   calls[1].pending.reject(Object.assign(new Error('fixed failure'), { retryable: true, status: 503 }))
   await flush()
   assert.equal(timers.length, 1)
@@ -159,14 +160,56 @@ test('manual refresh preserves successful image nodes and does not cancel an ong
   assert.equal(calls[0].cancelled, false)
 })
 
+function observeVisibility(t) {
+  let observe
+  const original = globalThis.IntersectionObserver
+  globalThis.IntersectionObserver = class {
+    constructor(callback) { observe = isIntersecting => callback([{ isIntersecting }]) }
+    observe() {}
+    disconnect() {}
+  }
+  t.after(() => { if (original === undefined) delete globalThis.IntersectionObserver; else globalThis.IntersectionObserver = original })
+  return visible => observe(visible)
+}
+
+test('scrolling away during the retry delay preserves the remaining attempt across repeated intersections', async t => {
+  const observe = observeVisibility(t), timers = []
+  t.mock.method(globalThis, 'setTimeout', callback => { timers.push(callback); return timers.length })
+  const { calls, props, ui } = await setup(t)
+  const timeout = Object.assign(new Error('fixture timeout'), { retryable: true, status: 504 })
+  observe(true)
+  calls[0].pending.reject(timeout)
+  await flush()
+  assert.equal(timers.length, 1)
+  observe(false); observe(true)
+  assert.equal(calls[1].options.retry, true)
+  calls[1].pending.reject(timeout)
+  await flush()
+  for (let index = 0; index < 8; index++) { observe(false); observe(true) }
+  await flush()
+  assert.equal(ui.text().includes('暂无海报'), true)
+  assert.equal(calls.length, 2)
+  assert.equal(timers.length, 1)
+  props.retryKey++
+  await flush()
+  assert.equal(calls.length, 3)
+})
+
 test('manual refresh retries a failed poster but never clears an authorization pause', async t => {
+  const observe = observeVisibility(t)
+  t.mock.method(globalThis, 'setTimeout', () => assert.fail('terminal failures do not schedule retries'))
   const { ui, calls, props } = await setup(t)
+  observe(true)
   calls[0].pending.reject(Object.assign(new Error('fixed decode failure'), { retryable: false, status: 502 }))
   await flush()
   assert.equal(ui.text().includes('暂无海报'), true)
+  observe(false); observe(true)
+  await flush()
+  assert.equal(calls.length, 1)
   props.retryKey++
   await flush()
   assert.equal(calls.length, 2)
+  assert.equal(calls[1].options.retry, true)
   calls[1].pending.reject(Object.assign(new Error('fixed unauthorized'), { retryable: false, status: 403 }))
   await flush()
   props.retryKey++

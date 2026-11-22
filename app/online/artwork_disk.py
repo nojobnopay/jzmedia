@@ -21,12 +21,12 @@ except ImportError:  # Unsupported hosts keep the normal upstream image path.
 
 from .. import data_usage
 from ..config import settings
+from .limits import MAX_IMAGE_BYTES
 
 
 MAX_CACHE_BYTES = 128 * 1024**2
 MAX_CACHE_RECORDS = 2048
 MAX_CACHE_SECONDS = 86400
-MAX_IMAGE_BYTES = 512 * 1024
 SWEEP_SECONDS = 60
 _MAGIC = b"JZART1\n"
 _HEADER_BYTES = 1024

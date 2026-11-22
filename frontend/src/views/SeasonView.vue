@@ -1,5 +1,5 @@
 <template>
-  <div v-if="s" class="tv-page media-detail season-detail">
+  <div v-if="s" class="tv-page media-detail season-detail cinema-detail">
     <nav class="crumbs" aria-label="当前位置">
       <router-link :to="aiNavigationContext(route.path)?.origin || '/tv'">{{ aiNavigationContext(route.path) ? '返回片单' : '剧集' }}</router-link><span class="dim"> / </span>
       <router-link :to="'/tv/' + s.show_id">{{ s.show_title }}</router-link>
@@ -24,15 +24,16 @@
               <span v-if="hasLocalFiles">本页 {{ s.watched_count }}/{{ s.episode_count }} 已看</span>
             </div>
           </div>
-          <div v-if="hasLocalFiles" class="acts">
-            <JzButton v-if="s.next_episode" class="primary" :disabled="!s.next_episode.exists"
+          <div class="acts">
+            <JzButton v-if="hasLocalFiles && s.next_episode" class="primary" :disabled="!s.next_episode.exists"
               @click="play(s.next_episode)" type="button" variant="primary">
               <PlayerIcon name="play" :size="20" /> {{ s.next_episode.progress ? '继续观看' : '播放本季' }} {{ epNo(s.next_episode) }}
             </JzButton>
-            <JzButton v-if="eps.length" :disabled="busy" @click="toggleSeasonWatched" type="button">
+            <a class="section-jump" href="#season-episodes">{{ seasonTab === 'catalog' ? '查看全部分集' : '选择剧集' }} <AppIcon name="chevron-down" :size="16" /></a>
+            <JzButton v-if="hasLocalFiles && eps.length" :disabled="busy" @click="toggleSeasonWatched" type="button">
               {{ seasonDone ? '标记本季全部版本未看' : '标记本季全部版本已看' }}
             </JzButton>
-            <ActionMenu v-if="!isChildren">
+            <ActionMenu v-if="hasLocalFiles && !isChildren">
               <JzButton :disabled="verifying" @click="verifyExists" type="button" variant="ghost" icon="eye">{{ verifying ? '检查中…' : '检查文件是否可用' }}</JzButton>
             </ActionMenu>
             <span v-if="busy" class="dim">处理中…</span>
@@ -47,9 +48,7 @@
         </div>
       </div>
     </div>
-    <CastWall :cast="s.cast || []" :original-language="s.original_language || ''"
-      :subtitle="s.cast_source === 'season' ? seasonLabel(s.season) : '全剧'" />
-    <div class="season-list-heading"><h2 class="section-heading">{{ seasonTab === 'local' ? '选择剧集' : '全部分集' }} <span v-if="seasonTab === 'local'">{{ s.distinct_count ?? s.episode_count }} 集</span></h2>
+    <div class="season-list-heading"><h2 id="season-episodes" class="section-heading jump-heading" tabindex="-1">{{ seasonTab === 'local' ? '选择剧集' : '全部分集' }} <span v-if="seasonTab === 'local'">{{ s.distinct_count ?? s.episode_count }} 集</span></h2>
       <label v-if="seasonTab === 'local' && (s.versions || []).length > 1">播放版本 <select v-model="selectedVersion" @change="load">
         <option value="">全部版本</option><option v-for="v in s.versions" :key="v.version" :value="String(v.version)">V{{ v.version }} · {{ v.distinct }} 集</option>
       </select></label></div>
@@ -99,6 +98,8 @@
     </div>
     <div v-else-if="eps.length" class="bar dim small">已加载全部 {{ eps.length }} 个文件</div>
     </template>
+    <CastWall :cast="s.cast || []" :original-language="s.original_language || ''"
+      :subtitle="s.cast_source === 'season' ? seasonLabel(s.season) : '全剧'" />
   </div>
   <EmptyState v-else :state="loadError ? 'error' : 'loading'" :title="loadError ? '剧季加载失败' : '正在加载剧季'"
     :text="loadError || '请稍候…'" :retry="!!loadError" @retry="load">

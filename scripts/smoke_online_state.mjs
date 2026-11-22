@@ -7,7 +7,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
-import { backendChildren as childPids, buildOnlinePreview, delay, freePort, killOwned, mediaHashes, readPlayer,
+import { backendChildren as childPids, buildOnlinePreview, delay, freePort, isCacheLookupConsoleMessage, isCacheLookupMiss,
+  measureOnlineCatalogLayout as layout, navigateOnlineCatalog as navigate, killOwned, mediaHashes, readPlayer,
   sha256, stopOwned, stopped, waitForFixtureIdle, waitUntil } from './online_fixture/browser.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -118,16 +119,16 @@ function trackPage(page) {
     const text = message.text()
     if (message.type() === 'error') {
       const item = { phase: phase.name, message: text }
-      if (phase.expectedHttp && /Failed to load resource|MEDIA_ERR|DEMUXER_ERROR|PIPELINE_ERROR/i.test(text)) report.expectedFailures.console.push(item)
+      if (isCacheLookupConsoleMessage(message) || phase.expectedHttp && /Failed to load resource|MEDIA_ERR|DEMUXER_ERROR|PIPELINE_ERROR/i.test(text)) report.expectedFailures.console.push(item)
       else report.errors.push({ ...item, type: 'console' })
     } else if (/\[Vue warn\].*(Unhandled error|Failed to resolve|Missing required|Invalid prop)/i.test(text)) {
       report.errors.push({ phase: phase.name, type: 'vue-runtime', message: text })
     }
   })
-  page.on('response', response => {
+  page.on('response', async response => {
     if (response.status() < 400) return
     const item = { phase: phase.name, path: new URL(response.url()).pathname, status: response.status() }
-    if (phase.expectedHttp) report.expectedFailures.responses.push(item)
+    if (phase.expectedHttp || await isCacheLookupMiss(response)) report.expectedFailures.responses.push(item)
     else report.unexpectedResponses.push(item)
   })
   page.on('requestfailed', request => {
@@ -214,27 +215,6 @@ async function closePlayer(page, { keyboard = false, focusKey = null, waitIdle =
   if (focusKey) await page.waitForFunction(key => document.activeElement?.dataset.onlineItem === key, focusKey)
   return waitIdle ? idle() : null
 }
-async function layout(page, width) {
-  const state = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth + 1,
-    buttons: [...document.querySelectorAll('button')].filter(button => {
-      const rect = button.getBoundingClientRect()
-      return rect.width && rect.height && getComputedStyle(button).visibility !== 'hidden'
-        && !button.closest('[inert]') && button.getAttribute('aria-hidden') !== 'true'
-    }).map(button => { const rect = button.getBoundingClientRect(); return {
-      label: button.getAttribute('aria-label') || button.textContent.trim(), width: rect.width, height: rect.height } }),
-    navTargets: [...document.querySelectorAll('.app-nav a.nav-link')].map(link => {
-      const rect = link.getBoundingClientRect(); return { label: link.textContent.trim(), width: rect.width, height: rect.height }
-    }) }))
-  assert.equal(state.overflow, false, `${width}px has no horizontal overflow`)
-  if (width <= 700) {
-    assert.deepEqual(state.buttons.filter(button => button.width < 43.5 || button.height < 43.5), [],
-      'Every visible phone control retains a 44px touch target')
-    assert.equal(state.navTargets.length, 6, 'The real App exposes all six normal-view navigation targets')
-    assert.deepEqual(state.navTargets.filter(target => target.width < 43.5 || target.height < 43.5), [],
-      'The real App navigation retains 44px phone targets')
-  }
-  return state
-}
 async function call(page, method, apiPath, body, extraHeaders = {}) {
   return page.evaluate(async ({ method, apiPath, body, extraHeaders }) => {
     const response = await fetch(apiPath, { method, credentials: 'same-origin',
@@ -251,11 +231,6 @@ function assertPrivateCatalogue(value) {
   for (const forbidden of ['fixture.invalid', 'fixture_signature', 'api_base_url', 'allowed_hosts', 'vod_play_url', 'X-Api-Token']) {
     assert.equal(text.includes(forbidden), false, `Catalogue DTO must not expose ${forbidden}`)
   }
-}
-async function navigate(page, pathName) {
-  const label = pathName === '/settings' ? '设置' : '在线'
-  await page.getByRole('navigation', { name: '主导航', exact: true }).getByRole('link', { name: label, exact: true }).click()
-  await page.waitForFunction(pathName => window.__jzOnlineFixture.snapshot().path === pathName, pathName)
 }
 async function createSourceUi(page, name) {
   const bootstrap = (await call(page, 'GET', '/api/fixture/bootstrap')).body

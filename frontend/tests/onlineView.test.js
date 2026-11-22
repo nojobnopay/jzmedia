@@ -254,6 +254,24 @@ test('verified year filters reach pagination, validate custom years and clear be
   assert.equal(ui.find(node => node.props['data-online-channel'] === '58').props['aria-pressed'], false)
 })
 
+test('clearing a category preserves the year and the unsubmitted title on a cached result', async t => {
+  const calls = []
+  const { ui } = await setup(t, async path => {
+    calls.push(path)
+    return path.endsWith('/sources') ? taxonomySources() : categoryRows(path)
+  })
+  ui.find(node => node.props['data-online-year'] !== undefined).props.onChange({ target: { value: '2025' } }); await flush()
+  ui.find(node => node.props.id === 'online-query').props.onInput({ target: { value: '尚未提交的片名' } })
+  ui.find(node => node.props['data-online-channel'] === '20').props.onClick(); await flush()
+  assert.equal(ui.find(node => node.props.id === 'online-query').props.value, '尚未提交的片名')
+  const before = calls.length
+  ui.find(node => node.props['data-online-categories-open'] !== undefined).props.onClick(); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '不限分类').props.onClick(); await flush()
+  assert.equal(calls.length, before)
+  assert.equal(ui.find(node => node.props['data-online-year'] !== undefined).props.value, '2025')
+  assert.equal(ui.find(node => node.props.id === 'online-query').props.value, '尚未提交的片名')
+})
+
 test('unknown-source capabilities hide year controls and cannot inherit a prior source year', async t => {
   const catalogue = taxonomySources()
   catalogue.items.push({ ...sources.items[1], capabilities: { browse: true, year_filter: false } })

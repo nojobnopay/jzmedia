@@ -293,8 +293,9 @@ try {
       await page.screenshot({ path: path.join(output, `preview-${width}.png`), fullPage: true })
     } else {
       const dialog = page.getByRole('dialog', { name: '剧集入库与整理预览', exact: true })
+      const showActions = page.locator('.show-detail .action-menu > summary')
       const openManual = async () => {
-        await page.locator('.action-menu > summary').click()
+        await showActions.click()
         await page.getByRole('button', { name: '检查资料与整理', exact: true }).click()
         await dialog.waitFor()
       }
@@ -343,13 +344,13 @@ try {
       assert.equal(requests.filter(request => request.key === '/api/jobs/tv-organize' && request.method === 'POST').length, writes + 1)
       await page.getByRole('button', { name: '完成', exact: true }).click()
       await dialog.waitFor({ state: 'hidden' })
-      assert.equal(await page.locator('.action-menu > summary').evaluate(element => element === document.activeElement), true)
+      assert.equal(await showActions.evaluate(element => element === document.activeElement), true)
       await page.screenshot({ path: path.join(output, `detail-${width}.png`), fullPage: true })
       // A real inline edit holds automatic reviews without a second modal scheduler.
       let release
       const held = new Promise(resolve => { release = resolve })
       await page.route('**/api/jobs/tv-ingest/ingest', async route => { await held; await route.continue() })
-      await page.reload(); await page.locator('.action-menu > summary').click()
+      await page.reload(); await showActions.click()
       await page.getByRole('button', { name: '修改剧名', exact: true }).click()
       release(); await page.waitForResponse(response => response.url().endsWith('/api/jobs/tv-ingest/ingest'))
       await page.getByLabel('剧名', { exact: true }).fill('尚未保存的标题')
@@ -361,7 +362,7 @@ try {
       let releaseModal
       const modalHeld = new Promise(resolve => { releaseModal = resolve })
       await page.route('**/api/jobs/tv-ingest/ingest', async route => { await modalHeld; await route.continue() })
-      await page.reload(); await page.locator('.action-menu > summary').click()
+      await page.reload(); await showActions.click()
       await page.getByRole('button', { name: '归属与季号', exact: true }).click()
       const binding = page.getByRole('dialog', { name: '剧集归属与季号', exact: true })
       await binding.waitFor(); releaseModal()
@@ -389,7 +390,7 @@ try {
       // The upload keeps both successful files in one follow-up request.
       decision = ''; const beforeUploads = requests.length
       await page.goto(base + '/tv?media=1')
-      await page.locator('summary').filter({ hasText: '添加剧集' }).click()
+      await page.locator('.browse-actions summary').click()
       await page.getByRole('button', { name: '上传文件', exact: true }).click()
       const upload = page.getByRole('dialog', { name: '上传剧集', exact: true })
       await upload.getByLabel('多选文件', { exact: true }).check()
@@ -407,7 +408,7 @@ try {
       await upload.getByRole('button', { name: '关闭', exact: true }).click()
       // Cancelling the next file still checks files whose responses already succeeded.
       decision = ''; const beforeCancelled = requests.length
-      await page.locator('summary').filter({ hasText: '添加剧集' }).click()
+      await page.locator('.browse-actions summary').click()
       await page.getByRole('button', { name: '上传文件', exact: true }).click()
       await upload.getByLabel('多选文件', { exact: true }).check()
       await upload.locator('.tv-target select').selectOption('201')

@@ -1,31 +1,44 @@
 <template>
-  <div class="browse-page">
+  <div class="browse-page cinema-browse" :class="{ 'catalogue-tools-ready': !loadError && !scanOpen && !msg }">
   <header class="browse-heading">
     <h1>剧集</h1>
-    <div v-if="!isChildren" class="browse-actions">
-      <router-link :to="toolsLink" class="manage-link"><AppIcon name="organize" :size="18" />扫描与整理<AppIcon name="chevron-right" :size="16" /></router-link>
-      <ActionMenu label="添加剧集"><JzButton @click="scanOpen = !scanOpen" type="button" variant="ghost" icon="scan">扫描新文件</JzButton><JzButton @click="upDlg = true" type="button" variant="ghost" icon="upload">上传文件</JzButton></ActionMenu>
-    </div>
   </header>
-  <BrowseToolbar id="tv-browse" v-model="searchInput"
-    :label="!ai.open ? '搜索剧集' : ai.result ? '追问当前片单' : '智能找片'"
-    :placeholder="!ai.open ? '搜剧名 / 演员' : ai.result ? '继续描述要求，例如：只换第 2 部' : '描述想看的作品、记得的情节或想要的片单'"
-    :submit-label="ai.open ? (ai.result ? '提交追问' : '找片') : ''"
-    :suggestions-enabled="!ai.open" :maxlength="ai.open ? 500 : undefined"
-    :loading="ai.open && ai.busy" :search-disabled="ai.open && (ai.expired || !ai.draft.trim())"
-    item-heading="剧集" :suggest-open="suggestOpen" :suggest-no-match="suggestNoMatch"
-    :suggest-items="suggestItems" :suggest-persons="suggestPersons" :suggest-idx="suggestIdx"
-    :ai-open="ai.open" :ai-enabled="!isChildren" @update:ai-open="setAiOpen"
-    @input="!ai.open && onQInput($event)" @compositionstart="!ai.open && (composing = true)" @compositionend="!ai.open && onCompositionEnd()"
-    @enter="ai.open ? discovery.submit() : onSearchEnter($event)" @move="suggestMove" @close="closeSuggest" @blur="!ai.open && onQBlur()"
-    @pick-item="pickShow" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="ai.open ? discovery.submit() : submitQuery()">
-    <template #filters>
-      <BrowseFilters :model-value="sel" :facets="facets" kind="tv" v-model:open="filtersOpen"
-        :scope-label="filterScope" :scope-key="curMediaId" :context-key="route.fullPath"
-        :loading="facetsLoading" :error="facetsError" @retry="loadFacets"
-        @open="closeSuggest" @apply="applyFilters" />
+  <BrowseFeature ref="featureRef" kind="tv" :first-item="firstFeatureItem" :scope="curMediaId" :recent-item="cwRef?.featuredItem"
+    :recent-ready="cwRef?.settled" :enabled="featureReady && showContinue && !ai.open && !viewing.suspended"
+    @resume="resume">
+    <template #recent="{ featuredVersion }">
+      <ContinueWatchingRow v-if="browseReady && showContinue && !ai.open && !viewing.suspended" ref="cwRef"
+        kind="tv" :media-library-id="curMediaId" :featured-version="featuredVersion" :has-catalogue="!!firstFeatureItem" @resume="resume" />
     </template>
-  </BrowseToolbar>
+    <template #tools>
+      <BrowseToolbar id="tv-browse" v-model="searchInput"
+        :label="!ai.open ? '搜索剧集' : ai.result ? '追问当前片单' : '智能找片'"
+        :placeholder="!ai.open ? '搜剧名 / 演员' : ai.result ? '继续描述要求，例如：只换第 2 部' : '描述想看的作品、记得的情节或想要的片单'"
+        :submit-label="ai.open ? (ai.result ? '提交追问' : '找片') : ''"
+        :suggestions-enabled="!ai.open" :maxlength="ai.open ? 500 : undefined"
+        :loading="ai.open && ai.busy" :search-disabled="ai.open && (ai.expired || !ai.draft.trim())"
+        item-heading="剧集" :suggest-open="suggestOpen" :suggest-no-match="suggestNoMatch"
+        :suggest-items="suggestItems" :suggest-persons="suggestPersons" :suggest-idx="suggestIdx"
+        :ai-open="ai.open" :ai-enabled="!isChildren" @update:ai-open="setAiOpen"
+        @input="!ai.open && onQInput($event)" @compositionstart="!ai.open && (composing = true)" @compositionend="!ai.open && onCompositionEnd()"
+        @enter="ai.open ? discovery.submit() : onSearchEnter($event)" @move="suggestMove" @close="closeSuggest" @blur="!ai.open && onQBlur()"
+        @pick-item="pickShow" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="ai.open ? discovery.submit() : submitQuery()">
+        <template #filters>
+          <BrowseFilters :model-value="sel" :facets="facets" kind="tv" v-model:open="filtersOpen"
+            :scope-label="filterScope" :scope-key="curMediaId" :context-key="route.fullPath"
+            :loading="facetsLoading" :error="facetsError" @retry="loadFacets"
+            @open="closeSuggest" @apply="applyFilters" />
+        </template>
+        <div v-if="!isChildren" class="browse-actions">
+          <ActionMenu label="管理">
+            <router-link :to="toolsLink"><AppIcon name="organize" :size="18" />扫描与整理</router-link>
+            <JzButton icon="scan" variant="ghost" @click="scanOpen = !scanOpen">扫描新文件</JzButton>
+            <JzButton icon="upload" variant="ghost" @click="upDlg = true">上传文件</JzButton>
+          </ActionMenu>
+        </div>
+      </BrowseToolbar>
+    </template>
+  </BrowseFeature>
   <div id="tv-browse-ai"><AiSearchPanel v-if="ai.open" :state="ai" kind="tv" :scope-label="filterScope" :chips="selectedChips"
     @cancel="discovery.cancel" @retry="discovery.retry" @restart="discovery.restart" @ask="discovery.ask"
     @fill="discovery.fill" @remember="discovery.remember" @public="discovery.searchPublic" /></div>
@@ -33,12 +46,10 @@
   <UploadDialog v-if="upDlg" kind="tv" @close="upDlg = false" @done="onAdded" />
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
 
-  <div v-show="!ai.open">
+  <div v-show="!ai.open" class="browse-results">
   <BrowseFilterSummary :chips="selectedChips" :query="appliedQuery" fallback-id="tv-browse-input"
     @remove="removeFilter" @clear="clearFilters" @clear-query="clearQuery" />
 
-  <ContinueWatchingRow v-if="showContinue" ref="cwRef" kind="tv" :media-library-id="curMediaId"
-    @open="openShow" @resume="resume" />
   <TvUpdatesRow v-if="firstLoaded" ref="updatesRef" :active="showContinue && !ai.open" :media-library-id="curMediaId"
     :mode="updatesMode" :initial-snapshot="updatesSnapshot" />
 
@@ -60,22 +71,22 @@
   </EmptyState>
 
   <div class="grid" :aria-busy="loading">
-    <div v-for="s in items" :key="s.id" :data-browse-id="s.id" class="card show-card" role="link" tabindex="0" @keydown.enter.self="openShow(s.id)" @click="openShow(s.id)">
+    <router-link v-for="s in items" :key="s.id" :to="'/tv/' + s.id" :data-browse-id="s.id" class="card show-card" :aria-label="'查看 ' + s.title + ' 详情'">
       <div class="poster-wrap">
-        <img v-if="s.poster_path" :src="posterUrl(s.poster_path)" loading="lazy"
-          :alt="s.title || '剧集'" />
-        <ArtworkPlaceholder v-else class="no-poster" kind="poster" :label="s.title" />
+        <WallPoster :src="posterUrl(s.poster_path)" :title="s.title" />
         <span v-if="s.watched_count" class="seen">{{ s.watched_count }}/{{ s.episode_count }}</span>
         <span v-if="!s.tmdb_id" class="review">未匹配</span>
         <span v-else-if="s.needs_review" class="review">待确认</span>
-        <ScoreBadge :score="s.tmdb_rating" source="tmdb" />
       </div>
-      <div class="t"><span class="card-title" :title="s.title">{{ s.title }}<span v-if="s.year" class="yr"> ({{ s.year }})</span></span></div>
-      <div class="t fhint card-meta">
-        {{ s.season_count }} 季 · {{ s.episode_count }} 集
-        <span v-if="s.status"> · {{ statusText(s.status) }}</span>
+      <div class="t">
+        <span class="card-title" :title="s.title">{{ s.title }}</span>
+        <div class="card-metadata">
+          <span v-if="s.year">{{ s.year }}</span>
+          <ScoreBadge :score="s.tmdb_rating" source="tmdb" />
+        </div>
+        <span class="card-meta">{{ s.season_count }} 季 · {{ s.episode_count }} 集<span v-if="s.status"> · {{ statusText(s.status) }}</span></span>
       </div>
-    </div>
+    </router-link>
   </div>
 
   <div ref="loadSentinel" class="load-more">
@@ -85,15 +96,15 @@
 
   </div>
 
-  <PlayerModal v-if="playing" :key="'episode:' + playing.id" :version-id="playing.id" :title="playing.label"
-    kind="episode" @close="playing = null" @watched="onWatched" @ended="onWatched" @version-change="playing = $event" />
+  <PlayerModal v-if="playing" ref="playerRef" :key="'episode:' + playing.id" :version-id="playing.id" :title="playing.label"
+    kind="episode" @close="closePlayback" @watched="onWatched" @ended="onWatched" @version-change="playing = $event" />
   </div>
 </template>
 
 <script setup>
 import { useAssistantPage } from '../assistantPage.js'
 import { isChildren, isPrivate, viewing } from '../viewing.js'
-import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
+import WallPoster from '../components/WallPoster.vue'
 
 import AppIcon from '../components/AppIcon.vue'
 
@@ -120,6 +131,7 @@ import { currentMediaId, preferredVideoLibId, mediaParam, switchLib, switchMedia
 import { WALL_SORTS, loadWallSort, normalizeWallSort, saveWallSort,
          toggleWallSort } from '../wallSort.js'
 import { buildTvParams, statusText } from '../tvWall.js'
+import BrowseFeature from '../components/BrowseFeature.vue'
 import ContinueWatchingRow from '../components/ContinueWatchingRow.vue'
 import TvUpdatesRow from '../components/TvUpdatesRow.vue'
 import { loadPrefs } from '../prefs.js'
@@ -203,7 +215,18 @@ function setAiOpen(value) {
 
 const showContinue = computed(() => !activeCount.value && !q.value.trim())
 const playing = ref(null)
+const playerRef = ref(null)
 const cwRef = ref(null)
+const featureRef = ref(null)
+const browseReady = ref(false)
+const featureReady = ref(false)
+const loadedWallKey = ref('')
+const firstFeatureItem = computed(() => items.value.length && loadedWallKey.value === historyKey() ? items.value[0] : null)
+watch(curMediaId, () => {
+  loadSeq++
+  items.value = []
+  hasMore.value = false
+}, { flush: 'sync' })
 const updatesRef = ref(null)
 const updatesSnapshot = ref(null)
 const updatesMode = loadPrefs().tvUpdates
@@ -300,6 +323,7 @@ function readUrl() {
 }
 async function load() {
   const seq = ++loadSeq
+  const key = historyKey()
   loading.value = true
   loadingMore.value = false
   loadError.value = ''
@@ -312,6 +336,7 @@ async function load() {
     }))
     if (seq !== loadSeq) return          // 更新的筛选已接管，丢弃过期回包
     items.value = d.items || []
+    loadedWallKey.value = key
     hasMore.value = !!d.has_more
     loadError.value = ''
   } catch (e) {
@@ -462,11 +487,18 @@ async function loadFacets() {
   }
 }
 
-function openShow(id) { router.push('/tv/' + id) }
 function resume(m) {
   const p = m && m.progress
   if (!p || !p.version_id) return
   playing.value = { id: p.version_id, label: `${m.title}${m.subtitle ? ' ' + m.subtitle : ''}` }
+}
+async function closePlayback() {
+  const media = curMediaId.value
+  const shelf = cwRef.value
+  const saved = playerRef.value?.saveFinal()
+  playing.value = null
+  await saved
+  if (!disposed && media === curMediaId.value && shelf === cwRef.value && !playing.value) await shelf?.reload()
 }
 async function onWatched() {
   const id = playing.value && playing.value.id
@@ -490,10 +522,12 @@ onBeforeRouteLeave(to => {
     updates: to?.path?.startsWith('/tv/') ? updatesRef.value?.snapshot?.() || null : null })
 })
 async function restoreWall() {
-  const snapshot = readBrowse(historyKey())
+  const key = historyKey()
+  const snapshot = readBrowse(key)
   updatesSnapshot.value = snapshot?.updates || null
   if (snapshot) {
     items.value = snapshot.items
+    loadedWallKey.value = key
     hasMore.value = snapshot.hasMore
     filtersOpen.value = false
   } else await load()
@@ -505,6 +539,8 @@ async function restoreWall() {
   await nextTick()
   await new Promise(resolve => requestAnimationFrame(resolve))
   const restoredAi = await discovery.restore()
+  featureReady.value = true
+  await nextTick()
   if (!restoredAi && !ai.open) restoreBrowsePosition(snapshot)
   if (snapshot && !disposed) refreshSnapshot(snapshot)
 }
@@ -537,15 +573,22 @@ async function refreshSnapshot(snapshot) {
 }
 
 let unsubLib = null
+let readingRoute = false
 onMounted(async () => {
   try { await loadLibs(api) } catch (e) { /* 后端不可用时按单库旧行为 */ }
   if (disposed) return
   readUrl()
+  browseReady.value = true
   const initial = Promise.all([loadFacets(), restoreWall()])
   if (disposed) return
   await initial
   if (disposed) return
-  unsubLib = onLibChange(() => { if (route.path !== '/tv') return; curMediaId.value = currentMediaId(); loadFacets(); load() })
+  unsubLib = onLibChange(() => {
+    if (readingRoute || route.path !== '/tv' || curMediaId.value === currentMediaId()) return
+    curMediaId.value = currentMediaId()
+    loadFacets()
+    load()
+  })
   try {
     if (window.IntersectionObserver && loadSentinel.value) {
       loadIO = new IntersectionObserver((entries) => {
@@ -565,7 +608,8 @@ onUnmounted(() => {
 })
 watch(() => route.query, () => {
   if (route.path !== '/tv') return
-  readUrl()
+  readingRoute = true
+  try { readUrl() } finally { readingRoute = false }
   // Facets describe the whole media library, so applying filters need not reload them.
   if (facetsScope !== currentMediaId()) loadFacets()
   load()
@@ -581,7 +625,7 @@ useAssistantPage('tv', () => {
   })
   if (showContinue.value && cwRef.value?.hasUnfinished) tips.push({
     id: 'tv-resume', text: '接着看上次的剧，可以直接点「继续观看」海报上的播放按钮。',
-    actionLabel: '查看继续观看', run: () => cwRef.value?.focusResume(),
+    actionLabel: '查看继续观看', run: () => featureRef.value?.focusResume() || cwRef.value?.focusResume(),
   })
   tips.push({
     id: 'tv-filters', manualOnly: true, text: '想等一部剧完结再看？在「全部筛选」里可以按连载状态挑剧。',
@@ -592,7 +636,7 @@ useAssistantPage('tv', () => {
 </script>
 
 <style scoped>
-.show-card { cursor: pointer; }
+.show-card { color: inherit; text-decoration: none; }
 
 .seen, .review {
   position: absolute; top: 6px; font-size: 0.75rem; padding: 2px 8px;
@@ -600,7 +644,6 @@ useAssistantPage('tv', () => {
 }
 .seen { left: 6px; }
 .review { right: 6px; color: var(--jz-warn); }
-.yr { color: var(--jz-text-dim); font-size: 0.75rem; }
 
 .warn-text { color: var(--jz-warn); }
 </style>

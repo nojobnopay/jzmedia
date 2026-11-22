@@ -5,9 +5,6 @@
         :aria-label="'查看详情 ' + row.item.title" :disabled="disabled || !row.available" @click="$emit('detail', row)">
         <OnlineArtwork class="online-record-artwork" :path="row.poster_path || ''" :title="row.item.title" />
       </JzButton>
-      <JzButton v-if="compact && row.progress" class="online-record-cover-play" variant="primary" icon="play" icon-only
-        :data-online-resume="row.item.id" :aria-label="playLabel + ' ' + row.item.title" :title="playLabel"
-        :disabled="disabled || !row.available || starting" @click="$emit('resume', row)" />
     </div>
     <div class="online-record-body">
       <h3 class="online-record-title"><JzButton variant="ghost" class="online-record-title-button"
@@ -29,6 +26,9 @@
         </ActionMenu>
       </div>
     </div>
+    <JzButton v-if="compact && row.progress" class="online-record-quick-play" icon="play" icon-only
+      :data-online-resume="row.item.id" :aria-label="playLabel + ' ' + row.item.title" :title="playLabel"
+      :disabled="disabled || !row.available || starting" @click="$emit('resume', row)" />
     <div v-if="progressPercent !== null" class="online-record-progress" role="progressbar" :aria-label="row.item.title + ' 观看进度'"
       :aria-valuenow="Math.round(progressPercent)" :aria-valuemin="0" :aria-valuemax="100" :aria-valuetext="progressLabel">
       <span :style="{ width: progressPercent + '%' }" />
@@ -93,13 +93,15 @@ const updatedLabel = computed(() => updatedDate.value?.toLocaleString('zh-CN', {
 .online-record-progress { position: absolute; inset: auto var(--jz-gap-m) 0; height: 3px; overflow: hidden; background: var(--jz-border); border-radius: var(--jz-radius-pill); }
 .online-record-progress > span { display: block; height: 100%; background: var(--jz-accent); }
 .online-record-card.is-unavailable .online-record-title-button { color: var(--jz-text-dim); }
-.online-record-card--compact { width: 280px; height: 112px; grid-template-columns: 64px minmax(0, 1fr); padding: var(--jz-gap-s); }
+.online-record-card--compact { width: 300px; min-height: 112px; grid-template-columns: 64px minmax(0, 1fr) auto; grid-template-rows: 1fr auto; column-gap: var(--jz-gap-m); row-gap: 4px; padding: var(--jz-gap-xs) 0; background: transparent; }
+.online-record-card--compact .online-record-artwork-wrap { grid-area: 1 / 1 / 3 / 2; align-self: center; }
+.online-record-card--compact .online-record-body { grid-area: 1 / 2 / 2 / 3; }
 .online-record-card--compact .online-record-title { line-height: 1.3; }
 .online-record-card--compact .online-record-episode, .online-record-card--compact .online-record-source, .online-record-card--compact .online-record-position { margin-top: 2px; line-height: 1.2; }
 .online-record-card--compact .online-record-position { margin-top: auto; }
 .online-record-card--compact .online-record-unavailable { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; margin-top: 4px; }
-.online-record-card--compact .online-record-progress { inset-inline: var(--jz-gap-s); }
-.online-record-cover-play.jz-button { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); width: 44px; height: 44px; min-height: 44px; border-radius: 50%; box-shadow: 0 2px 10px var(--jz-overlay-soft); }
+.online-record-card--compact .online-record-progress { position: static; grid-area: 2 / 2 / 3 / 3; align-self: end; }
+.online-record-quick-play.jz-button { grid-area: 1 / 3 / 3 / 4; align-self: center; width: 44px; height: 44px; padding: 0; border-radius: 50%; }
 .online-record-card--poster { display: flex; flex-direction: column; gap: 0; padding: 0 0 var(--jz-gap-s); background: transparent; }
 .online-record-card--poster .online-record-artwork-wrap { width: 100%; }
 .online-record-card--poster .online-record-body { flex: 1; padding-top: var(--jz-gap-s); }
@@ -107,7 +109,7 @@ const updatedLabel = computed(() => updatedDate.value?.toLocaleString('zh-CN', {
 .online-record-card--poster .online-record-progress { inset-inline: 0; }
 @media (max-width: 700px), (pointer: coarse) {
   .online-record-title-button.jz-button { min-height: 44px; }
-  .online-record-card--compact { width: 260px; }
+  .online-record-card--compact { width: min(320px, calc(100vw - 44px)); }
   .online-record-card--compact .online-record-title-button.jz-button { min-height: 44px; }
   .online-record-menu :deep(summary) { min-width: 44px; min-height: 44px; }
 }

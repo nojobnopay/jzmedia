@@ -155,8 +155,14 @@ export function createFixture() {
     if(key==='/api/tv/facets'&&state.mode!=='empty')return {...facets,genres:facets.genres.slice(0,2).map(g=>({...g,count:6})),regions:[{value:'华语',count:6}],countries:[{code:'CN',name:'中国',count:6}],watched:{watched:0,unwatched:6}}
     if(key==='/api/facets'||key==='/api/tv/facets')return state.mode==='empty'?{...facets,genres:[],regions:[],countries:[],years:[],decades:[],tags:[]}:facets
     if(key==='/api/search'||key==='/api/tv/shows')return list(state.mode==='empty'||url.searchParams.get('q')==='没有这部影片'?[]:key==='/api/search'?movies:shows)
-    if(key==='/api/movies/recent-played')return list(state.mode==='empty'?[]:movies.slice(0,3))
-    if(key==='/api/tv/recent-played')return list((state.mode==='empty'?[]:shows.slice(0,2)).map(s=>({...s,show_id:s.id,id:403+(s.id-201)*100,show_title:s.title,season:1,episode:3,progress})))
+    if(key==='/api/movies/recent-played')return list((state.mode==='empty'?[]:movies.slice(0,3)).map(m=>({
+      ...m,can_resume:true,progress:{...m.progress,version_id:m.versions.at(-1).id}
+    })))
+    if(key==='/api/tv/recent-played')return list((state.mode==='empty'?[]:shows.slice(0,2)).map((s,i)=>({
+      kind:'episode',id:s.id,show_id:s.id,title:s.title,year:s.year,library_id:s.library_id,
+      poster_path:s.poster_path,backdrop_path:s.backdrop_path,can_resume:true,season:1,episode:3,
+      subtitle:'S01E03 · '+episodes[2].title,progress:{...episodes[2].progress,version_id:403+i*100}
+    })))
     if(key==='/api/search/suggest'||key==='/api/tv/suggest')return {items:[],persons:[]}
     if(key==='/api/collections')return list(state.mode==='empty'?[]:collections)
     if(key==='/api/collections/suggest')return {items:[],topups:[],coverage:{unchecked:2,standalone:3}}

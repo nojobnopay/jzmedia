@@ -19,7 +19,7 @@ const root = ref(null), image = ref(''), phase = ref('waiting')
 const path = computed(() => onlineArtworkPath(props.path))
 const allowed = computed(() => viewing.ready && !viewing.suspended && !viewing.locallyLocked && viewing.mode !== 'children')
 const stateText = computed(() => !path.value ? '暂无海报' : ({ loading: '正在加载海报', retry: '正在重试海报', error: '海报暂时无法加载' }[phase.value] || '等待加载海报'))
-let mounted = false, visible = false, paused = false, generation = 0, attempts = 0
+let mounted = false, visible = false, paused = false, generation = 0, failures = 0
 let observer = null, task = null, retryTimer = null, priority = 0
 function current(turn) { return mounted && generation === turn && allowed.value && !paused }
 function stop() {
@@ -28,16 +28,16 @@ function stop() {
   task?.cancel(); task = null
   image.value = ''; phase.value = path.value ? 'waiting' : 'missing'
 }
-async function load() {
-  if (!mounted || !visible || !allowed.value || paused || !path.value || task || image.value || attempts >= 2) return
+async function load(retry = failures > 0) {
+  if (!mounted || !visible || !allowed.value || paused || !path.value || task || image.value
+      || phase.value === 'error' || retryTimer !== null) return
   const turn = ++generation
-  attempts++
   phase.value = 'loading'
   let reading
   try {
-    reading = onlineArtworkQueue.enqueue(path.value, { priority, onEvict() {
+    reading = onlineArtworkQueue.enqueue(path.value, { priority, retry, onEvict() {
       if (generation !== turn) return
-      image.value = ''; task = null; phase.value = 'waiting'; attempts = 0
+      image.value = ''; task = null; phase.value = 'waiting'; failures = 0
     } })
     task = reading
     const asset = await reading.promise
@@ -46,12 +46,12 @@ async function load() {
     else { task = null; phase.value = 'waiting' }
   } catch (error) {
     if (!current(turn)) return
-    task = null
+    task = null; failures++
     if ([401, 403].includes(error?.status)) {
       paused = true
       phase.value = 'error'
       void refreshViewing().catch(() => {})
-    } else if (error?.retryable && attempts < 2 && visible) {
+    } else if (error?.retryable && failures < 2 && visible) {
       phase.value = 'retry'
       retryTimer = setTimeout(() => { retryTimer = null; void load() }, 400)
     } else phase.value = 'error'
@@ -62,7 +62,7 @@ function loaded(event) {
 }
 function decodeFailed(event) {
   if (!image.value || event?.target?.src && event.target.src !== image.value) return
-  stop(); phase.value = 'error'; attempts = 2
+  stop(); phase.value = 'error'
 }
 function observe(entries) {
   for (const entry of entries) {
@@ -70,17 +70,17 @@ function observe(entries) {
     priority = visible ? Math.max(0, entry.boundingClientRect?.top || 0) : Infinity
     task?.setPriority(priority)
     if (visible) void load()
-    else if (!image.value) { stop(); attempts = 0 }
+    else if (!image.value && phase.value !== 'error') stop()
   }
 }
 const stopCleanup = registerViewingPlaybackCleanup(() => { paused = true; stop() })
-watch(() => props.path, () => { stop(); attempts = 0; void load() })
+watch(() => props.path, () => { stop(); failures = 0; void load() })
 watch(() => props.retryKey, () => {
   if (image.value || !['error', 'missing'].includes(phase.value) || paused) return
-  stop(); attempts = 0; void load()
+  stop(); failures = 0; void load(true)
 })
 watch(() => [viewing.ready, viewing.mode, viewing.generation, viewing.revision, viewing.suspended, viewing.locallyLocked], () => {
-  paused = false; stop(); attempts = 0; void load()
+  paused = false; stop(); failures = 0; void load()
 }, { flush: 'sync' })
 onMounted(() => {
   mounted = true

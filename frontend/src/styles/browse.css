@@ -11,8 +11,10 @@
 .browse-page .grid { padding: 0; gap: var(--jz-gap-2xl) var(--jz-gap-l); }
 .browse-page .grid > .card { min-width: 0; background: transparent; overflow: visible; border-radius: var(--jz-radius-m); }
 .browse-page .card .poster-wrap { border-radius: var(--jz-radius-m); overflow: hidden; background: var(--jz-surface-2); }
-.browse-page .card .poster-wrap > img { transition: filter var(--jz-motion-fast); }
-.browse-page .card:hover .poster-wrap > img { filter: brightness(1.08); }
+.browse-page .card .poster-wrap > img { transition: opacity var(--jz-motion-fast); }
+@media (hover: hover) and (pointer: fine) {
+  .browse-page .card:hover .poster-wrap > img { opacity: .91; }
+}
 .browse-page .card .t { padding: var(--jz-gap-s) 0 0; line-height: 1.5; }
 .browse-page .card .t.fhint { padding-top: 3px; }
 .browse-page .card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-weight: 500; }
@@ -22,16 +24,28 @@
 .browse-page .fhint { font-size: var(--jz-font-s); color: var(--jz-text-dim); }
 .browse-page .load-more { display: flex; justify-content: center; align-items: center; gap: var(--jz-gap-s); padding: var(--jz-gap-2xl) 0; }
 .browse-page .collection-action-grid { margin-top: var(--jz-gap-l); }
+.cinema-browse .card-title { font-weight: 600; line-height: 1.4; }
+.cinema-browse .card-metadata { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--jz-gap-xs); margin-top: 3px; color: var(--jz-text-dim); font-size: var(--jz-font-s); font-variant-numeric: tabular-nums; }
+.cinema-browse .card-metadata:empty { display: none; }
+.cinema-browse .card-metadata .score-badge { position: static; padding: 0; border-radius: 0; background: transparent; color: inherit; font-weight: 400; }
+.cinema-browse .card-meta { margin-top: 1px; }
+@media (min-width: 1024px) {
+  .cinema-browse .grid { grid-template-columns: repeat(auto-fill, minmax(calc(var(--poster-min, 150px) * 1.28), 1fr)); }
+  .cinema-browse:has(> .browse-feature) { padding-top: 0; }
+  .cinema-browse:has(> .browse-feature) .filter-trigger:not(.filter-trigger--all) { display: none; }
+}
+.cinema-browse:has(> .browse-feature) > .browse-heading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 700px) {
   .browse-page { padding: var(--jz-gap-m) var(--jz-mobile-gutter) var(--jz-gap-3xl); }
   .browse-heading { gap: var(--jz-gap-s); margin-bottom: var(--jz-gap-m); min-height: var(--jz-touch-target); }
   .browse-heading h1 { font-size: 1.375rem; flex-shrink: 0; }
+  .cinema-browse > .browse-heading { position: absolute; width: 1px; height: 1px; min-height: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .browse-actions { gap: var(--jz-gap-s); }
   .browse-page .manage-link { display: inline-flex; align-items: center; min-height: var(--jz-touch-target); }
   .browse-actions summary { min-height: var(--jz-touch-target); padding: var(--jz-gap-s); }
   .browse-page .chip { min-height: var(--jz-touch-target); }
   .browse-page .grid { grid-template-columns: repeat(auto-fill, minmax(min(var(--jz-mobile-poster-min), 100%), 1fr)); gap: var(--jz-gap-l) var(--jz-gap-s); }
-  .browse-page .grid .score-badge { padding-inline: var(--jz-gap-xs); }
+  .browse-page:not(.cinema-browse) .grid .score-badge { padding-inline: var(--jz-gap-xs); }
   .browse-page .show-card .seen, .browse-page .show-card .review { top: auto; bottom: var(--jz-gap-xs); }
   .browse-page .watched-badge + .unmatched-badge, .browse-page .seen + .review { bottom: 30px; }
   .browse-page .dlg { box-sizing: border-box; width: calc(100% - 24px); min-width: 0; }
@@ -39,3 +53,17 @@
   .browse-page .collection-action-grid > .tp-card { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: reduce) { .browse-page .card .poster-wrap > img { transition: none; } }
+@media (hover: none) {
+  .cinema-browse .grid .poster-play {
+    inset: 3px 3px auto auto; width: var(--jz-touch-target); height: var(--jz-touch-target);
+    box-sizing: border-box; margin: 0; padding: 0 0 12px 12px; border: 0; border-radius: 0;
+    background: transparent; box-shadow: none; transform: none;
+  }
+  .cinema-browse .grid .poster-play::before {
+    content: ''; position: absolute; top: 4px; right: 4px;
+    width: 24px; height: 24px; box-sizing: border-box; border-radius: 50%;
+    border: 1px solid color-mix(in srgb, var(--jz-on-accent) 66%, transparent); background: var(--jz-overlay);
+  }
+  .cinema-browse .grid .poster-play > svg { position: relative; width: 16px; height: 16px; }
+  .cinema-browse .grid .poster-play:active::before { background: var(--jz-accent); }
+}

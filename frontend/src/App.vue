@@ -1,34 +1,44 @@
 <template>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
   <nav class="app-nav" :class="{ 'app-nav--online': !isChildren, 'app-nav--settings': route.path === '/settings' && viewing.ready && !managementBlocked }" aria-label="主导航">
-    <router-link :to="navTarget('/')" custom v-slot="{ href, navigate }">
-      <a :href="href" class="brand" aria-label="jzmedia 电影" @click="navigate"><img src="/favicon.svg" alt="" width="26" height="26" /><span>jzmedia</span></a>
-    </router-link>
+    <div class="nav-identity">
+      <router-link :to="navTarget('/')" custom v-slot="{ href, navigate }">
+        <a :href="href" class="brand" aria-label="jzmedia 电影" @click="navigate"><img src="/favicon.svg" alt="" width="26" height="26" /><span>jzmedia</span></a>
+      </router-link>
+      <div id="phone-nav-context"></div>
+    </div>
     <div class="nav-channels">
       <router-link v-for="item in channels" :key="item.key" :to="navTarget(item.path)" custom v-slot="{ href, navigate }">
         <a :href="href" class="nav-link" :class="{ 'is-current': activeSection === item.key }"
           :aria-current="activeSection === item.key ? 'page' : undefined" @click="navigate">
-          <AppIcon :name="item.icon" /><span>{{ item.label }}</span>
+          <span>{{ item.label }}</span>
         </a>
       </router-link>
     </div>
     <div class="nav-tools">
-      <router-link v-if="!isChildren" :to="navTarget('/settings')" custom v-slot="{ href, navigate }">
-        <a :href="href" class="nav-link" :class="{ 'is-current': activeSection === 'settings' }"
-          :aria-current="activeSection === 'settings' ? 'page' : undefined" @click="navigate">
-          <AppIcon name="settings" /><span>设置</span>
-        </a>
-      </router-link>
-      <HelpLink label="帮助" icon="help" class="nav-link" />
-      <div class="nav-context">
-        <label v-if="showSwitch" class="nav-library" title="切换媒体库">
-          <AppIcon name="library" />
-          <select class="lib-switch" :value="currentId" aria-label="切换媒体库" @change="onSwitch">
-            <option v-for="m in libs" :key="m.id" :value="m.id">{{ optionLabel(m) }}</option>
-          </select>
-        </label>
-        <ViewingModeControls />
-      </div>
+      <component :is="compactNav ? ActionMenu : 'div'" class="nav-secondary" :label="compactNav ? '更多' : undefined">
+        <router-link v-if="!isChildren" :to="navTarget('/settings')" custom v-slot="{ href, navigate }">
+          <a :href="href" class="nav-link" :class="{ 'is-current': activeSection === 'settings' }"
+            :aria-current="activeSection === 'settings' ? 'page' : undefined" @click="navigate">
+            <AppIcon name="settings" /><span>设置</span>
+          </a>
+        </router-link>
+        <HelpLink label="帮助" icon="help" class="nav-link" />
+      </component>
+      <Teleport defer to="#phone-nav-context" :disabled="!compactNav">
+        <div class="nav-context">
+          <label v-if="showSwitch" class="nav-library" title="切换媒体库">
+            <AppIcon name="library" />
+            <select class="lib-switch" :value="currentId" aria-label="切换媒体库" @change="onSwitch">
+              <option v-for="m in libs" :key="m.id" :value="m.id">{{ optionLabel(m) }}</option>
+            </select>
+          </label>
+          <span v-else-if="route.path !== '/online' && libs.length === 1" class="nav-single-library" :title="optionLabel(libs[0])">
+            <AppIcon name="library" /><span>{{ optionLabel(libs[0]) }}</span>
+          </span>
+          <ViewingModeControls />
+        </div>
+      </Teleport>
     </div>
   </nav>
   <div v-if="!isChildren && (!viewing.enabled || viewing.management_unlocked) && dataUsage?.over_limit" class="app-storage-alert" role="alert">
@@ -72,6 +82,7 @@
 </template>
 <script setup>
 import HelpLink from './components/HelpLink.vue'
+import ActionMenu from './components/ActionMenu.vue'
 import AppAssistant from './components/AppAssistant.vue'
 import { assistantAccess } from './assistantPage.js'
 import SetupWelcome from './components/SetupWelcome.vue'
@@ -102,6 +113,9 @@ const ingestLibraryIds = computed(() => (libs.value.find(library => Number(libra
 const dataUsage = ref(null)
 const router = useRouter()
 const route = useRoute()
+const navViewport = window.matchMedia('(max-width: 700px)')
+const compactNav = ref(navViewport.matches)
+function syncNavViewport(event) { compactNav.value = event.matches }
 let offLibChange = null
 let usageTimer = null
 let stopViewing = null
@@ -124,10 +138,10 @@ async function loadDataUsage() {
   catch { /* 容量查询失败不阻断导航；设置页可手动重试 */ }
 }
 const channels = computed(() => [
-  { key: 'movie', path: '/', label: '电影', icon: 'movie' },
-  { key: 'tv', path: '/tv', label: '剧集', icon: 'tv' },
-  { key: 'collections', path: '/collections', label: '合集', icon: 'collections' },
-  ...(!isChildren.value ? [{ key: 'online', path: '/online', label: '在线', icon: 'play' }] : []),
+  { key: 'movie', path: '/', label: '电影' },
+  { key: 'tv', path: '/tv', label: '剧集' },
+  { key: 'collections', path: '/collections', label: '合集' },
+  ...(!isChildren.value ? [{ key: 'online', path: '/online', label: '在线' }] : []),
 ])
 const activeSection = computed(() => {
   const path = route.path
@@ -175,6 +189,7 @@ function onSwitch(e) {
     })
 }
 onMounted(async () => {
+  navViewport.addEventListener('change', syncNavViewport)
   stopViewing = startViewingLifecycle()
   setViewingChangeHandler(({ modeChanged }) => {
     dataUsage.value = null
@@ -199,6 +214,7 @@ onMounted(async () => {
   window.addEventListener('jzmedia:libraries-changed', syncLibs)
 })
 onUnmounted(() => {
+  navViewport.removeEventListener('change', syncNavViewport)
   stopViewing?.()
   setViewingChangeHandler(null)
   if (usageTimer) window.clearInterval(usageTimer)

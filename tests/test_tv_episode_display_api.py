@@ -91,6 +91,25 @@ def test_continue_watching_preserves_original_title_and_uses_range_display(serie
     assert store.get_progress(episode_id, kind="episode") == progress
 
 
+def test_recent_played_distinguishes_playable_episodes_in_full_history(series):
+    current, watched, missing = series['episodes']
+    store.update_show_meta(series['show_id'], backdrop_path='posters/backdrops/tv_7.jpg')
+    for eid in (current, watched, missing):
+        store.save_progress(eid, 60, 3600, kind='episode')
+    store.update_episode_meta(watched, watched=1)
+    store.update_episode_meta(missing, missing=1)
+    params = {'library': series['library']['id']}
+    recent = _get('/api/tv/recent-played', **params)['items']
+    assert [row['progress']['version_id'] for row in recent] == [current]
+    assert recent[0]['backdrop_path'] == 'posters/backdrops/tv_7.jpg'
+    history = _get('/api/tv/recent-played', **params, include_finished='true')['items']
+    assert {row['progress']['version_id']: row['can_resume'] for row in history} == {
+        current: True, watched: False, missing: False}
+    store.save_progress(current, 3550, 3600, kind='episode')
+    assert not any(row['can_resume'] for row in _get(
+        '/api/tv/recent-played', **params, include_finished='true')['items'])
+
+
 def test_single_episode_and_named_multi_episode_titles_are_preserved(series):
     first, middle, _ = series["episodes"]
     store.update_episode_meta(first, episode_end=0)

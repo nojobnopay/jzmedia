@@ -9,6 +9,60 @@ export const delay = milliseconds => new Promise(resolve => setTimeout(resolve, 
 export const stopped = child => !child || child.exitCode !== null || child.signalCode !== null
 export const sha256 = data => createHash('sha256').update(data).digest('hex')
 
+// Every fresh catalogue fixture starts with an empty cache. A missing router
+// also returns 404, so the response must carry the application's cache code.
+export async function isCacheLookupMiss(response) {
+  if (response.status() !== 404 || new URL(response.url()).pathname !== '/api/online/cache/lookup') return false
+  try {
+    const { code } = await response.json()
+    return code === 'online_cache_not_found' || code === 'online_cache_item_not_found'
+  } catch { return false }
+}
+export function isCacheLookupConsoleMessage(message) {
+  return /Failed to load resource:.*404/.test(message.text()) &&
+    URL.canParse(message.location().url) && new URL(message.location().url).pathname === '/api/online/cache/lookup'
+}
+
+export async function measureOnlineCatalogLayout(page, width) {
+  const state = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth + 1,
+    buttons: [...document.querySelectorAll('button')].filter(button => {
+      const rect = button.getBoundingClientRect()
+      return rect.width && rect.height && getComputedStyle(button).visibility !== 'hidden'
+        && !button.closest('[inert]') && button.getAttribute('aria-hidden') !== 'true'
+    }).map(button => { const rect = button.getBoundingClientRect(); return {
+      label: button.getAttribute('aria-label') || button.textContent.trim(), width: rect.width, height: rect.height } }),
+    visibleNav: !!document.querySelector('.app-nav')?.getClientRects().length,
+    navTargets: [...document.querySelectorAll('.nav-channels a, .nav-secondary > summary')].map(link => {
+      const rect = link.getBoundingClientRect(); return { label: link.textContent.trim(), width: rect.width, height: rect.height }
+    }) }))
+  assert.equal(state.overflow, false, `${width}px has no horizontal overflow`)
+  if (width <= 700) {
+    assert.deepEqual(state.buttons.filter(button => button.width < 43.5 || button.height < 43.5), [],
+      'Every visible phone control retains a 44px touch target')
+    if (state.visibleNav) {
+      assert.deepEqual(state.navTargets.map(target => target.label), ['电影', '剧集', '合集', '在线', '更多'])
+      assert.deepEqual(state.navTargets.filter(target => target.width < 43.5 || target.height < 43.5), [],
+        'Channels and the More disclosure retain 44px phone targets')
+    } else {
+      assert.equal(await page.evaluate(() => window.__jzOnlineFixture.snapshot().path), '/settings',
+        'Only the compact settings shell replaces global navigation')
+    }
+  }
+  return state
+}
+export async function navigateOnlineCatalog(page, pathName) {
+  const label = pathName === '/settings' ? '设置' : '在线'
+  const nav = page.getByRole('navigation', { name: '主导航', exact: true })
+  if (pathName === '/online' && !await nav.isVisible()) {
+    // The isolated settings route renders only the source form, without the production back link.
+    await page.evaluate(() => window.__jzOnlineFixture.navigate('/online'))
+  } else {
+    const more = nav.locator('.nav-secondary > summary')
+    if (pathName === '/settings' && await more.isVisible()) await more.click()
+    await nav.getByRole('link', { name: label, exact: true }).click()
+  }
+  await page.waitForFunction(pathName => window.__jzOnlineFixture.snapshot().path === pathName, pathName)
+}
 export function killOwned(child, signal = 'SIGTERM') {
   if (!child?.pid || stopped(child)) return
   try { process.kill(-child.pid, signal) } catch { try { child.kill(signal) } catch { /* Already stopped. */ } }

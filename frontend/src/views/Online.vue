@@ -18,11 +18,11 @@
           <details class="online-connection"><summary>连接状态</summary><div class="online-health" data-online-health><span>目录：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.api) : healthError || '尚未使用' }}</span><span>播放：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.media) : healthError || '尚未使用' }}</span><JzButton variant="ghost" :loading="healthLoading" @click="loadHealth">刷新状态</JzButton><small>卡顿时可在来源网络设置中尝试代理。</small></div></details>
         </form>
         <OnlineContinueRow v-if="!loadedQuery" :rows="continueRows" :loading="continueLoading" :error="continueError" :disabled="loadingSources || !!sourcesError" :starting="starting" :reason-label="availabilityReason" @detail="openSaved($event, false)" @resume="openSaved($event, true)" @retry="loadContinue" @all="showRecords('continue')" />
-        <section v-if="categories.length" class="online-discovery-filters" aria-label="目录分类与年份">
+        <section v-if="categories.length || canFilterYear && !searchFiltersUnavailable" class="online-discovery-filters" :class="{ 'online-year-only': !categories.length }" aria-label="目录分类与年份">
           <nav class="online-channels" aria-label="内容频道">
-            <JzButton :aria-pressed="!channelId && !loadedQuery" :disabled="searching && !searchProgress" data-online-channel="" @click="selectChannel('')">发现</JzButton>
+            <JzButton v-if="categories.length" :aria-pressed="!channelId && !loadedQuery" :disabled="searching && !searchProgress" data-online-channel="" @click="selectChannel('')">发现</JzButton>
             <JzButton v-for="channel in mainChannels" :key="channel.id" :data-online-channel="channel.id" :data-online-category="!channel.children.length ? channel.id : undefined" :aria-pressed="channelId === channel.id && (!loadedQuery || canSearchFilters)" :disabled="filtersDisabled" @click="selectChannel(channel.id)">{{ channel.label }}</JzButton>
-            <JzButton ref="categoriesTrigger" variant="ghost" icon="filter" data-online-categories-open :aria-expanded="categoriesOpen" @click="openCategories"><span class="online-class-label-wide">全部分类</span><span class="online-class-label-narrow">选择分类</span></JzButton>
+            <JzButton ref="categoriesTrigger" variant="ghost" icon="filter" data-online-categories-open :aria-expanded="categoriesOpen" @click="openCategories"><span class="online-class-label-wide">全部分类</span><span class="online-class-label-narrow">{{ canFilterYear ? '筛选' : '分类' }}<strong v-if="year" data-online-selected-year> · {{ year }}</strong></span></JzButton>
           </nav>
           <div v-if="selectedChannel?.children.length" class="online-subcategories" role="group" :aria-label="selectedChannel.label + '分类'">
             <JzButton :data-online-category="selectedChannel.id" :aria-pressed="categoryId === selectedChannel.id" :disabled="filtersDisabled" @click="selectCategory(selectedChannel.id, committedQuery ? 'descendants' : 'exact')">{{ selectedChannel.name }}{{ committedQuery && canSearchFilters ? '全部' : '综合条目' }}</JzButton>
@@ -33,26 +33,23 @@
           <p v-if="!committedQuery && selectedChannel?.children.length && categoryId === selectedChannel.id" class="online-category-hint">综合条目与细分类分别浏览，可选择下方的具体分类。</p>
         </section>
         <p v-if="searchFiltersUnavailable" class="online-category-hint" data-online-search-filter-unavailable>当前视频源暂未开放搜索结果筛选；清除搜索词后可浏览分类与年份。</p>
-        <div v-if="canFilterYear" class="online-year-controls">
-          <JzField id="online-year" label="年份"><template #default="field"><select :id="field.id" :value="yearChoice" :disabled="filtersDisabled" data-online-year @change="chooseYear($event.target.value)"><option value="">全部年份</option><option v-for="value in recentYears" :key="value" :value="value">{{ value }} 年</option><option value="custom">其他年份…</option></select></template></JzField>
-          <form v-if="yearChoice === 'custom'" class="online-custom-year" data-online-year-form @submit.prevent="applyCustomYear">
-            <JzField id="online-year-custom" label="指定年份" :error="customYearError"><template #default="field"><input :id="field.id" v-model="customYear" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="如 2018" :disabled="filtersDisabled" :aria-invalid="field.invalid || undefined" :aria-describedby="field.describedby" data-online-year-custom @input="customYearError = ''" /></template></JzField>
-            <JzButton type="submit" :disabled="filtersDisabled">应用年份</JzButton>
-          </form>
-        </div>
-        <JzDialog v-if="categoriesOpen" title="选择内容分类" size="large" @close="categoriesOpen = false">
+        <OnlineYearFilter v-if="canFilterYear && !categoriesOpen" class="online-year-inline" v-model:custom-year="customYear" :year-choice="yearChoice" :recent-years="recentYears" :custom-year-error="customYearError" :disabled="filtersDisabled" @choose="chooseYear" @apply="applyCustomYear" @edit="customYearError = ''" />
+        <JzDialog v-if="categoriesOpen" :title="canFilterYear ? '筛选内容' : '选择内容分类'" size="large" @close="closeCategories">
           <div class="online-class-dialog" data-online-categories-dialog>
-            <p class="online-scope">{{ committedQuery && canSearchFilters ? '在搜索结果中筛选分类，大类包含全部子分类。' : '选择具体分类查看内容，综合条目与细分类分别浏览。' }}</p>
-            <JzField id="online-category-query" label="查找分类"><template #default="field"><input :id="field.id" v-model="categoryQuery" maxlength="80" autocomplete="off" placeholder="输入分类名称" data-online-category-query /></template></JzField>
-            <JzButton :aria-pressed="!categoryId" :disabled="filtersDisabled" @click="selectDialogCategory('')">{{ committedQuery ? '不限分类' : '发现 · 最近更新' }}</JzButton>
-            <EmptyState v-if="!dialogChannels.length" state="no-results" title="没有匹配的分类" text="换个分类名称试试。" />
-            <section v-for="channel in dialogChannels" :key="channel.id" class="online-class-group" :aria-label="channel.name">
-              <h3>{{ channel.name }}</h3>
-              <div class="online-class-options" role="group" :aria-label="channel.name + '分类'">
-                <JzButton v-if="channel.showRoot" :data-online-category="channel.id" :aria-pressed="categoryId === channel.id" :disabled="filtersDisabled" @click="selectDialogCategory(channel.id, committedQuery ? 'descendants' : 'exact')">{{ categoryTree.channels.find(value => value.id === channel.id)?.children.length ? channel.name + (committedQuery && canSearchFilters ? '全部' : '综合条目') : channel.name }}</JzButton>
-                <JzButton v-for="category in channel.children" :key="category.id" :data-online-category="category.id" :aria-pressed="categoryId === category.id" :disabled="filtersDisabled" @click="selectDialogCategory(category.id)">{{ category.name }}</JzButton>
-              </div>
-            </section>
+            <OnlineYearFilter v-if="canFilterYear" v-model:custom-year="customYear" :year-choice="yearChoice" :recent-years="recentYears" :custom-year-error="customYearError" :disabled="filtersDisabled" @choose="chooseYear" @apply="applyCustomYear" @edit="customYearError = ''" />
+            <template v-if="categories.length">
+              <p class="online-scope">{{ committedQuery && canSearchFilters ? '在搜索结果中筛选分类，大类包含全部子分类。' : '选择具体分类查看内容，综合条目与细分类分别浏览。' }}</p>
+              <JzField id="online-category-query" label="查找分类"><template #default="field"><input :id="field.id" v-model="categoryQuery" maxlength="80" autocomplete="off" placeholder="输入分类名称" data-online-category-query /></template></JzField>
+              <JzButton :aria-pressed="!categoryId" :disabled="filtersDisabled" @click="selectDialogCategory('')">不限分类</JzButton>
+              <EmptyState v-if="!dialogChannels.length" state="no-results" title="没有匹配的分类" text="换个分类名称试试。" />
+              <section v-for="channel in dialogChannels" :key="channel.id" class="online-class-group" :aria-label="channel.name">
+                <h3>{{ channel.name }}</h3>
+                <div class="online-class-options" role="group" :aria-label="channel.name + '分类'">
+                  <JzButton v-if="channel.showRoot" :data-online-category="channel.id" :aria-pressed="categoryId === channel.id" :disabled="filtersDisabled" @click="selectDialogCategory(channel.id, committedQuery ? 'descendants' : 'exact')">{{ categoryTree.channels.find(value => value.id === channel.id)?.children.length ? channel.name + (committedQuery && canSearchFilters ? '全部' : '综合条目') : channel.name }}</JzButton>
+                  <JzButton v-for="category in channel.children" :key="category.id" :data-online-category="category.id" :aria-pressed="categoryId === category.id" :disabled="filtersDisabled" @click="selectDialogCategory(category.id)">{{ category.name }}</JzButton>
+                </div>
+              </section>
+            </template>
           </div>
         </JzDialog>
         <p v-if="selectedSource?.provider === 'open_catalog'" class="online-discovery-note">Blender 开放影片</p>
@@ -64,8 +61,8 @@
           <header class="online-detail-heading" data-online-detail-heading>
             <OnlineArtwork :path="detail.poster_path" :title="detail.item.title" class="online-artwork" />
             <div class="online-detail-summary">
-              <p class="online-eyebrow">{{ detail.source.name }} · {{ detail.category || (detail.item.kind === 'tv' ? '剧集' : '电影') }}</p>
               <h2 ref="detailTitle" tabindex="-1">{{ detail.item.title }}</h2>
+              <p class="online-eyebrow">{{ detail.source.name }} · {{ detail.category || (detail.item.kind === 'tv' ? '剧集' : '电影') }}</p>
               <p v-if="detail.year || detail.area || detail.language" class="online-year">{{ [detail.year, detail.area, detail.language].filter(Boolean).join(' · ') }}</p>
               <p v-if="detail.remarks" class="online-detail-status" data-online-detail-status>{{ detail.remarks }}</p>
               <ul v-if="detailGenres.length" class="online-genre-tags" aria-label="题材"><li v-for="genre in detailGenres" :key="genre">{{ genre }}</li></ul>
@@ -112,7 +109,7 @@
               <p class="online-related-note">{{ group.note }}</p>
               <div class="online-related-row">
                 <article v-for="item in group.items" :key="item.external_id" class="card online-result online-related-card">
-                  <JzButton class="online-poster-button" variant="ghost" :data-online-related-id="item.external_id" :aria-label="'查看详情 ' + item.title" @click="openRelated(item.external_id)"><OnlineArtwork :path="item.poster_path" :title="item.title" /><span v-if="item.remarks" class="online-poster-remark" :title="item.remarks">{{ item.remarks }}</span><span class="online-poster-action"><AppIcon name="play" :size="22" />查看详情</span></JzButton>
+                  <JzButton class="online-poster-button" variant="ghost" :data-online-related-id="item.external_id" :aria-label="'查看详情 ' + item.title" @click="openRelated(item.external_id)"><OnlineArtwork :path="item.poster_path" :title="item.title" /><span v-if="item.remarks" class="online-poster-remark" :title="item.remarks">{{ item.remarks }}</span><span class="online-poster-action" aria-hidden="true"><span>查看详情</span><AppIcon name="chevron-right" :size="16" /></span></JzButton>
                   <div class="t"><h4 class="card-title" :title="item.title">{{ item.title }}</h4><p class="card-meta">{{ [group.key === 'series' && item.season ? '第 ' + item.season + ' 季' : '', item.year, item.category].filter(Boolean).join(' · ') }}</p></div>
                 </article>
               </div>
@@ -154,6 +151,7 @@ import BrowseToolbar from '../components/BrowseToolbar.vue'
 import OnlineContinueRow from '../components/OnlineContinueRow.vue'
 import OnlineRecordsView from '../components/OnlineRecordsView.vue'
 import OnlineSkeleton from '../components/OnlineSkeleton.vue'
+import OnlineYearFilter from '../components/OnlineYearFilter.vue'
 import OnlineBrowseResults from '../components/OnlineBrowseResults.vue'
 import Spinner from '../components/Spinner.vue'
 import JzButton from '../components/JzButton.vue'
@@ -608,7 +606,7 @@ async function applyUpdates() {
       source: source.id, attribute: 'data-online-result', key: activeId || position?.anchor?.id || results.value[0]?.external_id || '' }
     const snapshot = onlineBrowseMemory.applyPending(scope, source, browseSelection())
     if (snapshot?.response) {
-      applyBrowse(snapshot); query.value = inputQuery; browsePosition = position
+      applyBrowse(snapshot, inputQuery); browsePosition = position
       rememberBrowse(source, false)
       await restoreBrowse(position)
     } else {
@@ -758,7 +756,7 @@ function rememberBrowse(source = selectedSource.value, capture = true) {
     inputQuery: query.value, loadedAt, position: browsePosition,
     response: browseResponse() })
 }
-function applyBrowse(snapshot) {
+function applyBrowse(snapshot, inputQuery = snapshot.inputQuery) {
   categoryId.value = loadedCategoryId.value = snapshot.categoryId
   searchCategoryScope.value = loadedCategoryScope.value = snapshot.categoryScope || 'exact'
   committedQuery.value = snapshot.query
@@ -767,7 +765,7 @@ function applyBrowse(snapshot) {
   channelId.value = loadedChannelId.value = snapshot.channelId || ''
   channelSelections.value = { ...(snapshot.channelSelections || {}), ...channelSelections.value }
   setYear(snapshot.year || ''); loadedYear.value = year.value
-  query.value = snapshot.inputQuery; loadedQuery.value = snapshot.query
+  query.value = inputQuery; loadedQuery.value = snapshot.query
   browsePosition = snapshot.position; loadedAt = snapshot.loadedAt
   acceptCategories(snapshot.categories || snapshot.response?.categories)
   if (!snapshot.response) return false
@@ -928,7 +926,7 @@ function selectCategory(id, scope = 'exact') {
   rememberBrowse()
   categoryId.value = id; searchCategoryScope.value = scope; syncChannel()
   if (committedQuery.value && canSearchFilters.value) void search(1, committedQuery.value, { filter: true })
-  else { query.value = ''; void search(1, '') }
+  else void search(1, '')
 }
 function selectChannel(id) {
   if (searching.value && !searchProgress.value) return
@@ -944,27 +942,26 @@ function selectChannel(id) {
 }
 function selectDialogCategory(id, scope = 'exact') {
   if (filtersDisabled.value) return
-  categoriesOpen.value = false
-  if (id || committedQuery.value) selectCategory(id, scope)
-  else selectChannel('')
+  closeCategories()
+  selectCategory(id, scope)
 }
 function openCategories() { categoryQuery.value = ''; categoriesOpen.value = true }
+function closeCategories() { setYear(year.value); categoriesOpen.value = false }
 function chooseYear(value) {
   customYearError.value = ''
   if (filtersDisabled.value) return
   if (value === 'custom') { yearChoice.value = 'custom'; customYear.value = year.value; return }
   if (!canFilterYear.value || !validOnlineYear(value)) return
+  categoriesOpen.value = false
   if (value === year.value) { setYear(value); return }
   rememberBrowse(); setYear(value)
   if (committedQuery.value && canSearchFilters.value) void search(1, committedQuery.value, { filter: true })
-  else { query.value = ''; void search(1, '') }
+  else void search(1, '')
 }
 function applyCustomYear() {
   if (!canFilterYear.value || filtersDisabled.value) return
   if (!customYear.value || !validOnlineYear(customYear.value)) { customYearError.value = '请输入 1000 至 9999 的四位年份'; return }
-  rememberBrowse(); setYear(customYear.value)
-  if (committedQuery.value && canSearchFilters.value) void search(1, committedQuery.value, { filter: true })
-  else { query.value = ''; void search(1, '') }
+  chooseYear(customYear.value)
 }
 function retryResults() {
   const attempt = lastQuery.value
@@ -1102,7 +1099,7 @@ async function search(nextPage = 1, text = query.value, options = {}) {
     const cached = !options.force && onlineBrowseMemory.read(cacheScope, selectedSource.value,
       { page: nextPage, categoryId: requestedCategory, year: requestedYear, channelId: requestedChannel, query: text.trim() })
     if (cached?.response) {
-      applyBrowse(cached)
+      applyBrowse(cached, query.value)
       browsePosition = options.position || (changingView ? null : cached.position)
       await restoreBrowse(browsePosition, { top: changingView && !options.position })
       return

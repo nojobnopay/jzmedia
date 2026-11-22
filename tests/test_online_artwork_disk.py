@@ -154,7 +154,7 @@ def test_only_bounded_validated_original_formats_are_retained(cache, result):
 
 
 @pytest.mark.parametrize("result", [(b"<svg/>", "image/svg+xml"), (JPEG, "image/png"),
-    (b"", "image/jpeg"), (b"no image", None), (JPEG + b"x" * (512 * 1024), "image/jpeg")])
+    (b"", "image/jpeg"), (b"no image", None), (JPEG + b"x" * disk.MAX_IMAGE_BYTES, "image/jpeg")])
 def test_invalid_or_oversized_images_do_not_leave_files(cache, result):
     value, _now, root = cache
     assert value.put(key(), result, check=CHECK) is False

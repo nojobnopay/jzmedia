@@ -26,6 +26,29 @@ const longFacets = {
 let server, browser
 const listRequests = (kind = 'movie') => requests.filter(r => r.path === (kind === 'tv' ? '/api/tv/shows' : '/api/search'))
 const listCount = kind => listRequests(kind).length
+async function checkPhoneBrowseLayout(page) {
+  const layout = await page.evaluate(() => {
+    const rect = selector => document.querySelector(selector).getBoundingClientRect()
+    const brand = rect('.app-nav .brand')
+    const mode = rect('.app-nav .nav-viewing button')
+    const library = rect('.app-nav .lib-switch')
+    const channels = [...document.querySelectorAll('.nav-channels a, .nav-secondary > summary')].map(el => el.getBoundingClientRect())
+    const row = rect('.cw-row')
+    const next = rect('.cw-card:nth-child(2) .cw-art')
+    return {
+      firstRowCenters: [brand, library, mode].map(r => r.top + r.height / 2),
+      firstRowBottom: Math.max(brand.bottom, library.bottom, mode.bottom),
+      channelTops: channels.map(r => r.top),
+      targetsFit: [brand, library, mode, ...channels].every(r => r.width >= 44 && r.height >= 44),
+      nextArtworkVisible: Math.min(row.right, next.right) - next.left,
+    }
+  })
+  assert.ok(Math.max(...layout.firstRowCenters) - Math.min(...layout.firstRowCenters) <= 2, 'Brand, library and viewing mode share the first row')
+  assert.equal(layout.channelTops.length, 5)
+  assert.ok(layout.channelTops.every(top => top === layout.channelTops[0] && top >= layout.firstRowBottom - 1), 'Channels and More share the next row')
+  assert.ok(layout.targetsFit, 'Navigation retains 44px touch targets')
+  assert.ok(layout.nextArtworkVisible >= 31 && layout.nextArtworkVisible <= 48, 'A second resume card is visible without scrolling')
+}
 function matching(items, params, tv) {
   const some = (key, values) => !params.has(key) || params.getAll(key).some(value => values.includes(value))
   return items.filter(item => {
@@ -84,23 +107,34 @@ try {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
   const base = `http://127.0.0.1:${server.address().port}`
   browser = await chromium.launch({ headless: true })
-  for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
-    const context = await browser.newContext({ viewport, serviceWorkers: 'block', reducedMotion: 'reduce' })
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 375, height: 812 }, { width: 320, height: 720 }]) {
+    const context = await browser.newContext({ viewport, hasTouch: viewport.width <= 700, isMobile: viewport.width <= 700, serviceWorkers: 'block', reducedMotion: 'reduce' })
     await context.route('**/*', route => { if (new URL(route.request().url()).origin !== base) { external.push(route.request().url()); return route.abort() } return route.continue() })
-    const page = await context.newPage(), errors = [], checks = []
+    const page = await context.newPage(), errors = [], checks = [], artworkRequests = [], motion = []
     page.setDefaultTimeout(8000)
     page.on('pageerror', error => errors.push(String(error)))
+    page.on('request', request => {
+      const path = new URL(request.url()).pathname
+      if (path.endsWith('/backdrop') || path.startsWith('/posters/backdrop-')) artworkRequests.push(path)
+    })
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
     const pass = name => { checks.push(name); console.log(`PASS ${viewport.width}px ${name}`) }
     const go = async route => { await page.goto(base + route); await page.getByRole('navigation', { name: '主导航' }).waitFor(); await page.waitForLoadState('networkidle') }
     const dialog = () => page.getByRole('dialog')
     const choice = (field, value) => dialog().locator(`[data-filter-field="${field}"][data-filter-value="${value}"]`)
-    const open = async key => { await page.locator(`[data-filter-trigger="${key}"]`).click(); await dialog().waitFor() }
+    const open = async key => {
+      const quick = page.locator(`[data-filter-trigger="${key}"]`)
+      const trigger = await quick.isVisible() ? quick : page.locator('[data-filter-trigger="all"]')
+      await trigger.click()
+      await dialog().waitFor()
+      if (key !== 'all' && await dialog().getByRole('button', { name: '应用筛选', exact: true }).count()) await expand(key)
+      return trigger
+    }
     const expand = async key => { const button = dialog().locator(`[data-filter-group="${key}"]`); if (await button.getAttribute('aria-expanded') !== 'true') await button.click() }
-    const apply = async (all = false) => {
+    const apply = async () => {
       const endpoint = new URL(page.url()).pathname === '/tv' ? '/api/tv/shows' : '/api/search'
       const response = page.waitForResponse(res => new URL(res.url()).pathname === endpoint)
-      await dialog().getByRole('button', { name: all ? '应用筛选' : '应用', exact: true }).click()
+      await dialog().getByRole('button', { name: /^应用(筛选)?$/ }).click()
       await (await response).finished(); await dialog().waitFor({ state: 'hidden' })
       await page.waitForFunction(() => document.querySelector('.grid')?.getAttribute('aria-busy') === 'false')
     }
@@ -123,9 +157,66 @@ try {
       return metrics
     }
     try {
+      for (const [route, image] of [['/', '/api/movies/101/backdrop'], ['/tv', '/posters/backdrop-2.svg']]) {
+        artworkRequests.length = 0
+        await go(route + '?media=1')
+        const desktop = viewport.width >= 1024
+        const feature = page.locator('.browse-feature')
+        assert.equal(await feature.isVisible(), desktop)
+        assert.deepEqual(artworkRequests, desktop ? [image] : [], 'Only the selected desktop feature requests a backdrop')
+        if (desktop) {
+          await feature.getByRole('button', { name: '继续播放', exact: true }).waitFor()
+          if (route === '/') {
+            const controls = page.locator('.browse-toolbar input, .browse-toolbar [data-filter-trigger="all"], .browse-toolbar .browse-tool, .browse-actions summary, .wall-sort')
+            const centers = await controls.evaluateAll(elements => elements.map(element => {
+              const rect = element.getBoundingClientRect()
+              return rect.top + rect.height / 2
+            }))
+            assert.ok(Math.max(...centers) - Math.min(...centers) <= 2, 'Desktop catalogue controls share a single row')
+          }
+        } else {
+          assert.equal(await page.evaluate(() => matchMedia('(hover: none) and (pointer: coarse)').matches), true)
+          await checkPhoneBrowseLayout(page)
+        }
+        assert.equal(await page.locator('[data-filter-trigger="genres"]').isVisible(), false)
+      }
+      pass('desktop feature and mobile artwork budget for both channels')
+
+      await go('/?media=1')
+      const poster = page.locator('.grid > .card').first()
+      for (const preference of ['no-preference', 'reduce']) {
+        await page.emulateMedia({ reducedMotion: preference })
+        await page.evaluate(() => {
+          window.browseLongTasks = []
+          window.browseTaskObserver = new PerformanceObserver(list => window.browseLongTasks.push(...list.getEntries().map(task => Math.round(task.duration))))
+          window.browseTaskObserver.observe({ type: 'longtask' })
+        })
+        await poster.scrollIntoViewIfNeeded()
+        await poster.focus()
+        await poster.hover()
+        await open('all')
+        await cancel()
+        await page.waitForTimeout(200)
+        const sample = await page.evaluate(() => {
+          window.browseTaskObserver.disconnect()
+          return {
+            transition: getComputedStyle(document.querySelector('.grid .poster-wrap img')).transitionDuration,
+            infiniteAnimations: document.querySelector('.cinema-browse').getAnimations({ subtree: true })
+              .filter(animation => animation.effect.getTiming().iterations === Infinity && animation.playState === 'running').length,
+            longTasksMs: window.browseLongTasks,
+          }
+        })
+        assert.equal(sample.infiniteAnimations, 0, 'Resting walls have no continuous animations')
+        if (preference === 'reduce') assert.equal(sample.transition, '0s')
+        motion.push({ preference, ...sample })
+      }
+      pass('normal and reduced motion during focus, scroll and filter interaction')
+
+      artworkRequests.length = 0
       await go('/?media=1&q=' + encodeURIComponent('远山') + '&sort=year&order=asc')
+      assert.deepEqual(artworkRequests, [], 'Opening search results skips the feature image')
       await fit(); await snap('default')
-      await open('genres')
+      const genreTrigger = await open('genres')
       const before = listCount()
       await choice('genres', '剧情').click()
       await page.waitForTimeout(100)
@@ -133,11 +224,12 @@ try {
       assert.equal(query().has('genre'), false, 'Draft must not change URL')
       await fit(); await snap('quick')
       await cancel()
-      assert.equal(await page.locator('[data-filter-trigger="genres"]').evaluate(el => el === document.activeElement), true, 'Escape restores trigger focus')
+      assert.equal(await genreTrigger.evaluate(el => el === document.activeElement), true, 'Escape restores trigger focus')
       await open('genres')
       assert.equal(await choice('genres', '剧情').getAttribute('aria-pressed'), 'false', 'Escape discards draft')
       await choice('genres', '剧情').click()
-      await page.locator('.jz-dialog-mask').click({ position: { x: 5, y: 5 } })
+      if (viewport.width > 700) await page.locator('.jz-dialog-mask').click({ position: { x: 5, y: 5 } })
+      else await dialog().getByRole('button', { name: '取消并关闭筛选' }).click()
       await dialog().waitFor({ state: 'hidden' })
       assert.equal(listCount(), before, 'Backdrop also cancels without requesting results')
       await open('genres')
@@ -156,7 +248,7 @@ try {
       await cancel()
       assert.equal(await summary().getByRole('button', { name: '移除筛选：剧情', exact: true }).count(), 1)
       await open('all')
-      await dialog().getByRole('button', { name: '重置', exact: true }).click(); await apply(true)
+      await dialog().getByRole('button', { name: '重置', exact: true }).click(); await apply()
       assert.equal(query().has('genre'), false)
       assert.equal(query().get('q'), '远山')
       assert.equal(query().get('sort'), 'year')
@@ -187,7 +279,7 @@ try {
       await open('all'); await expand('location')
       await dialog().getByRole('button', { name: '按国家', exact: true }).click()
       await dialog().getByLabel('搜索国家或地区', { exact: true }).fill('日本')
-      await choice('countries', 'JP').click(); await apply(true)
+      await choice('countries', 'JP').click(); await apply()
       assert.equal(query().get('country'), 'JP'); assert.equal(query().has('region'), false)
       await page.getByText('没有符合条件的影片', { exact: true }).waitFor()
       pass('country precedence, searchable options and real no-results state')
@@ -198,7 +290,7 @@ try {
       await dialog().getByLabel('搜索年份', { exact: true }).fill('2023')
       await choice('years', '2023').click()
       await dialog().getByText(/同时满足|交集/).first().waitFor()
-      await apply(true)
+      await apply()
       assert.equal(listRequests().at(-1).query.decade, '2010')
       assert.equal(listRequests().at(-1).query.year, '2023')
       await page.getByText('没有符合条件的影片', { exact: true }).waitFor()
@@ -220,7 +312,7 @@ try {
       await choice('tags', '周末片单').click()
       await dialog().getByLabel('搜索标签', { exact: true }).fill('值得')
       await choice('tags', '值得重看').click()
-      await apply(true)
+      await apply()
       assert.deepEqual(listRequests().at(-1).entries.filter(([key]) => key === 'tag').map(([, value]) => value).sort(), ['值得重看', '周末片单'])
       pass('tag group search preserves multi-selection and API values')
 
@@ -257,6 +349,7 @@ try {
       assert.equal(query().get('genre'), '剧情')
       assert.equal(await summary().getByRole('button', { name: '移除筛选：剧情', exact: true }).count(), 1)
       assert.equal(await dialog().count(), 0, 'Back navigation restores applied filters, not an old overlay')
+      await page.waitForFunction(() => document.activeElement?.dataset.browseId === '101')
       pass('detail return restores filter URL and applied summary')
 
       await go('/tv?media=1')
@@ -269,7 +362,7 @@ try {
       await fit(); await snap('tv-drawer')
       const tvBefore = listCount('tv')
       assert.equal(query().has('status'), false)
-      await apply(true)
+      await apply()
       assert.equal(listCount('tv'), tvBefore + 1, 'TV Apply performs one new result request')
       assert.equal(listRequests('tv').at(-1).query.status, 'ended')
       assert.equal(listRequests('tv').at(-1).query.watched, '0')
@@ -278,7 +371,7 @@ try {
       assert.equal(query().get('status'), 'ended'); assert.equal(query().get('watched'), '0')
       await fit(); pass('TV status, watched semantics, supported rating sources and reload')
       assert.deepEqual(errors, [], 'Browser errors must be empty')
-      results.push({ viewport, passed: true, checks, errors })
+      results.push({ viewport, passed: true, checks, errors, motion })
     } catch (error) {
       await snap('failure').catch(() => {})
       results.push({ viewport, passed: false, checks, errors, failure: String(error) })

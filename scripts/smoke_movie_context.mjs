@@ -58,6 +58,7 @@ async function mock(req, res, url) {
     value = { ok: true }
   } else if (method === 'POST' && refreshId) value = { changed: true }
   else if (method === 'GET' && detailId && [101, 102].includes(detailId)) value = movie(detailId)
+  else if (method === 'GET' && key === '/api/stream/progress' && url.searchParams.get('version_id') === '150') value = { position: 0, duration: 6900 }
   else if (method === 'GET' || (method === 'POST' && key === '/api/stream/versions')) value = fixture.api(url, method, body)
   else unexpected.push(`${method} ${key}`)
   if (value === undefined) {
@@ -202,6 +203,27 @@ try {
   remember(101, { watched: 0 })
   await page.setViewportSize({ width: 390, height: 844 })
   await go()
+  const version = page.getByRole('combobox', { name: '播放版本', exact: true })
+  const resume = page.getByRole('button', { name: '从 36:20 继续', exact: true })
+  await resume.waitFor()
+  assert.match(await version.locator('option:checked').innerText(), /^院线版.*1080p/)
+  assert.doesNotMatch(await version.locator('option:checked').innerText(), /\.mkv/)
+  await version.selectOption('150')
+  await page.waitForLoadState('networkidle')
+  assert.equal((await page.locator('.play-main').innerText()).trim(), '播放影片')
+  assert.equal(await resume.count(), 0, 'A version without progress starts from the beginning')
+
+  const oldProgress = hold('GET', '/api/stream/progress')
+  await version.selectOption('101')
+  await wait(() => oldProgress.seen)
+  await version.selectOption('150')
+  oldProgress.send()
+  await page.waitForLoadState('networkidle')
+  assert.equal(await version.inputValue(), '150')
+  assert.equal(await resume.count(), 0, 'A late response must not replace the currently selected version’s progress')
+  await version.selectOption('101')
+  await resume.waitFor()
+  console.log('PASS 390px 版本标签、无断点首播、精确续播时间与切版迟到响应')
   await page.getByRole('button', { name: '标记已看', exact: true }).click()
   await page.getByRole('button', { name: '标记未看', exact: true }).waitFor()
   await page.locator('img[title="查看大图"]').click()

@@ -113,6 +113,7 @@ def list_recent_played(limit: int = 20, library_ids=None,
             pos = _seconds(d.pop("_ppos"))
             dur = _seconds(d.pop("_pdur"))
             played = int(d.pop("_pplayed") or 0)
+            d["can_resume"] = not d["watched"] and not is_playback_complete(pos, dur)
             d["progress"] = {
                 "version_id": vid,
                 "position": round(pos, 3),
@@ -152,7 +153,7 @@ def list_recent_played_tv(limit: int = 20, library_ids=None,
         c.create_function("playback_complete", 2, is_playback_complete, deterministic=True)
         rows = c.execute(
             "SELECT e.*, s.title AS _show_title, s.year AS _show_year,"
-            " s.poster_path AS _show_poster, s.library_id AS _show_lib,"
+            " s.poster_path AS _show_poster, s.backdrop_path AS _show_backdrop, s.library_id AS _show_lib,"
             " s.tmdb_rating AS _show_rating,"
             " p.item_id AS _pvid, p.position AS _ppos, p.duration AS _pdur,"
             " p.updated_at AS _pplayed"
@@ -183,6 +184,10 @@ def list_recent_played_tv(limit: int = 20, library_ids=None,
                 "title": r["_show_title"] or "",
                 "year": r["_show_year"],
                 "poster_path": r["_show_poster"] or "",
+                "backdrop_path": r["_show_backdrop"] or "",
+                "watched": bool(r["watched"]),
+                "missing": bool(r["missing"]),
+                "can_resume": not r["watched"] and not r["missing"] and not is_playback_complete(pos, dur),
                 "tmdb_rating": r["_show_rating"],
                 "season": season,
                 "episode": episode,

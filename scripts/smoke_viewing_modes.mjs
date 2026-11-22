@@ -28,6 +28,24 @@ const visible = (movie, session) => {
   if (session.mode === 'private') return policy.is_private
   return !policy.is_private && (session.mode !== 'children' || policy.children_override === 'allow' || movie.id === 101 && policy.children_override !== 'block')
 }
+async function checkPhoneNavigation(page) {
+  const nav = page.getByRole('navigation', { name: '主导航' })
+  const items = await nav.locator('.brand, .lib-switch, .nav-single-library, .nav-viewing button, .nav-channels a, .nav-secondary > summary').evaluateAll(elements =>
+    elements.map(el => {
+      const { top, left, right, width, height } = el.getBoundingClientRect()
+      return { top, left, right, width, height, channel: !!el.closest('.nav-channels, .nav-secondary'), label: el.matches('.nav-single-library') }
+    }))
+  const identity = items.filter(item => !item.channel)
+  const channels = items.filter(item => item.channel)
+  const center = box => box.top + box.height / 2
+  const width = page.viewportSize().width
+  assert.ok(identity.length >= 2 && identity.every(box => Math.abs(center(box) - center(identity[0])) < 1), 'Brand, library and mode share the first row')
+  assert.ok(channels.length >= 4 && channels.every(box => box.top === channels[0].top && box.top >= center(identity[0]) + 21), 'All available channels and More share the second row')
+  for (const row of [identity, channels]) {
+    assert.ok(row.every((box, i) => box.left >= 0 && box.right <= width && (!i || box.left >= row[i - 1].right - 1)), 'Navigation controls fit the viewport without overlapping')
+    assert.ok(row.every(box => box.label || box.width >= 44 && box.height >= 44), 'Every navigation target remains at least 44px')
+  }
+}
 function api(url, method, body, session) {
   const key = url.pathname
   requests.push({ key, method, body, mode: session.mode })
@@ -161,10 +179,15 @@ try {
     }
     const screenshot = async name => {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1), false, 'Viewport has no horizontal overflow')
-      if (viewport.width < 701) {
-        const library = await page.locator('.nav-library').boundingBox()
-        const modes = await page.locator('.nav-viewing').boundingBox()
-        assert.ok(Math.abs(library.y + library.height / 2 - modes.y - modes.height / 2) < 1, 'Library and viewing controls share the second navigation row')
+      if (viewport.width < 701 && await page.locator('.app-nav').isVisible()) {
+        await checkPhoneNavigation(page)
+        if (viewport.width === 375 && ['private-multiple-libraries', 'children', 'multiple-libraries'].includes(name)) {
+          await page.setViewportSize({ width: 320, height: 720 })
+          await checkPhoneNavigation(page)
+          await page.setViewportSize(viewport)
+        }
+      } else if (viewport.width < 701) {
+        assert.ok(await page.locator('.settings-mobile-header').isVisible(), 'Phone settings supply their own visible navigation')
       }
       await page.screenshot({ path: path.join(output, `${name}-${viewport.width}.png`), animations: 'disabled' })
     }
@@ -193,11 +216,33 @@ try {
       const toolbar = page.getByRole('toolbar', { name: '多选操作' })
       if (await toolbar.count()) await toolbar.getByRole('button', { name: '取消', exact: true }).click()
       for (const id of [102, 103]) await page.locator(`[data-browse-id="${id}"]`).getByRole('button', { name: '选择', exact: true }).click()
+      if (viewport.width < 701) await toolbar.locator('.batch-more > summary').click()
       await toolbar.getByRole('button', { name: '可见性', exact: true }).click()
       await policyDialog().waitFor()
     }
     await go('/')
     await expectIds([101, 103])
+    if (viewport.width < 701) {
+      const nav = page.getByRole('navigation', { name: '主导航' })
+      const more = nav.locator('.nav-secondary > summary')
+      await nav.locator('.brand').focus()
+      for (const target of ['.lib-switch', '.nav-viewing button', '.nav-channels a']) {
+        await page.keyboard.press('Tab')
+        assert.ok(await nav.locator(target).first().evaluate(el => document.activeElement === el), 'Keyboard order follows the two visible rows')
+      }
+      const targets = await nav.locator('.nav-channels a, .nav-secondary > summary').evaluateAll(links =>
+        links.map(link => { const { x, y, width, height } = link.getBoundingClientRect(); return { x, y, width, height } }))
+      assert.equal(targets.length, 5)
+      assert.ok(targets.every(box => box.y === targets[0].y && box.width >= 44 && box.height >= 44), 'Four channels and More share one reachable row')
+      assert.equal(await nav.getByRole('link', { name: '设置', exact: true }).isVisible(), false)
+      await more.focus()
+      await page.keyboard.press('Enter')
+      await nav.getByRole('link', { name: '设置', exact: true }).focus()
+      const help = nav.getByRole('link', { name: /帮助/ })
+      assert.ok(await help.isVisible())
+      await page.keyboard.press('Escape')
+      assert.ok(await more.evaluate(element => document.activeElement === element), 'Closing More restores its trigger')
+    }
     await screenshot('normal'); pass('normal hides private titles')
     await page.getByRole('combobox', { name: '切换媒体库' }).selectOption('2')
     await page.waitForURL(url => url.searchParams.get('media') === '2')
@@ -350,8 +395,9 @@ try {
       await unsaved.getByRole('button', { name: '继续编辑', exact: true }).click()
       await page.locator('.nav-viewing').getByRole('button', { name: '隐私模式', exact: true }).waitFor()
       assert.equal(await page.getByLabel('新保护密码', { exact: true }).inputValue(), 'unsaved-pass')
-      await page.getByRole('button', { name: '锁定管理权限', exact: true }).click()
-      await unsaved.getByRole('button', { name: '继续编辑', exact: true }).click()
+      assert.equal(await page.getByRole('button', { name: '锁定管理权限', exact: true }).count(), 0,
+        'Dirty credentials offer to discard the draft before locking management')
+      assert.ok(await page.getByRole('button', { name: '放弃修改', exact: true }).isVisible())
       await page.getByRole('button', { name: '退出隐私模式', exact: true }).click()
       await unsaved.getByRole('button', { name: '放弃修改并离开', exact: true }).click()
       await page.locator('.nav-viewing').getByRole('button', { name: '普通模式', exact: true }).waitFor()
@@ -425,11 +471,19 @@ try {
     await page.getByRole('button', { name: '验证保护密码', exact: true }).click()
     await verify()
     await page.getByRole('heading', { name: '儿童与隐私保护' }).waitFor()
+    const showChildrenRefresh = async () => {
+      const trigger = page.locator('#sec-maintenance summary').filter({ hasText: '儿童筛选资料' })
+      if (!await trigger.evaluate(element => element.parentElement.open)) await trigger.click()
+    }
     const category = async (id, label) => {
-      if (viewport.width < 701) await page.getByRole('combobox', { name: '设置分类', exact: true }).selectOption(id)
+      if (viewport.width < 701) {
+        await page.locator('.settings-mobile-header .settings-back').click()
+        await page.locator('.settings-directory').getByRole('link', { name: label, exact: true }).click()
+      }
       else await page.locator('.side-nav').getByRole('button', { name: label, exact: true }).click()
       await page.waitForURL(url => url.searchParams.get('sec') === id)
       await page.waitForLoadState('networkidle')
+      if (id === 'sec-maintenance') await showChildrenRefresh()
     }
     const refresh = page.locator('.children-refresh')
     const scope = refresh.getByRole('combobox', { name: '补全范围', exact: true })
@@ -444,18 +498,18 @@ try {
     await category('sec-libtools', '扫描与整理')
     await page.locator('.lib-tabs').getByRole('button', { name: /客厅影库.*电影/, exact: false }).first().click()
     await page.waitForURL(url => url.searchParams.get('library') === '1')
-    await category('sec-auth', '访问保护')
+    await category('sec-maintenance', '资料维护')
     assert.equal(await scope.inputValue(), '', 'Scanning scope never supplies the children refresh default')
     assert.deepEqual(await scope.locator('option').evaluateAll(options => options.map(option => option.value)), ['', '1', '2', '3', '4'], 'The independent scope contains every video library across media libraries')
     assert.equal(await scope.locator('option[value="4"]').innerText(), '家庭录像与长期收藏 / 家庭录像 · 电影')
     await scope.selectOption('2')
     await category('sec-libtools', '扫描与整理')
     assert.match(await page.locator('.lib-tabs [aria-pressed="true"]').innerText(), /客厅影库.*电影/, 'Children scope cannot change the selected scanning library')
-    await category('sec-auth', '访问保护')
+    await category('sec-maintenance', '资料维护')
     assert.equal(await scope.inputValue(), '2', 'Switching settings categories preserves the independent scope')
     const childrenScopeUrl = page.url()
     await scope.selectOption('4')
-    assert.equal(await page.getByRole('combobox', { name: '切换媒体库', exact: true }).inputValue(), '1', 'Children scope cannot change the global media library')
+    assert.equal(await page.locator('.lib-switch').inputValue(), '1', 'Children scope cannot change the global media library')
     assert.equal(page.url(), childrenScopeUrl, 'Children scope cannot rewrite the settings route')
     await scope.selectOption('')
     await startRefresh().click()
@@ -492,6 +546,7 @@ try {
     assert.equal(refreshJobs.get(restoredJobId).library_id, 2)
     refreshReadFailures.set(restoredJobId, true)
     await page.reload()
+    await showChildrenRefresh()
     await refresh.getByRole('alert').filter({ hasText: '模拟任务状态暂不可用' }).waitFor()
     assert.equal(await scope.isDisabled(), true, 'A task whose state cannot be restored cannot silently start another scope')
     await readRefresh().click()
@@ -509,8 +564,10 @@ try {
     assert.equal(await page.evaluate(() => sessionStorage.getItem('jzmedia.childrenRefreshJob')), null, 'An expired task clears its stored reference')
     await page.reload()
     await page.waitForLoadState('networkidle')
+    await showChildrenRefresh()
     assert.equal(await scope.inputValue(), '', 'Opening settings without an existing task defaults to every library')
     pass('children refresh scope is independent, locks active workers, preserves task scope and restores or retries tasks')
+    await category('sec-auth', '访问保护')
     await page.getByLabel('当前保护密码', { exact: true }).fill('demo-pass')
     await page.getByLabel('新保护密码', { exact: true }).fill('updated-pass')
     await page.getByLabel('确认密码', { exact: true }).fill('updated-pass')
@@ -528,6 +585,8 @@ try {
   await page.goto(base + '/')
   await page.waitForLoadState('networkidle')
   assert.equal(await page.locator('.nav-library').count(), 0)
+  assert.ok(await page.locator('.nav-single-library').isVisible(), 'A single library is identified without a redundant selector')
+  await checkPhoneNavigation(page)
   const contextRow = await page.locator('.nav-context').boundingBox()
   const modeControl = await page.locator('.nav-viewing').boundingBox()
   assert.equal(contextRow.x + contextRow.width, modeControl.x + modeControl.width, 'Single-library mode control stays right-aligned')

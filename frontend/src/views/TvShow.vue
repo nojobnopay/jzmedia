@@ -1,11 +1,11 @@
 <template>
-  <div v-if="show" class="tv-page media-detail show-detail">
+  <div v-if="show" class="tv-page media-detail show-detail cinema-detail">
     <div class="hero media-hero">
       <MediaBackdrop :src="backdropSrc" />
       <div class="topbar hero-backbar"><router-link :to="aiNavigationContext(route.path)?.origin || browseReturn('/tv', currentMediaId())" class="back-link"><AppIcon name="back" :size="18" />{{ aiNavigationContext(route.path) ? '返回片单' : '剧集' }}</router-link></div>
       <div class="hero-inner">
-        <img v-if="show.poster_path" class="hero-poster" :src="posterSrc"
-          :alt="show.title" />
+        <img v-if="show.poster_path && failedPoster !== posterSrc" :key="posterSrc" class="hero-poster" :src="posterSrc"
+          :alt="show.title" @error="failedPoster = $event.currentTarget.getAttribute('src')" />
         <ArtworkPlaceholder v-else class="hero-poster hero-no-poster" kind="poster" :label="show.title" />
         <div class="hero-body">
           <div class="hero-heading">
@@ -25,6 +25,7 @@
             <JzButton v-if="nextEp" class="primary" :disabled="!nextEp.exists" @click="play(nextEp)" type="button" variant="primary">
               <PlayerIcon name="play" :size="20" /> {{ nextEp.progress ? '继续观看' : '播放下一集' }} {{ epNo(nextEp) }}
             </JzButton>
+            <a v-if="seasonCards.length" class="section-jump" href="#show-seasons">选择剧季 <AppIcon name="chevron-down" :size="16" /></a>
             <JzButton v-if="Number(show.episode_count) > 0" :disabled="busy" @click="toggleShowWatched" type="button">
               {{ allWatched ? '标记整剧未看' : '标记整剧已看' }}
             </JzButton>
@@ -39,10 +40,10 @@
             <span class="dim">{{ show.watched_count }}/{{ show.episode_count }} 已看</span>
             <span v-if="busy" class="dim">处理中…</span>
           </div>
-          <TvCollectionStatus v-if="show.tmdb_id" :snapshot="collection" :matched="!!show.tmdb_id && !show.needs_review"
+          <MediaOverview :text="show.overview || ''" />
+          <TvCollectionStatus v-if="show.tmdb_id" :key="show.id" :snapshot="collection" :matched="!!show.tmdb_id && !show.needs_review"
             :loading="collectionLoading" :checking="collectionChecking" :error="collectionError" :notice="collectionNotice"
             :scope-label="show.media_name" @check="checkCollection" @retry="reloadCollection" />
-          <MediaOverview :text="show.overview || ''" />
           <EmptyState v-if="loadError" state="error" title="剧集刷新失败" :text="loadError" retry @retry="load()" />
           <div v-if="msg || ingestMessage" class="page-feedback page-feedback-actions" role="status">
             <span>{{ msg || ingestMessage }}</span>
@@ -79,7 +80,7 @@
       </div>
     </div>
     <section v-if="seasonCards.length" class="card-block season-sec">
-      <h3>选择剧季 <span class="dim">{{ seasonCards.length }}</span></h3>
+      <h2 id="show-seasons" class="section-heading jump-heading" tabindex="-1">选择剧季 <span>{{ seasonCards.length }}</span></h2>
       <p v-if="collection" class="season-scope">收藏按当前媒体库统计；已看和继续观看对应当前视频库的本地文件。</p>
       <p v-for="note in collectionNotes" :key="note" class="season-scope collection-explanation">{{ note }}</p>
       <div class="season-grid">
@@ -243,6 +244,7 @@ const similar = ref([])
 const verifying = ref(false)
 // 海报版本（换绑/重刮后原地覆盖同 URL，带版本破浏览器缓存；对标电影 posterVer）
 const posterVer = ref(0)
+const failedPoster = ref('')
 const bindingsOpen = ref(false)
 function openMatchConflictBindings() {
   if (!matchConflict.value || msg.value !== matchConflict.value || isChildren.value || busy.value
@@ -653,7 +655,6 @@ watch([() => show.value?.id, () => route.params.id, () => viewing.ready,
 .mrow .mname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mrow .src-badge { padding: 1px 6px; border-radius: 3px; background: var(--jz-border); border: 1px solid var(--jz-border-strong); font-size: 0.75rem; color: var(--jz-text-dim); }
 
-.season-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: var(--jz-text); }
 .season-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .season-card { background: var(--jz-surface); border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); overflow: hidden; min-width: 0; }
 .season-card:hover, .season-card:focus-within { border-color: var(--jz-accent); }

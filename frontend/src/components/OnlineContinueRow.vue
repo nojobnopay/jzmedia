@@ -28,12 +28,12 @@ defineEmits(['detail', 'resume', 'retry', 'all'])
 <style scoped>
 .online-continue { min-width: 0; margin-block: var(--jz-gap-l) var(--jz-gap-2xl); }
 .online-continue-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--jz-gap-m); }
-.online-continue-heading h2 { margin: 0; font-size: var(--jz-font-body); font-weight: 600; }
+.online-continue-heading h2 { margin: 0; font-size: clamp(1.125rem, 1.6vw, 1.5rem); letter-spacing: -.02em; }
 .online-continue-heading > .jz-button { font-size: var(--jz-font-s); }
 .online-continue-scroll { display: flex; gap: var(--jz-gap-m); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; padding: 3px 3px var(--jz-gap-s); margin: 0 -3px; scrollbar-width: thin; }
 .online-continue-scroll > * { flex: none; scroll-snap-align: start; }
 .online-continue-scroll:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 3px; border-radius: var(--jz-radius-m); }
 .online-continue-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: var(--jz-gap-s); margin: 0; color: var(--jz-text-dim); font-size: var(--jz-font-s); }
 .online-continue :deep(.online-skeleton) { margin-top: 0; }
-@media (max-width: 700px) { .online-continue { margin-block: var(--jz-gap-m) var(--jz-gap-xl); } }
+@media (max-width: 700px) { .online-continue { margin-block: var(--jz-gap-m); } }
 </style>

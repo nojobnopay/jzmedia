@@ -37,9 +37,9 @@ test('海报墙卡片：其余区域进详情、左上角仍是选择', () => {
   assert.match(library, /toggleSelect\(m\.id\)/)
 })
 
-test('继续观看：播放键 stop 续播，卡片点击进详情', () => {
-  assert.match(cw, /class="poster-play"[\s\S]{0,200}@click\.stop="\$emit\('resume', m\)"/)
-  assert.match(cw, /@click="\$emit\('open', m\.id\)"/)
+test('继续观看：封面和片名共用详情链接，单独的播放按钮打开断点版本', () => {
+  assert.match(cw, /<router-link class="cw-link"[\s\S]+?class="cw-art"[\s\S]+?class="cw-name"[\s\S]+?<\/router-link>/)
+  assert.match(cw, /<\/router-link>\s*<JzButton[^>]+@click="\$emit\('resume', m\)"/)
 })
 
 test('季详情页集卡：中央播放键只播本集，卡片其余区域进详情（与电影墙一致）', () => {

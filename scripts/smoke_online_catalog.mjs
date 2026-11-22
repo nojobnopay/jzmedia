@@ -7,7 +7,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
-import { backendChildren as childPids, buildOnlinePreview, delay, freePort, killOwned, mediaHashes, readPlayer,
+import { backendChildren as childPids, buildOnlinePreview, delay, freePort, isCacheLookupConsoleMessage, isCacheLookupMiss,
+  measureOnlineCatalogLayout as layout, navigateOnlineCatalog as navigate, killOwned, mediaHashes, readPlayer,
   sha256, stopOwned, stopped, waitForFixtureIdle, waitUntil } from './online_fixture/browser.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -112,16 +113,16 @@ function trackPage(page) {
     const text = message.text()
     if (message.type() === 'error') {
       const item = { phase: phase.name, message: text, url: message.location().url }
-      if (phase.expectedHttp && /Failed to load resource|MEDIA_ERR|DEMUXER_ERROR|PIPELINE_ERROR/i.test(text)) report.expectedFailures.console.push(item)
+      if (isCacheLookupConsoleMessage(message) || phase.expectedHttp && /Failed to load resource|MEDIA_ERR|DEMUXER_ERROR|PIPELINE_ERROR/i.test(text)) report.expectedFailures.console.push(item)
       else report.errors.push({ ...item, type: 'console' })
     } else if (/\[Vue warn\].*(Unhandled error|Failed to resolve|Missing required|Invalid prop)/i.test(text)) {
       report.errors.push({ phase: phase.name, type: 'vue-runtime', message: text })
     }
   })
-  page.on('response', response => {
+  page.on('response', async response => {
     if (response.status() < 400) return
     const item = { phase: phase.name, path: new URL(response.url()).pathname, status: response.status() }
-    if (phase.expectedHttp) report.expectedFailures.responses.push(item)
+    if (phase.expectedHttp || await isCacheLookupMiss(response)) report.expectedFailures.responses.push(item)
     else report.unexpectedResponses.push(item)
   })
   page.on('requestfailed', request => {
@@ -208,27 +209,6 @@ async function closePlayer(page, { keyboard = false, focusKey = null } = {}) {
   if (focusKey) await page.waitForFunction(key => document.activeElement?.dataset.onlineItem === key, focusKey)
   return idle()
 }
-async function layout(page, width) {
-  const state = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth + 1,
-    buttons: [...document.querySelectorAll('button')].filter(button => {
-      const rect = button.getBoundingClientRect()
-      return rect.width && rect.height && getComputedStyle(button).visibility !== 'hidden'
-        && !button.closest('[inert]') && button.getAttribute('aria-hidden') !== 'true'
-    }).map(button => { const rect = button.getBoundingClientRect(); return {
-      label: button.getAttribute('aria-label') || button.textContent.trim(), width: rect.width, height: rect.height } }),
-    navTargets: [...document.querySelectorAll('.app-nav a.nav-link')].map(link => {
-      const rect = link.getBoundingClientRect(); return { label: link.textContent.trim(), width: rect.width, height: rect.height }
-    }) }))
-  assert.equal(state.overflow, false, `${width}px has no horizontal overflow`)
-  if (width <= 700) {
-    assert.deepEqual(state.buttons.filter(button => button.width < 43.5 || button.height < 43.5), [],
-      'Every visible phone control retains a 44px touch target')
-    assert.equal(state.navTargets.length, 6, 'The real App exposes all six normal-view navigation targets')
-    assert.deepEqual(state.navTargets.filter(target => target.width < 43.5 || target.height < 43.5), [],
-      'The real App navigation retains 44px phone targets')
-  }
-  return state
-}
 async function call(page, method, apiPath, body) {
   return page.evaluate(async ({ method, apiPath, body }) => {
     const response = await fetch(apiPath, { method, credentials: 'same-origin',
@@ -246,11 +226,6 @@ function assertPrivateCatalogue(value) {
     'media_policy_fingerprint', 'liangzi_page']) {
     assert.equal(text.includes(forbidden), false, `Catalogue DTO must not expose ${forbidden}`)
   }
-}
-async function navigate(page, pathName) {
-  const label = pathName === '/settings' ? '设置' : '在线'
-  await page.getByRole('navigation', { name: '主导航', exact: true }).getByRole('link', { name: label, exact: true }).click()
-  await page.waitForFunction(pathName => window.__jzOnlineFixture.snapshot().path === pathName, pathName)
 }
 async function createSourceUi(page, name) {
   const bootstrap = (await call(page, 'GET', '/api/fixture/bootstrap')).body
@@ -364,6 +339,12 @@ async function discovery() {
   }
   await backendChildren('after-discovery')
 }
+async function yearControl(page) {
+  const select = page.locator('[data-online-year]')
+  if (!await select.isVisible()) await page.locator('[data-online-categories-open]').click()
+  await select.waitFor()
+  return select
+}
 async function categoryNavigation() {
   async function taxonomyScenario(taxonomy) {
     const response = await fetch(`${base}/api/fixture/scenario`, { method: 'POST',
@@ -398,7 +379,7 @@ async function categoryNavigation() {
     await settled(page)
   }
   async function chooseYear(page, year) {
-    const select = page.locator('[data-online-year]')
+    const select = await yearControl(page)
     const available = await select.locator('option').evaluateAll(options => options.map(option => option.value))
     if (available.includes(year)) await select.selectOption(year)
     else {
@@ -419,7 +400,7 @@ async function categoryNavigation() {
     const { context, page } = await newPage(width)
     try {
       await selectSource(page)
-      await page.locator('[data-online-year]').waitFor()
+      await page.locator('[data-online-year]').waitFor({ state: 'attached' })
       await settled(page)
       // A valid filtered page can omit class while its optional taxonomy
       // discovery fails. Real metadata remains usable and the known source
@@ -582,7 +563,7 @@ async function relatedRecommendations() {
     const { context, page } = await newPage(width)
     try {
       await selectSource(page)
-      await page.locator('[data-online-year]').waitFor()
+      await page.locator('[data-online-year]').waitFor({ state: 'attached' })
       await settled(page)
       await page.locator('[data-online-channel="30"]').click()
       await settled(page)
@@ -593,7 +574,7 @@ async function relatedRecommendations() {
       }
       await category.click()
       await settled(page)
-      await page.locator('[data-online-year]').selectOption('2024')
+      await (await yearControl(page)).selectOption('2024')
       await settled(page)
       await page.getByRole('button', { name: '下一页', exact: true }).click()
       await page.locator('[data-online-result="academy-s2"]').waitFor()
@@ -1165,7 +1146,7 @@ async function detailExperience() {
     const { context, page } = await newPage(width)
     try {
       await selectSource(page)
-      await page.locator('[data-online-year]').waitFor()
+      await page.locator('[data-online-year]').waitFor({ state: 'attached' })
       await settled(page)
       await page.locator('[data-online-channel="30"]').click()
       await settled(page)
@@ -1175,7 +1156,7 @@ async function detailExperience() {
         category = page.getByRole('dialog').locator('[data-online-category="31"]').first()
       }
       await category.click(); await settled(page)
-      await page.locator('[data-online-year]').selectOption('2025'); await settled(page)
+      await (await yearControl(page)).selectOption('2025'); await settled(page)
       await page.getByRole('button', { name: '下一页', exact: true }).click(); await settled(page)
       const result = page.locator('[data-online-result="long-show"]')
       await result.waitFor(); await result.scrollIntoViewIfNeeded()
