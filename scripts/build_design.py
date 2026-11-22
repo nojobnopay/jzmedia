@@ -513,7 +513,8 @@ def tv_geometry(tag, args, source, profiles):
     if tag in ('TvIcon','TvNavIcon','TvLoading'): profile='tv-icon'
     elif tag=='TvAction': profile='tv-action'
     elif tag in ('Poster','TvPoster'): profile='tv-poster'
-    elif tag in ('PosterCard','TvLandscapeCard'):profile='tv-poster-card'
+    elif tag in ('PosterCard','TvLandscapeCard','PosterWallCard'):profile='tv-poster-card'
+    elif tag=='HomeContinueCard':profile='tv-continue-card'
     elif tag=='SearchHistoryAction': profile='tv-history'
     elif tag=='NavigationButton' or source.endswith('/TvNavigation.kt'):profile='tv-navigation'
     elif tag=='ActorCard' or source.endswith('/ActorScreens.kt'):profile='tv-actor'
@@ -639,7 +640,7 @@ def inventory(manifest, registry, contracts):
                     result[-1]['assets']=[]
         else:
             # Compose call sites and their icons are recorded even when button geometry remains native TV.
-            pattern=r'\b(TvAction|TvIcon|TvNavIcon|TvPoster|TvLandscapeCard|TvLoading|Poster|PosterCard|SearchHistoryAction|NavigationButton|ActorCard|Button|IconButton|TextButton|Checkbox|RadioButton|Switch|OutlinedTextField|Image)\s*\('
+            pattern=r'\b(TvAction|TvIcon|TvNavIcon|TvPoster|TvLandscapeCard|TvLoading|Poster|PosterCard|PosterWallCard|HomeContinueCard|SearchHistoryAction|NavigationButton|ActorCard|Button|IconButton|TextButton|Checkbox|RadioButton|Switch|OutlinedTextField|Image)\s*\('
             for order,match in enumerate(re.finditer(pattern,text)):
                 if text[max(0,match.start()-6):match.start()].strip().endswith('fun'): continue
                 start=match.end(); depth=1; quote=False;escape=False;end=start

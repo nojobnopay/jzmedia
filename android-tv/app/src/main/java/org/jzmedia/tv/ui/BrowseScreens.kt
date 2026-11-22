@@ -64,24 +64,25 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.mediaTitle
 import org.jzmedia.tv.data.queryPath
 import org.jzmedia.tv.data.rows
 import org.jzmedia.tv.data.text
 import org.jzmedia.tv.playback.PlaybackRequest
-import org.jzmedia.tv.playback.playbackTime
 import org.json.JSONObject
 import kotlin.math.roundToInt
 
-private data class HomePart(val rows: List<JSONObject> = emptyList(), val loading: Boolean = true, val error: String = "")
+private data class HomePart(val rows: List<JSONObject> = emptyList(), val loading: Boolean = true, val error: String = "", val settled: Boolean = false)
 private fun continuingKey(row: JSONObject): String =
     "continue:${row.text("kind", "movie")}:${row.optJSONObject("progress")?.optLong("version_id", row.optLong("id")) ?: row.optLong("id")}"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, navigate: (TvRoute) -> Unit,
-               play: (PlaybackRequest) -> Unit, onDiscoveryFocus: (FocusRequester?) -> Unit) {
+               play: (PlaybackRequest) -> Unit, navigationFocused: Boolean = false, onDiscoveryFocus: (FocusRequester?) -> Unit) {
     val paths = listOf("/api/movies/recent-played", "/api/tv/recent-played", "/api/movies", "/api/tv/shows")
     val labels = listOf("电影续播", "剧集续播", "最近加入的电影", "最近加入的电视剧")
     var parts by remember(api, library) { mutableStateOf(List(4) { HomePart() }) }
@@ -90,7 +91,22 @@ fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, nav
     val retryFocus = remember { List(4) { FocusRequester() } }
     val firstFocus = remember { List(3) { FocusRequester() } }
     val refreshFocus = remember { FocusRequester() }
+    val featureFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
+    var headerFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(navigationFocused, headerFocused) {
+        if (memory.leaving || (!navigationFocused && !headerFocused)) return@LaunchedEffect
+        if (navigationFocused && !memory.restored && !memory.restoreKey.startsWith("nav:")) return@LaunchedEffect
+        if (!navigationFocused) {
+            // D-pad search can focus an offscreen banner button before the banner enters the viewport.
+            val fits = snapshotFlow {
+                val layout = listState.layoutInfo
+                layout.visibleItemsInfo.firstOrNull { it.key == "heading" }?.let { it.size <= layout.viewportSize.height }
+            }.filterNotNull().first()
+            if (!fits) return@LaunchedEffect
+        }
+        listState.scrollToItem(0)
+    }
     val continueState = rememberLazyListState()
     val movieState = rememberLazyListState()
     val showState = rememberLazyListState()
@@ -101,17 +117,33 @@ fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, nav
             try {
                 val response = api.get(queryPath(paths[index], mapOf("media_library" to library.takeIf { it > 0 }, "limit" to 18, "sort" to "added", "order" to "desc")))
                 coroutineContext.ensureActive()
-                parts = parts.toMutableList().also { it[index] = HomePart(response.rows(), loading = false) }
+                parts = parts.toMutableList().also { it[index] = HomePart(response.rows(), loading = false, settled = true) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 coroutineContext.ensureActive()
-                parts = parts.toMutableList().also { it[index] = it[index].copy(loading = false, error = e.message ?: "读取失败") }
+                parts = parts.toMutableList().also { it[index] = it[index].copy(loading = false, error = e.message ?: "读取失败", settled = true) }
             }
         }
     }
-    val continuing = (parts[0].rows + parts[1].rows).sortedByDescending { it.optJSONObject("progress")?.optLong("last_played_at") ?: 0 }
-    val groups = listOf(continuing, parts[2].rows, parts[3].rows)
-    val groupKeys = listOf(continuing.map(::continuingKey), parts[2].rows.map { "newmovie:${it.optLong("id")}" }, parts[3].rows.map { "newshow:${it.optLong("id")}" })
+    val recentReady = parts[0].settled && parts[1].settled
+    val recent = (parts[0].rows + parts[1].rows).filter(::homeCanResume)
+        .sortedByDescending { it.optJSONObject("progress")?.optLong("last_played_at") ?: 0 }
+    // The first two sources form one chronological rail. Wait for both before promoting its newest item.
+    val candidate = chooseHomeFeature(if (recentReady) recent else emptyList(), parts[2].rows, parts[3].rows)
+    val feature = candidate.takeIf { recentReady && (recent.isNotEmpty() || parts[2].settled) }
+    val continuing = if (recentReady) recent.filterNot { continuingKey(it) == feature?.focusKey } else emptyList()
+    // Reserve just the potential lead card while history settles. Other catalogue cards remain usable,
+    // and a focused card never disappears from its rail when the banner first becomes available.
+    val groups = listOf(continuing,
+        parts[2].rows.filterNot { "newmovie:${it.optLong("id")}" == candidate?.focusKey },
+        parts[3].rows.filterNot { "newshow:${it.optLong("id")}" == candidate?.focusKey })
+    val groupKeys = listOf(continuing.map(::continuingKey), groups[1].map { "newmovie:${it.optLong("id")}" },
+        groups[2].map { "newshow:${it.optLong("id")}" })
+    suspend fun focusHeader() {
+        listState.scrollToItem(0)
+        withFrameNanos { }
+        if ((if (feature != null) featureFocus else refreshFocus).requestFocus(FocusDirection.Enter)) memory.restored = true
+    }
     LaunchedEffect(parts, retrying) {
         if (memory.leaving) return@LaunchedEffect
         val retry = retrying
@@ -121,12 +153,17 @@ fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, nav
             when {
                 parts[retry].error.isNotBlank() -> { listState.scrollToItem(group + 1); withFrameNanos { }; retryFocus[retry].requestFocus() }
                 groups[group].isNotEmpty() -> { listState.scrollToItem(group + 1); railStates[group].scrollToItem(0); withFrameNanos { }; firstFocus[group].requestFocus() }
-                else -> { listState.scrollToItem(0); withFrameNanos { }; refreshFocus.requestFocus() }
+                else -> focusHeader()
             }
             retrying = null
             return@LaunchedEffect
         }
         if (memory.restored || memory.leaving) return@LaunchedEffect
+        if (feature == null && memory.restoreKey == candidate?.focusKey) return@LaunchedEffect
+        if (feature != null && memory.restoreKey == feature.focusKey) {
+            focusHeader()
+            return@LaunchedEffect
+        }
         val restoredRetry = memory.restoreKey.removePrefix("home-retry:").toIntOrNull()?.takeIf { memory.restoreKey.startsWith("home-retry:") && it in 0..3 }
         if (restoredRetry != null) {
             if (parts[restoredRetry].loading) return@LaunchedEffect
@@ -138,7 +175,7 @@ fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, nav
             } else if (groups[group].isNotEmpty()) {
                 listState.scrollToItem(group + 1); railStates[group].scrollToItem(0); withFrameNanos { }
                 if (firstFocus[group].requestFocus(FocusDirection.Enter)) memory.restored = true
-            } else { listState.scrollToItem(0); withFrameNanos { }; if (refreshFocus.requestFocus(FocusDirection.Enter)) memory.restored = true }
+            } else focusHeader()
             return@LaunchedEffect
         }
         val group = when {
@@ -161,7 +198,7 @@ fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, nav
         when {
             failed != null -> { listState.scrollToItem(group + 1); withFrameNanos { }; if (retryFocus[failed].requestFocus(FocusDirection.Enter)) memory.restored = true }
             fallback >= 0 -> { listState.scrollToItem(fallback + 1); railStates[fallback].scrollToItem(0); withFrameNanos { }; if (firstFocus[fallback].requestFocus(FocusDirection.Enter)) memory.restored = true }
-            else -> { listState.scrollToItem(0); withFrameNanos { }; if (refreshFocus.requestFocus(FocusDirection.Enter)) memory.restored = true }
+            else -> focusHeader()
         }
     }
     fun retry(index: Int) {
@@ -185,19 +222,20 @@ fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, nav
     }
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "heading") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("今晚看什么", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.align(Alignment.CenterVertically))
-                    if (api.canFindWithAi) {
-                        val focus = remember { FocusRequester() }
-                        DisposableEffect(focus) {
-                            onDiscoveryFocus(focus)
-                            onDispose { onDiscoveryFocus(null) }
-                        }
-                        TvAction("智能找片", { navigate(discoveryRoute()) },
-                            Modifier.align(Alignment.CenterVertically).focusMemory(memory, "home-discovery", focus), icon = "ai")
+            HomeHeader(api, feature, feature?.let { Modifier.focusMemory(memory, it.focusKey, featureFocus) } ?: Modifier, onOpen = {
+                if (feature != null) {
+                    if (feature.resume) play(PlaybackRequest(feature.kind, feature.targetId, feature.title, true))
+                    else navigate(TvRoute(feature.kind, feature.targetId))
+                }
+            }, modifier = Modifier.onFocusChanged { headerFocused = it.hasFocus }) {
+                if (api.canFindWithAi) {
+                    val focus = remember { FocusRequester() }
+                    DisposableEffect(focus) {
+                        onDiscoveryFocus(focus)
+                        onDispose { onDiscoveryFocus(null) }
                     }
+                    TvAction("智能找片", { navigate(discoveryRoute()) },
+                        Modifier.focusMemory(memory, "home-discovery", focus), icon = "ai")
                 }
                 TvAction("刷新", { attempts = attempts.map { it + 1 } }, Modifier.focusMemory(memory, "home-refresh", refreshFocus), icon = "refresh")
             }
@@ -211,13 +249,8 @@ fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, nav
                             val kind = row.text("kind", "movie")
                             val progress = row.optJSONObject("progress") ?: JSONObject()
                             val id = progress.optLong("version_id", row.optLong("id"))
-                            val position = progress.optDouble("position", 0.0).takeIf { it.isFinite() && it >= 0 } ?: 0.0
-                            val duration = progress.optDouble("duration", 0.0).takeIf { it.isFinite() && it > 0 }
-                            val remaining = if (duration != null) "剩余 ${playbackTime((duration - position).coerceAtLeast(0.0))}" else "已看 ${playbackTime(position)}"
-                            val caption = listOf(if (kind == "episode") row.text("subtitle").substringBefore(" · ") else "", remaining).filter { it.isNotBlank() }.joinToString(" · ")
-                            MediaCard(api, row, { play(PlaybackRequest(kind, id, mediaTitle(row), true)) },
-                                Modifier.focusMemory(memory, continuingKey(row), if (index == 0) firstFocus[0] else null), caption,
-                                progressFraction = duration?.let { (position / it).coerceIn(0.0, 1.0).toFloat() })
+                            HomeContinueCard(api, row, { play(PlaybackRequest(kind, id, mediaTitle(row), true)) },
+                                Modifier.focusMemory(memory, continuingKey(row), if (index == 0) firstFocus[0] else null))
                         }
                     }
                 }
@@ -226,7 +259,7 @@ fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, nav
         }
         for (index in 2..3) item(key = if (index == 2) "newmovies" else "newshows") {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                HomeRail(labels[index], parts[index].rows, api, memory, if (index == 2) "newmovie" else "newshow", railStates[index - 1], firstFocus[index - 1]) {
+                HomeRail(labels[index], groups[index - 1], api, memory, if (index == 2) "newmovie" else "newshow", railStates[index - 1], firstFocus[index - 1]) {
                     navigate(TvRoute(if (index == 2) "movie" else "show", it.optLong("id")))
                 }
                 Feedback(index)

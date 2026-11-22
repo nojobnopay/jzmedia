@@ -64,11 +64,18 @@
       ]
     },
     "tv-poster-card": {
-      "specification": "目标宽150dp（网格按列宽约束分配）、内边距8dp；海报默认高180dp或posterHeight参数；图文间隔8dp、标题与元信息间隔4dp；文字区自然高度，不保留最小60dp或空元信息行；标题15/20sp最多两行、元信息12/16sp最多一行；海报右上评分、底部媒体库名最多两行；搜索海报扣除实际缩放后的两行标题、一行元信息及共享卡片间距/焦点边距，限100–180dp",
+      "specification": "目标宽 150dp，网格按列宽分配，内边距 4dp。海报宽高比 2∶3，搜索页按可用空间取高 100–180dp。图文间隔 8dp，标题与元信息间隔 4dp。标题 15/20sp、最多两行，元信息 12/16sp、最多一行，文字区随内容增高。电影海报右上可显示评分，底部媒体库名最多两行。聚焦时海报尺寸固定，白底深字，标题区在 90ms 内上移 2dp 归位。",
       "source": [
         "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
         "android-tv/app/src/main/java/org/jzmedia/tv/ui/SearchScreen.kt",
         "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvTypography.kt"
+      ]
+    },
+    "tv-continue-card": {
+      "specification": "首页续播卡宽 292dp，内边距 5dp，左侧海报 58×87dp。聚焦时沿用海报墙的标题动效与配色。",
+      "source": [
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/HomeFeature.kt",
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
       ]
     },
     "tv-history": {

@@ -102,6 +102,9 @@ fun sourcePosition(playerMillis: Long, mediaStart: Double, duration: Double): Do
     return if (duration > 0) value.coerceIn(0.0, duration) else value.coerceAtLeast(0.0)
 }
 
+fun resumePosition(position: Double, duration: Double): Double =
+    if (position.isFinite() && position > 15 && !shouldMarkWatched(position, duration)) position else 0.0
+
 fun shouldMarkWatched(position: Double, duration: Double): Boolean {
     if (!position.isFinite() || !duration.isFinite() || position < 0 || duration <= 0) return false
     val ratio = position / duration

@@ -280,7 +280,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 }
                 ensureActive()
                 val position = progress.optDouble("position", 0.0).finiteOrZero().coerceAtLeast(0.0)
-                val start = explicitStart ?: if (position > 15 && !shouldMarkWatched(position, state.duration)) position else 0.0
+                val start = explicitStart ?: resumePosition(position, state.duration)
                 initialized = true
                 if (compatible) useCompatibleCapabilities()
                 open(start)

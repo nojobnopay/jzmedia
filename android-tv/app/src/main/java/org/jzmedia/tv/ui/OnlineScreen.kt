@@ -58,7 +58,6 @@ import org.jzmedia.tv.data.OnlineSearchSession
 import org.jzmedia.tv.data.onlineErrorMessage
 import org.jzmedia.tv.data.onlineHostError
 import org.jzmedia.tv.playback.OnlinePlaybackRequest
-import org.jzmedia.tv.playback.playbackTime
 import java.security.MessageDigest
 import kotlin.coroutines.coroutineContext
 
@@ -879,12 +878,7 @@ fun OnlineScreen(api: JzApi, memory: FocusMemory, refresh: Int = 0,
                     else -> "暂时没有继续观看的内容。"
                 }) }
                 else -> items(state.library!!.items, key = { "record:${it.item.id}" }) { row ->
-                    Column(Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(10.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(row.item.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(row.source.name, color = Muted)
-                        row.progress?.let { progress -> Text(if (progress.completed) "已播放完毕" else "上次播放到 ${playbackTime(progress.position)}" +
-                            (progress.duration?.let { " / ${playbackTime(it)}" } ?: ""), color = Muted) }
-                        if (!row.available) Text(onlineAvailabilityReason(row.reason), color = Muted)
+                    OnlineRecordCard(api, row) {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(8.dp)) {
                             row.progress?.let { progress -> item {
                                 TvAction(if (progress.completed) "重新播放" else "继续播放", { openDetail(row.source.id, row.item.externalId, progress.identity) },

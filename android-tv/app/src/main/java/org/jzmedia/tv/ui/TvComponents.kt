@@ -4,14 +4,22 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import android.util.LruCache
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -32,6 +40,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -52,6 +61,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.contentDescription
@@ -64,6 +74,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -120,7 +131,7 @@ val Accent = DesignTokens.Accent
 /** “已看”绿与网页 --jz-green 同值，海报/详情/分集共用。 */
 val Watched = Color(0xFF7ED321)
 
-internal val MediaCardPadding = 8.dp
+internal val MediaCardPadding = 4.dp
 internal val MediaCardArtworkGap = 8.dp
 internal val MediaCardTextGap = 4.dp
 
@@ -132,9 +143,9 @@ internal fun tvDialogMaxHeight(fraction: Float): Dp {
 
 // Geometry remains native to each TV control; colors, corners and focus are shared.
 @Composable
-internal fun tvButtonColors(selected: Boolean = false, surface: Color = Panel) = ButtonDefaults.colors(
-    containerColor = if (selected) Accent else surface,
-    contentColor = DesignTokens.Text,
+internal fun tvButtonColors(selected: Boolean = false, surface: Color = Panel, primary: Boolean = false) = ButtonDefaults.colors(
+    containerColor = if (selected || primary) Accent else surface,
+    contentColor = if (selected || primary) DesignTokens.TextStrong else DesignTokens.Text,
     focusedContainerColor = DesignTokens.FocusBackground,
     focusedContentColor = DesignTokens.FocusForeground,
     disabledContainerColor = surface.copy(alpha = .55f),
@@ -179,11 +190,12 @@ fun Modifier.focusMemory(memory: FocusMemory, key: String, focusRequester: Focus
 @Composable
 fun TvAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true,
              centerLabel: Boolean = false, icon: String? = null, fillContent: Boolean = false,
-             focusScale: Float = DesignTokens.FocusScale, maxLines: Int = 2) {
+             focusScale: Float = DesignTokens.FocusScale, maxLines: Int = 2, primary: Boolean = false) {
     Button(
         onClick = onClick, enabled = enabled,
         modifier = modifier.heightIn(min = DesignTokens.ControlHeight).tvSelected(selected),
-        colors = tvButtonColors(selected), shape = tvButtonShape(), scale = ButtonDefaults.scale(focusedScale = focusScale),
+        colors = tvButtonColors(selected, primary = primary),
+        shape = tvButtonShape(), scale = ButtonDefaults.scale(focusedScale = focusScale),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
     ) {
         // centerLabel: fixed-width keys keep icon+text as one centered group.
@@ -231,23 +243,22 @@ fun TvInput(label: String, value: String, onValue: (String) -> Unit, modifier: M
 }
 
 internal object Posters {
+    private data class Key(val scope: String, val url: String, val size: PosterSize, val generation: Long)
     private val cacheLock = Any()
     private val generation = java.util.concurrent.atomic.AtomicLong()
     fun clear() = synchronized(cacheLock) { generation.incrementAndGet(); cache.evictAll() }
-    val cache = object : LruCache<String, Bitmap>(20 * 1024 * 1024) {
-        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+    private val cache = object : LruCache<Key, Bitmap>(20 * 1024 * 1024) {
+        override fun sizeOf(key: Key, value: Bitmap): Int = value.byteCount
     }
-    private val loads = SharedImageLoads<Pair<JzApi, String>, Bitmap?>()
+    private val loads = SharedImageLoads<Key, Bitmap?>()
     private val slots = Semaphore(4)
     // Online artwork shares the server's two-reader budget; do not burst a full wall at it.
     private val onlineSlots = Semaphore(2)
 
-    suspend fun load(api: JzApi, path: String): Bitmap? {
-        val startedGeneration = generation.get()
-        val url = api.absoluteUrl(path)
-        val key = "${api.cacheScope}:$url"
+    suspend fun load(api: JzApi, path: String, size: PosterSize = PosterSize.CARD): Bitmap? {
+        val key = Key(api.cacheScope, api.absoluteUrl(path), size, generation.get())
         cache.get(key)?.let { return it }
-        return loads.get(api to url) {
+        return loads.get(key) {
             (if (path.startsWith("/api/online/catalog/artwork/")) onlineSlots else slots).withPermit {
                 cache.get(key) ?: withContext(Dispatchers.IO) {
                     val bytes = api.getBytes(path)
@@ -255,13 +266,12 @@ internal object Posters {
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
                     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
                     val options = BitmapFactory.Options().apply {
-                        inSampleSize = 1
-                        while (maxOf(bounds.outWidth, bounds.outHeight) / inSampleSize > 640) inSampleSize *= 2
+                        inSampleSize = size.sampleSize(bounds.outWidth, bounds.outHeight)
                     }
                     currentCoroutineContext().ensureActive()
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.also {
                         currentCoroutineContext().ensureActive()
-                        synchronized(cacheLock) { if (generation.get() == startedGeneration) cache.put(key, it) }
+                        synchronized(cacheLock) { if (generation.get() == key.generation) cache.put(key, it) }
                     }
                 }
             }
@@ -303,7 +313,7 @@ fun DetailBackdrop(api: JzApi, path: String, modifier: Modifier = Modifier) {
             value = loadPosterWithFallback(path, "", onFailure = { attempt, error ->
                 Log.d("JzBackdrop", "Image attempt ${attempt + 1} failed (${error?.javaClass?.simpleName ?: "invalid image"})")
             }) { candidate ->
-                Posters.load(api, candidate)
+                Posters.load(api, candidate, PosterSize.BACKDROP)
             }
         }
     }
@@ -567,52 +577,83 @@ fun WatchedBadge(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifier = Modifier, subtitle: String = "",
-              fallbackPosterPath: String = "", posterPlaceholder: String = "", progressFraction: Float? = null,
-              posterHeight: Dp = 180.dp, watched: Boolean? = null) {
-    val title = mediaTitle(row)
-    val library = mediaLibraryLabel(row)
-    val rating = mediaRatingLabel(row)
-    val caption = subtitle.ifBlank { mediaCardSubtitle(row) }
-    val showWatched = watched ?: mediaWatched(row)
-    Button(
-        onClick = onClick, modifier = modifier.width(150.dp),
-        contentPadding = PaddingValues(MediaCardPadding),
-        shape = tvButtonShape(card = true), scale = tvButtonScale(),
-        colors = tvButtonColors(surface = DesignTokens.Surface),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(MediaCardArtworkGap)) {
-            Box(Modifier.fillMaxWidth().height(posterHeight)) {
-                Poster(api, posterPath(row), title, Modifier.fillMaxSize(),
-                    fallbackPosterPath = fallbackPosterPath, posterPlaceholder = posterPlaceholder)
-                if (rating.isNotBlank()) Text(rating,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(5.dp)
-                        .background(DesignTokens.Background.copy(alpha = .9f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 3.dp),
-                    color = DesignTokens.TextStrong, style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (showWatched) WatchedBadge(Modifier.align(Alignment.TopStart).padding(5.dp))
-                if (library.isNotBlank()) Text(library,
-                    modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                        .background(DesignTokens.Background.copy(alpha = .9f))
-                        .padding(horizontal = 6.dp, vertical = 6.dp),
-                    color = DesignTokens.TextStrong, style = MaterialTheme.typography.labelSmall,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                progressFraction?.takeIf { it.isFinite() }?.let { fraction ->
-                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color.Black.copy(alpha = .6f))) {
-                        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(4.dp).background(Accent))
-                    }
-                }
-            }
-            // The card ends after its actual text; short titles do not reserve a
-            // second line or an empty footer. Grid rows align at the poster top.
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(MediaCardTextGap)) {
+internal fun PosterButton(onClick: () -> Unit, modifier: Modifier, padding: Dp, surface: Color,
+                          content: @Composable (captionModifier: Modifier) -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val interactions = remember { MutableInteractionSource() }
+    val pressed by interactions.collectIsPressedAsState()
+    val background = when {
+        pressed -> DesignTokens.TextDim
+        focused -> DesignTokens.FocusBackground
+        else -> surface
+    }
+    Box(modifier.onFocusChanged { focused = it.isFocused }.focusProperties { canFocus = true }
+        .clickable(interactionSource = interactions, indication = null, role = Role.Button, onClick = onClick)
+        .background(background, RoundedCornerShape(DesignTokens.CardRadius)).padding(padding)) {
+        // Animate only the incoming caption layer; the artwork and focus outline stay still.
+        val captionModifier = if (focused) {
+            val offset = remember { Animatable(1f) }
+            LaunchedEffect(offset) { offset.animateTo(0f, tween(90, easing = LinearOutSlowInEasing)) }
+            Modifier.graphicsLayer { translationY = 2.dp.toPx() * offset.value }
+        } else Modifier
+        val foreground = if (focused || pressed) DesignTokens.FocusForeground else DesignTokens.Text
+        CompositionLocalProvider(LocalContentColor provides foreground) { content(captionModifier) }
+    }
+}
+
+@Composable
+internal fun PosterWallCard(title: String, caption: String, onClick: () -> Unit, modifier: Modifier = Modifier,
+                            posterHeight: Dp = Dp.Unspecified, artwork: @Composable BoxScope.() -> Unit) {
+    PosterButton(onClick, modifier, MediaCardPadding, Color.Transparent) { captionModifier ->
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(MediaCardArtworkGap)) {
+            val imageSize = if (posterHeight == Dp.Unspecified) Modifier.aspectRatio(2f / 3f) else Modifier.height(posterHeight)
+            Box(Modifier.fillMaxWidth().then(imageSize).clip(RoundedCornerShape(DesignTokens.CornerRadius)), content = artwork)
+            Column(captionModifier.fillMaxWidth().padding(horizontal = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(MediaCardTextGap)) {
                 Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                if (caption.isNotBlank()) Text(caption, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
-                    color = LocalContentColor.current.copy(alpha = .72f))
+                if (caption.isNotBlank()) Text(caption, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelSmall, color = LocalContentColor.current.copy(alpha = .76f))
             }
         }
+    }
+}
+
+@Composable
+internal fun BoxScope.PosterBottomLabel(label: String) {
+    if (label.isBlank()) return
+    Text(label, modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
+        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .90f))))
+        .padding(start = 7.dp, end = 7.dp, top = 14.dp, bottom = 7.dp),
+        color = DesignTokens.TextStrong, style = MaterialTheme.typography.labelSmall,
+        maxLines = 2, overflow = TextOverflow.Ellipsis)
+}
+
+@Composable
+internal fun BoxScope.PosterProgress(fraction: Float) {
+    if (!fraction.isFinite()) return
+    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color.Black.copy(alpha = .6f))) {
+        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(4.dp).background(Accent))
+    }
+}
+
+@Composable
+fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifier = Modifier, subtitle: String = "",
+              fallbackPosterPath: String = "", posterPlaceholder: String = "", progressFraction: Float? = null,
+              posterHeight: Dp = Dp.Unspecified, watched: Boolean? = null) {
+    val title = mediaTitle(row)
+    val rating = mediaRatingLabel(row)
+    PosterWallCard(title, subtitle.ifBlank { mediaCardSubtitle(row) }, onClick, modifier.width(150.dp), posterHeight) {
+        Poster(api, posterPath(row), title, Modifier.fillMaxSize(), fallbackPosterPath = fallbackPosterPath,
+            posterPlaceholder = posterPlaceholder, showPlaceholderLabel = posterPlaceholder.isNotBlank())
+        if (rating.isNotBlank()) Text(rating,
+            modifier = Modifier.align(Alignment.TopEnd).padding(5.dp)
+                .background(DesignTokens.Background.copy(alpha = .9f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 6.dp, vertical = 3.dp),
+            color = DesignTokens.TextStrong, style = MaterialTheme.typography.labelSmall,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (watched ?: mediaWatched(row)) WatchedBadge(Modifier.align(Alignment.TopStart).padding(5.dp))
+        PosterBottomLabel(mediaLibraryLabel(row))
+        progressFraction?.let { PosterProgress(it) }
     }
 }
 

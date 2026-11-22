@@ -45,7 +45,8 @@ private val ChannelItems = listOf(
 
 @Composable
 internal fun TvNavigation(section: String, libraryName: String, memory: FocusMemory, viewingLabel: String? = null,
-                          showOnline: Boolean = false, homeDown: FocusRequester? = null, open: (String) -> Unit) {
+                          showOnline: Boolean = false, homeDown: FocusRequester? = null, modifier: Modifier = Modifier,
+                          open: (String) -> Unit) {
     val channels = if (showOnline) ChannelItems + NavigationItem("online", "在线") else ChannelItems
     val tools = listOf(NavigationItem("libraries", libraryName)) +
         listOfNotNull(viewingLabel?.let { NavigationItem("viewing", it) }) + NavigationItem("settings", "设置")
@@ -73,7 +74,7 @@ internal fun TvNavigation(section: String, libraryName: String, memory: FocusMem
             }
         }
     }
-    BoxWithConstraints(Modifier.fillMaxWidth().height(52.dp)) {
+    BoxWithConstraints(modifier.fillMaxWidth().height(52.dp)) {
         val itemWidth = widths.values.fold(0.dp) { total, value -> total + value }
         val minimumWidth = itemWidth + 16.dp + 56.dp + 16.dp
         val showBrand = maxWidth >= minimumWidth + brandWidth + 32.dp

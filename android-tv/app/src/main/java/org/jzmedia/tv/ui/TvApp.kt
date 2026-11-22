@@ -30,6 +30,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.LongState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -44,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -111,7 +113,7 @@ internal fun savedViewingRoutes(routes: List<TvRoute>, mode: String?): List<Stri
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
+fun TvApp(onExit: () -> Unit, lastInteraction: LongState) {
     val context = LocalContext.current
     val store = remember { ConnectionStore(context) }
     var loaded by remember { mutableStateOf(false) }
@@ -152,7 +154,6 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     val holder = rememberSaveableStateHolder()
     var savedPageKeys by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val scope = rememberCoroutineScope()
-    val latestInteraction by rememberUpdatedState(maxOf(lastInteraction, dialogInteraction))
     val latestPlaying by rememberUpdatedState(playing)
 
     fun closeOnlinePlayback() {
@@ -387,14 +388,17 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         onDispose { if (server.viewing?.mode == "private") window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
     LaunchedEffect(server) { server.viewingLocked.collect { lockViewing() } }
-    LaunchedEffect(server, viewingBlocked) {
+    LaunchedEffect(server, viewingBlocked, lastInteraction) {
         if (server.viewing == null || viewingBlocked) return@LaunchedEffect
-        var lastSeenInteraction = latestInteraction
+        // Sample the timestamps here so moving focus does not recompose the app.
+        fun activityTime() = maxOf(lastInteraction.longValue, dialogInteraction)
+        var lastSeenInteraction = activityTime()
         var activeAt = SystemClock.elapsedRealtime()
         while (true) {
             delay(15_000)
-            val userActivity = latestInteraction > lastSeenInteraction
-            lastSeenInteraction = latestInteraction
+            val currentInteraction = activityTime()
+            val userActivity = currentInteraction > lastSeenInteraction
+            lastSeenInteraction = currentInteraction
             val now = SystemClock.elapsedRealtime()
             val privatePlayback = latestPlaying && server.viewing?.mode == "private"
             if (userActivity || privatePlayback) activeAt = now
@@ -478,6 +482,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     fun navigate(next: TvRoute) { routes = routes + next }
     val pageContent: @Composable () -> Unit = {
         var homeDiscoveryFocus by remember { mutableStateOf<FocusRequester?>(null) }
+        var navigationFocused by remember { mutableStateOf(false) }
         val memory = rememberFocusMemory(when (route.kind) {
             "search" -> "key:A"
             "discovery" -> "discovery:input"
@@ -503,7 +508,8 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         Column(pageKeys.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 40.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             TvNavigation(navigationSection(routes), libraryName, memory, server.viewing?.label,
-                showOnline = server.supportsOnlineVod && server.viewing?.mode != "children", homeDown = homeDiscoveryFocus) { kind ->
+                showOnline = server.supportsOnlineVod && server.viewing?.mode != "children", homeDown = homeDiscoveryFocus,
+                modifier = if (route.kind == "home") Modifier.onFocusChanged { navigationFocused = it.hasFocus } else Modifier) { kind ->
                 when (kind) {
                     "viewing" -> viewingDialog = ViewingDialogRequest()
                     "search", "libraries", "settings" -> if (route.kind != kind) open(TvRoute(kind))
@@ -520,7 +526,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
             }
             // 屏幕返回键已取消：遥控器返回由上面的全局 BackHandler 兜底。
             when (route.kind) {
-                "home" -> HomeScreen(server, library, refresh, memory, ::open, ::play) { homeDiscoveryFocus = it }
+                "home" -> HomeScreen(server, library, refresh, memory, ::open, ::play, navigationFocused) { homeDiscoveryFocus = it }
                 "movies", "shows", "collections" -> BrowseScreen(server, route.kind, library, refresh, memory, ::open)
                 "search" -> SearchScreen(server, library, route.title, memory, ::open, ::back)
                 "discovery" -> if (server.canFindWithAi) {

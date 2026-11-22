@@ -258,13 +258,17 @@ data class OnlineItemState(val itemId: String, val favorite: Boolean, val lastPr
         } }
 }
 data class OnlineLibraryEntry(val item: OnlineCatalogItem, val source: OnlineSource, val favorite: Boolean,
-                              val progress: OnlineProgress?, val available: Boolean, val reason: String) {
-    companion object { fun fromJson(value: JSONObject) = OnlineLibraryEntry(OnlineCatalogItem.fromJson(value.getJSONObject("item")),
-        OnlineSource.fromJson(value.getJSONObject("source")), value.boolean("favorite"),
-        value.optionalObject("progress")?.let(OnlineProgress::fromJson), value.boolean("available"), value.string("reason", 128)).also {
-            require(it.item.sourceId == it.source.id)
-            require(it.progress == null || it.progress.identity.sourceId == it.source.id && it.progress.identity.itemId == it.item.id)
-        } }
+                              val progress: OnlineProgress?, val available: Boolean, val reason: String,
+                              val posterPath: String? = null, val episodeLabel: String = "") {
+    companion object { fun fromJson(value: JSONObject): OnlineLibraryEntry {
+        val item = OnlineCatalogItem.fromJson(value.getJSONObject("item"))
+        val source = OnlineSource.fromJson(value.getJSONObject("source"))
+        val progress = value.optionalObject("progress")?.let(OnlineProgress::fromJson)
+        require(item.sourceId == source.id)
+        require(progress == null || progress.identity.sourceId == source.id && progress.identity.itemId == item.id)
+        return OnlineLibraryEntry(item, source, value.boolean("favorite"), progress, value.boolean("available"),
+            value.string("reason", 128), value.artwork(source.id), value.optionalString("episode_label").orEmpty())
+    } }
 }
 data class OnlineLibrary(val items: List<OnlineLibraryEntry>, val total: Int, val limit: Int, val offset: Int,
                         val generation: Long, val scopeToken: String) {

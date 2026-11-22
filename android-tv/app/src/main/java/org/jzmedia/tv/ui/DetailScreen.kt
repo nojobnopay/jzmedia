@@ -1,12 +1,15 @@
 package org.jzmedia.tv.ui
 
 import org.jzmedia.tv.ui.generated.DesignTokens
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,6 +22,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -33,6 +37,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -51,14 +58,48 @@ import org.jzmedia.tv.data.castActorKey
 import org.jzmedia.tv.data.detailBackdropPath
 import org.jzmedia.tv.data.detailCastList
 import org.jzmedia.tv.data.episodeTitle
+import org.jzmedia.tv.data.mediaRatingLabel
 import org.jzmedia.tv.data.mediaTitle
 import org.jzmedia.tv.data.posterPath
 import org.jzmedia.tv.data.queryPath
 import org.jzmedia.tv.data.rows
 import org.jzmedia.tv.data.text
 import org.jzmedia.tv.playback.PlaybackRequest
+import org.jzmedia.tv.playback.playbackTime
+import org.jzmedia.tv.playback.resumePosition
 import org.json.JSONArray
 import org.json.JSONObject
+
+/** Local and online details share a compact heading; only local media supply widescreen artwork. */
+@Composable
+internal fun DetailHero(
+    title: String, metadata: String, synopsis: String,
+    modifier: Modifier = Modifier,
+    poster: @Composable () -> Unit,
+    backdrop: @Composable BoxScope.() -> Unit = {},
+    actions: @Composable () -> Unit,
+) {
+    val gradient = remember { Brush.horizontalGradient(listOf(DesignTokens.SurfaceRaised, DesignTokens.Background)) }
+    Box(modifier.fillMaxWidth().clip(RoundedCornerShape(DesignTokens.DialogRadius)).background(gradient)) {
+        backdrop()
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(22.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            poster()
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(title, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (metadata.isNotBlank()) Text(metadata, style = MaterialTheme.typography.labelLarge, color = Muted,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (synopsis.isNotBlank()) Text(synopsis, Modifier.widthIn(max = 640.dp), style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                actions()
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -167,6 +208,14 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
     val canPlay = route.kind in listOf("movie", "episode")
     val next = row.optJSONObject("next_episode")
     val offline = knownOffline(row) || (route.kind == "movie" && knownOffline(movieVersion))
+    var selectedProgress by remember(api, route, playableId, refresh, attempt) { mutableStateOf<JSONObject?>(null) }
+    LaunchedEffect(api, route, playableId, refresh, attempt, offline) {
+        if (route.kind == "movie" && playableId > 0 && !offline) {
+            selectedProgress = try { api.get("/api/stream/progress?version_id=$playableId&kind=movie") }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { null }
+        }
+    }
     val nextOffline = knownOffline(next)
     val seasons = row.rows("seasons")
     val episodeRows = row.rows("episodes")
@@ -212,7 +261,7 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                 if (extras.isNotEmpty()) castIndex += 1 + extras.size
                 castIndex
             }
-            target in setOf("play", "restart", "version", "more") -> 0
+            target in setOf("play", "restart", "version", "overview", "more") -> 0
             else -> null
         }
         withFrameNanos { }
@@ -261,66 +310,52 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
     CompositionLocalProvider(LocalBringIntoViewSpec provides scrollSpec) {
         LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp)) {
             item(key = "hero") {
-                // 网页详情大海报观感：固定 2:3 展示尺寸（清晰度由来图决定，布局尺寸不变）。
-                // 背景盖顶部介绍区（海报+标题+操作+简介，网页同口径），合集无背景。
-                // 回到顶部介绍区时吸顶到首项，避免海报半截悬空。
-                val heroPosterWidth = if (contentWidth < 700) 120.dp else 168.dp
-                Box(Modifier.fillMaxWidth().onFocusChanged { if (it.hasFocus) scope.launch { listState.scrollToItem(0) } }) {
-                    DetailBackdrop(api, detailBackdropPath(route.kind, row, route.id), Modifier.matchParentSize())
-                    // 背景出血：上下左右各留边，背景高于海报、低于简介按钮，不与海报齐平。
-                    Row(Modifier.padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    Box {
-                        Poster(api, posterPath(row), title,
-                            Modifier.width(heroPosterWidth).height(heroPosterWidth * 1.5f),
-                            fallbackPosterPath = detailFallbackPoster(row))
-                        if (watched) WatchedBadge(Modifier.align(Alignment.TopStart).padding(5.dp))
-                    }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 2,
-                            overflow = TextOverflow.Ellipsis)
-                        Text(listOf(row.text("year").ifBlank { row.text("show_year") }, row.text("origin_country_name"), row.text("library_name"),
-                            org.jzmedia.tv.data.mediaRatingLabel(row))
-                            .filter { it.isNotBlank() }.joinToString(" · "), color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        if (watched) WatchedBadge()
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(8.dp)) {
-                            if (canPlay) {
-                                item { TvAction(if (offline) "文件离线" else "播放 / 继续观看", {
-                                    if (!offline) play(PlaybackRequest(if (route.kind == "movie") "movie" else "episode", playableId, title, true))
-                                }, targetModifier("play"), enabled = !offline, icon = if (offline) "error" else "play") }
-                                item { TvAction("从头开始", {
-                                    if (!offline) play(PlaybackRequest(if (route.kind == "movie") "movie" else "episode", playableId, title, false))
-                                }, targetModifier("restart"), enabled = !offline, icon = "replay") }
-                            }
-                            if (next != null && route.kind in listOf("show", "season")) item {
-                                val label = episodeTitle(next).substringBefore("  ")
-                                val hasProgress = (next.optJSONObject("progress")?.optDouble("position") ?: next.optDouble("_pos")) > 0
-                                TvAction(if (nextOffline) "$label · 离线" else "${if (hasProgress) "继续观看" else "播放"} · $label", {
-                                    if (!nextOffline) play(PlaybackRequest("episode", next.optLong("id"), "${row.text("show_title").ifBlank { title }} · ${episodeTitle(next)}", true))
-                                }, targetModifier("play"), enabled = !nextOffline, icon = if (nextOffline) "error" else "play")
-                            }
-                            if (route.kind == "movie" && versions.size > 1) item {
-                                TvAction("版本：${versionLabel(movieVersion ?: JSONObject().put("id", selectedVersion))}", { choosingVersion = true },
-                                    targetModifier("version").widthIn(max = 260.dp), icon = "collections")
-                            }
-                            if (route.kind == "season" && versions.size > 1) item {
-                                TvAction(if (seasonVersion.isBlank()) "全部版本" else "版本 $seasonVersion", { choosingVersion = true }, targetModifier("version"), icon = "collections")
-                            }
-                            item {
-                                TvAction(if (actionBusy) "保存中…" else "更多操作", { moreOpen = true }, targetModifier("more"), enabled = !actionBusy, icon = if (actionBusy) "loading" else "more")
-                            }
+                val posterWidth = if (contentWidth < 700) 104.dp else 144.dp
+                val metadata = listOf(row.text("year").ifBlank { row.text("show_year") }.takeUnless { it == "0" }.orEmpty(),
+                    row.text("origin_country_name"), mediaRatingLabel(row), row.text("library_name"))
+                    .filter(String::isNotBlank).joinToString(" · ")
+                DetailHero(title, metadata, overview,
+                    modifier = Modifier.onFocusChanged { if (it.hasFocus) scope.launch { listState.scrollToItem(0) } },
+                    backdrop = { DetailBackdrop(api, detailBackdropPath(route.kind, row, route.id), Modifier.matchParentSize()) },
+                    poster = {
+                        Box {
+                            Poster(api, posterPath(row), title, Modifier.width(posterWidth).height(posterWidth * 1.5f),
+                                fallbackPosterPath = detailFallbackPoster(row))
+                            if (watched) WatchedBadge(Modifier.align(Alignment.TopStart).padding(5.dp))
                         }
-                        if (offline || (route.kind in listOf("show", "season") && next != null && nextOffline))
-                            Text("此文件目前离线，请选择其它分集或版本", color = DesignTokens.Error)
-                        if (overview.isNotBlank()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(overview, color = Muted, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                                // 简介整段一块进弹窗，不按字数切片（切片会在句中切成两截）。
-                                TvAction("查看完整简介", { textDialog = "剧情简介" to listOf(overview) }, targetModifier("overview"), icon = "info")
+                    },
+                ) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (canPlay) {
+                            val label = when {
+                                offline -> "文件离线"
+                                route.kind == "movie" -> moviePlayLabel(selectedProgress)
+                                else -> "播放 / 继续观看"
                             }
+                            TvAction(label, { if (!offline) play(PlaybackRequest(route.kind, playableId, title, true)) },
+                                targetModifier("play"), enabled = !offline, icon = if (offline) "error" else "play", primary = true)
                         }
+                        if (next != null && route.kind in listOf("show", "season")) {
+                            val label = episodeTitle(next).substringBefore("  ")
+                            val hasProgress = (next.optJSONObject("progress")?.optDouble("position") ?: next.optDouble("_pos")) > 0
+                            TvAction(if (nextOffline) "$label · 离线" else "${if (hasProgress) "继续观看" else "播放"} · $label", {
+                                if (!nextOffline) play(PlaybackRequest("episode", next.optLong("id"), "${row.text("show_title").ifBlank { title }} · ${episodeTitle(next)}", true))
+                            }, targetModifier("play"), enabled = !nextOffline, icon = if (nextOffline) "error" else "play", primary = true)
+                        }
+                        if (route.kind == "movie" && versions.size > 1)
+                            TvAction("版本：${versionLabel(movieVersion ?: JSONObject().put("id", selectedVersion))}", { choosingVersion = true },
+                                targetModifier("version").widthIn(max = 240.dp), icon = "collections")
+                        if (route.kind == "season" && versions.size > 1)
+                            TvAction(if (seasonVersion.isBlank()) "全部版本" else "版本 $seasonVersion", { choosingVersion = true }, targetModifier("version"), icon = "collections")
+                        if (canPlay) TvAction("从头开始", {
+                            if (!offline) play(PlaybackRequest(route.kind, playableId, title, false))
+                        }, targetModifier("restart"), enabled = !offline, icon = "replay")
+                        if (overview.isNotBlank()) TvAction("完整简介", { textDialog = "剧情简介" to listOf(overview) }, targetModifier("overview"), icon = "info")
+                        TvAction(if (actionBusy) "保存中…" else "更多操作", { moreOpen = true }, targetModifier("more"), enabled = !actionBusy, icon = if (actionBusy) "loading" else "more")
                     }
-                    }
+                    if (offline || (route.kind in listOf("show", "season") && next != null && nextOffline))
+                        Text("此文件目前离线，请选择其它分集或版本", color = DesignTokens.Error)
                 }
             }
             if (actionError.isNotBlank()) item(key = "action-error") { Status(actionError, ::markWatched) }
@@ -430,6 +465,12 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
         }
     }
     textDialog?.let { (heading, lines) -> TextDialog(heading, lines) { textDialog = null } }
+}
+
+internal fun moviePlayLabel(progress: JSONObject?): String {
+    if (progress == null) return "播放"
+    val position = resumePosition(progress.optDouble("position", 0.0), progress.optDouble("duration", 0.0))
+    return if (position > 0) "从 ${playbackTime(position)} 继续" else "播放影片"
 }
 
 /** Only explicit server knowledge blocks playback; omitted legacy fields remain compatible. */

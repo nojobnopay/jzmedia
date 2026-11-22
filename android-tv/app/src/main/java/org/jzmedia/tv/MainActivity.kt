@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
                 ),
             ) {
                 CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
-                    TvApp(onExit = ::finish, lastInteraction = lastInteraction.longValue)
+                    TvApp(onExit = ::finish, lastInteraction = lastInteraction)
                 }
             }
         }

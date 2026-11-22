@@ -128,6 +128,25 @@ class OnlineModelsTest {
         assertNull(OnlineSearchItem.fromJson(searchItem().put("poster_path", JSONObject.NULL)).posterPath)
     }
 
+    @Test fun recordsAcceptOptionalEpisodeAndOnlyTheirOwnSourceArtwork() {
+        val record = JSONObject().put("item", JSONObject().put("id", item).put("source_id", source)
+            .put("kind", "tv").put("title", "合成剧集").put("external_id", "show-1"))
+            .put("source", sourceJson()).put("favorite", true).put("available", true).put("reason", "")
+        val old = OnlineLibraryEntry.fromJson(record)
+        assertNull(old.posterPath)
+        assertEquals("", old.episodeLabel)
+        val poster = "/api/online/catalog/artwork/$source/" + "a".repeat(32)
+        val current = OnlineLibraryEntry.fromJson(record.put("poster_path", poster).put("episode_label", "第 3 集"))
+        assertEquals(poster, current.posterPath)
+        assertEquals("第 3 集", current.episodeLabel)
+        for (invalid in listOf("https://other.example/poster.jpg", poster.replace(source, "src_" + "f".repeat(32)),
+                "/api/online/cache/artwork/$item")) {
+            assertThrows(IllegalArgumentException::class.java) {
+                OnlineLibraryEntry.fromJson(record.put("poster_path", invalid))
+            }
+        }
+    }
+
     @Test fun catalogueInvalidationTokensRemainOptionalForOlderServersAndKeepCurrentOpaqueBindings() {
         val old = OnlineSources.fromJson(JSONObject().put("enabled", true).put("items", JSONArray().put(sourceJson())))
         assertEquals("", old.scopeToken)

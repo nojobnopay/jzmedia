@@ -6,6 +6,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DetailModelsTest {
+    @Test fun moviePlayLabelUsesOnlyResumableProgressOfTheSelectedFile() {
+        fun progress(position: Double, duration: Double) =
+            JSONObject().put("position", position).put("duration", duration)
+        assertEquals("播放", moviePlayLabel(null))
+        assertEquals("播放影片", moviePlayLabel(progress(15.0, 5400.0)))
+        assertEquals("从 36:20 继续", moviePlayLabel(progress(2180.0, 5400.0)))
+        assertEquals("从 36:20 继续", moviePlayLabel(progress(2180.0, 0.0)))
+        assertEquals("播放影片", moviePlayLabel(progress(5200.0, 5400.0)))
+        assertEquals("播放影片", moviePlayLabel(progress(1000.0, 1200.0)))
+    }
+
+
     @Test fun playbackBlocksExplicitOfflineKnowledgeAndAcceptsLegacyRows() {
         assertFalse(knownOffline(null))
         assertFalse(knownOffline(JSONObject()))

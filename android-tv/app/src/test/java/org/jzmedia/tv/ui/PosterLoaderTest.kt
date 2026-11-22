@@ -15,6 +15,20 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class PosterLoaderTest {
+    @Test fun backdropsKeepFullHdWhileCardsRetainTheirSmallerDecode() {
+        assertEquals(1, PosterSize.BACKDROP.sampleSize(1920, 1080))
+        assertEquals(2, PosterSize.BACKDROP.sampleSize(3840, 2160))
+        assertEquals(4, PosterSize.CARD.sampleSize(1920, 1080))
+        assertEquals(1, PosterSize.CARD.sampleSize(640, 640))
+    }
+
+    @Test fun decodeLimitsBoundSquareAndOddDimensionsWithoutOverflow() {
+        assertEquals(2, PosterSize.BACKDROP.sampleSize(1920, 1920))
+        assertEquals(2, PosterSize.BACKDROP.sampleSize(1920, 1081))
+        assertEquals(4, PosterSize.CARD.sampleSize(1281, 720))
+        assertEquals(1 shl 21, PosterSize.BACKDROP.sampleSize(Int.MAX_VALUE, Int.MAX_VALUE))
+    }
+
     @Test fun httpFailureFallsBackAndPreservesTheServerPrefix() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(404))

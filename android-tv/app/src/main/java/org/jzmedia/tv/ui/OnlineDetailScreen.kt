@@ -275,7 +275,7 @@ internal fun OnlineDetailScreen(
         val buttonWidth = ((maxWidth.value - 16f - (columns - 1) * 12f) / columns).coerceAtMost(100f).dp
         val rows = positions.chunked(columns)
         fun itemIndex(key: String): Int? = when {
-            key in setOf("detail:play", "detail:favorite", "detail:description", "detail:more", "detail:hosts") -> 0
+            key in heroFocusKeys -> 0
             key.startsWith("detail:line:") -> 1
             key.startsWith("detail:group:") || key == "detail:reverse" || key == "detail:locate" || key == "detail:full-name" -> 2
             else -> positions.indexOfFirst { onlineEpisodeKey(lineId, entries[it], it) == key }
@@ -352,43 +352,39 @@ internal fun OnlineDetailScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item(key = "detail:hero") {
                 val posterWidth = onlineDetailPosterWidthDp(maxWidth.value).dp
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                val metadata = listOf(if (localCache) "本地缓存" else if (detail.item.kind == "tv") "剧集" else "电影",
+                    detail.year, detail.source.name).filter(String::isNotBlank).joinToString(" · ")
+                DetailHero(detail.item.title, metadata, detail.description, poster = {
                     Poster(api, detail.posterPath.orEmpty(), detail.item.title,
                         Modifier.width(posterWidth).height(posterWidth * 1.5f))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(detail.item.title, style = MaterialTheme.typography.headlineMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(listOf(if (localCache) "本地缓存" else if (detail.item.kind == "tv") "剧集" else "电影", detail.year, detail.source.name)
-                            .filter(String::isNotBlank).joinToString(" · "), color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        LazyRow(state = heroActions, horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(8.dp)) {
-                            item {
-                                TvAction(primaryLabel, { ui.markUserInteraction(); primary?.let(onPlay) }, Modifier.widthIn(max = 240.dp).detailFocus("detail:play"),
-                                    enabled = primary != null && playableSource && !starting, icon = if (starting) "loading" else "play")
-                            }
-                            item {
-                                TvAction(if (item?.favorite == true) "取消收藏" else "收藏", { ui.markUserInteraction(); item?.let(onFavorite) },
-                                    Modifier.detailFocus("detail:favorite"), enabled = item != null && !mutationBusy,
-                                    icon = if (item?.favorite == true) "heart-filled" else "heart")
-                            }
-                            if (localCache && canOpenOnline) item {
-                                TvAction("联网查看分集", { ui.markUserInteraction(); onOpenOnline() },
-                                    Modifier.detailFocus("detail:online"), enabled = !starting, icon = "forward")
-                            }
-                            if (detail.description.isNotBlank() || detail.attribution.isNotEmpty()) item {
-                                TvAction("完整简介", { ui.markUserInteraction(); descriptionDialog = true }, Modifier.detailFocus("detail:description"), icon = "info")
-                            }
-                            if (onlineDetailNeedsHosts(detail)) item {
-                                TvAction("检查媒体主机", { ui.markUserInteraction(); onCheckHosts() },
-                                    Modifier.detailFocus("detail:hosts"), enabled = playableSource && !starting, icon = "info")
-                            }
-                            item { TvAction("更多", { ui.markUserInteraction(); moreDialog = true }, Modifier.detailFocus("detail:more"), icon = "more") }
+                }) {
+                    LazyRow(state = heroActions, horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(8.dp)) {
+                        item {
+                            TvAction(primaryLabel, { ui.markUserInteraction(); primary?.let(onPlay) }, Modifier.widthIn(max = 240.dp).detailFocus("detail:play"),
+                                enabled = primary != null && playableSource && !starting, icon = if (starting) "loading" else "play", primary = true)
                         }
-                        if (detail.description.isNotBlank()) Text(detail.description, color = Muted, maxLines = 3,
-                            overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                        if (!playableSource) Text("来源暂不可播放，请返回选择其他来源。", color = Muted)
-                        if (starting) Text("正在读取续播位置…", color = Muted)
-                        if (notice.isNotBlank()) Text(notice, color = DesignTokens.Error)
-                        if (ui.message.isNotBlank()) Text(ui.message, color = DesignTokens.Error)
+                        item {
+                            TvAction(if (item?.favorite == true) "取消收藏" else "收藏", { ui.markUserInteraction(); item?.let(onFavorite) },
+                                Modifier.detailFocus("detail:favorite"), enabled = item != null && !mutationBusy,
+                                icon = if (item?.favorite == true) "heart-filled" else "heart")
+                        }
+                        if (localCache && canOpenOnline) item {
+                            TvAction("联网查看分集", { ui.markUserInteraction(); onOpenOnline() },
+                                Modifier.detailFocus("detail:online"), enabled = !starting, icon = "forward")
+                        }
+                        if (detail.description.isNotBlank() || detail.attribution.isNotEmpty()) item {
+                            TvAction("完整简介", { ui.markUserInteraction(); descriptionDialog = true }, Modifier.detailFocus("detail:description"), icon = "info")
+                        }
+                        if (onlineDetailNeedsHosts(detail)) item {
+                            TvAction("检查媒体主机", { ui.markUserInteraction(); onCheckHosts() },
+                                Modifier.detailFocus("detail:hosts"), enabled = playableSource && !starting, icon = "info")
+                        }
+                        item { TvAction("更多", { ui.markUserInteraction(); moreDialog = true }, Modifier.detailFocus("detail:more"), icon = "more") }
                     }
+                    if (!playableSource) Text("来源暂不可播放，请返回选择其他来源。", color = Muted)
+                    if (starting) Text("正在读取续播位置…", color = Muted)
+                    if (notice.isNotBlank()) Text(notice, color = DesignTokens.Error)
+                    if (ui.message.isNotBlank()) Text(ui.message, color = DesignTokens.Error)
                 }
             }
             item(key = "detail:lines") {
