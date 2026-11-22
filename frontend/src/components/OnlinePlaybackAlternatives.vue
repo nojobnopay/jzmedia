@@ -94,9 +94,10 @@ async function probe() {
           || !['queued', 'running', 'partial', 'done'].includes(result.status)) throw new Error()
       taskId = result.task_id
       // Keep each visible button bound to its original result while later samples arrive.
-      const best = result.items[0]
-      if (best && /^[A-Za-z0-9_-]{32,128}$/.test(best.recommendation_token)
-          && !choices.value.some(row => row.recommendation_token === best.recommendation_token)) choices.value.push(best)
+      for (const item of result.items) {
+        if (/^[A-Za-z0-9_-]{32,128}$/.test(item.recommendation_token)
+            && !choices.value.some(row => row.recommendation_token === item.recommendation_token)) choices.value.push(item)
+      }
       if (result.status === 'done' || result.status === 'partial') {
         phase.value = choices.value.length ? 'ready' : result.status === 'partial' ? 'partial' : 'empty'
         stopProbe()

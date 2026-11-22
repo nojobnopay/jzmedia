@@ -2232,7 +2232,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:0",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 296,
+      "line": 340,
       "platforms": [
         "android-tv"
       ],
@@ -2278,7 +2278,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:1",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 301,
+      "line": 345,
       "platforms": [
         "android-tv"
       ],
@@ -2322,7 +2322,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:2",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 302,
+      "line": 346,
       "platforms": [
         "android-tv"
       ],
@@ -2366,7 +2366,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:3",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 303,
+      "line": 347,
       "platforms": [
         "android-tv"
       ],
@@ -2410,7 +2410,91 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:4",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 304,
+      "line": 349,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "alternativeLabel(target), { switchSource(target) }, controlFocus(\"alternative:\" + target.identity), enabled = !selecting",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(alternativeLabel(target), { switchSource(target) }, controlFocus(\"alternative:\" + target.identity), enabled = !selecting)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:5",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 352,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "if (selecting) \"取消切换\" else \"重新探测\", retryAlternatives, controlFocus(\"probe\")",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(if (selecting) \"取消切换\" else \"重新探测\", retryAlternatives, controlFocus(\"probe\"))"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:6",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 354,
       "platforms": [
         "android-tv"
       ],
@@ -2450,9 +2534,9 @@
       "source_excerpt": "TvAction(\"取消连续播放\", actions.cancelNext, controlFocus(\"cancel-next\"))"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:5",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:7",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 305,
+      "line": 355,
       "platforms": [
         "android-tv"
       ],
@@ -2494,9 +2578,9 @@
       "source_excerpt": "TvAction(\"联网播放下一集\", actions.playNetworkNext, controlFocus(\"network-next\"), icon = \"forward\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:6",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:8",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 306,
+      "line": 356,
       "platforms": [
         "android-tv"
       ],
@@ -2538,9 +2622,9 @@
       "source_excerpt": "TvAction(\"退出播放\", actions.close, controlFocus(\"exit\"), icon = \"close\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:7",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:9",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 314,
+      "line": 365,
       "platforms": [
         "android-tv"
       ],
@@ -2582,9 +2666,93 @@
       "source_excerpt": "TvAction(\"重试播放\", actions.retry, Modifier.focusRequester(errorFocus), icon = \"refresh\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:8",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:10",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 315,
+      "line": 367,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "alternativeLabel(target), { switchSource(target) }, enabled = !selecting",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(alternativeLabel(target), { switchSource(target) }, enabled = !selecting)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:11",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 370,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "if (selecting) \"取消切换\" else if (alternativeNotice == null) \"查找备用线路\" else \"重新探测\", retryAlternatives",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(if (selecting) \"取消切换\" else if (alternativeNotice == null) \"查找备用线路\" else \"重新探测\", retryAlternatives)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:12",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 372,
       "platforms": [
         "android-tv"
       ],
@@ -2626,9 +2794,9 @@
       "source_excerpt": "TvAction(\"返回选集\", actions.close, icon = \"arrow-left\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:9",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:13",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 322,
+      "line": 379,
       "platforms": [
         "android-tv"
       ],
@@ -2672,9 +2840,9 @@
       "source_excerpt": "TvAction(if (menu == \"settings\") \"返回播放\" else \"返回播放设置\", { menu = if (menu == \"settings\") null else \"settings\" }, Modifier.fillMaxWidth().focusRequester(menuFocus), icon = \"arrow-lef"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:10",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:14",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 327,
+      "line": 384,
       "platforms": [
         "android-tv"
       ],
@@ -2716,9 +2884,9 @@
       "source_excerpt": "TvAction(\"播放速度 · ${state.rate}×\", { menu = \"rate\" }, Modifier.fillMaxWidth(), fillContent = true)"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:11",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:15",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 328,
+      "line": 385,
       "platforms": [
         "android-tv"
       ],
@@ -2760,9 +2928,9 @@
       "source_excerpt": "TvAction(\"音轨\", { menu = \"audio\" }, Modifier.fillMaxWidth(), enabled = state.audios.isNotEmpty(), fillContent = true)"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:12",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:16",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 329,
+      "line": 386,
       "platforms": [
         "android-tv"
       ],
@@ -2804,9 +2972,9 @@
       "source_excerpt": "TvAction(\"字幕\", { menu = \"subtitle\" }, Modifier.fillMaxWidth(), enabled = state.subtitles.isNotEmpty(), fillContent = true)"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:13",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:17",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 331,
+      "line": 388,
       "platforms": [
         "android-tv"
       ],
@@ -2848,9 +3016,9 @@
       "source_excerpt": "TvAction(playbackTime(seconds.toDouble()), { seekUnit = seconds }, Modifier.fillMaxWidth(), selected = seekUnit == seconds, fillContent = true)"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:14",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:18",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 335,
+      "line": 392,
       "platforms": [
         "android-tv"
       ],
@@ -2892,9 +3060,9 @@
       "source_excerpt": "TvAction(\"${rate}×\", { actions.setRate(rate); menu = null }, Modifier.fillMaxWidth(), selected = state.rate == rate, fillContent = true)"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:15",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:19",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 337,
+      "line": 394,
       "platforms": [
         "android-tv"
       ],
@@ -2936,9 +3104,9 @@
       "source_excerpt": "TvAction(option.label, { actions.setTrack(C.TRACK_TYPE_AUDIO, option); menu = null }, Modifier.fillMaxWidth(), selected = option.selected, fillContent = true)"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:16",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:20",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 340,
+      "line": 397,
       "platforms": [
         "android-tv"
       ],
@@ -2982,9 +3150,9 @@
       "source_excerpt": "TvAction(\"关闭字幕\", { actions.setTrack(C.TRACK_TYPE_TEXT, null); menu = null }, Modifier.fillMaxWidth(), selected = state.subtitles.none { it.selected }, icon = \"subtitles\", fillConte"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:17",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:21",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
-      "line": 342,
+      "line": 399,
       "platforms": [
         "android-tv"
       ],
@@ -10498,7 +10666,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:0",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 425,
+      "line": 426,
       "platforms": [
         "android-tv"
       ],
@@ -10540,7 +10708,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:1",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 426,
+      "line": 427,
       "platforms": [
         "android-tv"
       ],
@@ -10582,7 +10750,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:2",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 427,
+      "line": 428,
       "platforms": [
         "android-tv"
       ],
@@ -10624,7 +10792,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:3",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 550,
+      "line": 551,
       "platforms": [
         "android-tv"
       ],
@@ -10666,7 +10834,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:4",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 570,
+      "line": 571,
       "platforms": [
         "android-tv"
       ],
@@ -10708,7 +10876,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:5",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 586,
+      "line": 587,
       "platforms": [
         "android-tv"
       ],
@@ -10750,7 +10918,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:6",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 588,
+      "line": 589,
       "platforms": [
         "android-tv"
       ],
@@ -10792,7 +10960,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:7",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 590,
+      "line": 591,
       "platforms": [
         "android-tv"
       ],
@@ -10834,7 +11002,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:8",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 601,
+      "line": 602,
       "platforms": [
         "android-tv"
       ],
@@ -10878,7 +11046,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:9",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 602,
+      "line": 603,
       "platforms": [
         "android-tv"
       ],
@@ -10922,7 +11090,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:10",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 622,
+      "line": 623,
       "platforms": [
         "android-tv"
       ],
@@ -25795,6 +25963,14 @@
             }
           },
           {
+            "source": "frontend/src/onlinePlayer.css",
+            "line": 37,
+            "selector": ".online-alternative .jz-button",
+            "values": {
+              "max-width": "100%"
+            }
+          },
+          {
             "source": "frontend/src/styles/assistant-change.css",
             "line": 11,
             "selector": ".assistant-actions .jz-button",
@@ -25838,7 +26014,7 @@
           },
           {
             "source": "frontend/src/styles/online-source.css",
-            "line": 42,
+            "line": 48,
             "selector": ".online-host-form .jz-button, .online-host-check > a",
             "values": {
               "min-height": "var(--jz-touch-target)"
@@ -25969,7 +26145,7 @@
             }
           }
         ],
-        "value": "gap:8px, min-height:var(--jz-control-current), padding:8px 16px, font-size:var(--jz-font-m) / width:var(--jz-control-current), min-width:var(--jz-control-current), padding:0, aspect-ratio:1 / min-width:var(--jz-touch-target), min-height:var(--jz-touch-target) / min-height:34px, padding:6px 12px / min-height:44px / min-width:var(--jz-touch-target) / padding-inline:4px, gap:4px / min-width:var(--jz-touch-target) / min-height:var(--jz-touch-target) / min-height:var(--jz-control-current) / max-width:100% / height:2px / font-size:var(--jz-font-s) / max-width:100% / width:100%, padding:0 / padding-inline:var(--jz-gap-xs) / padding-inline:var(--jz-gap-s) / padding:2px var(--jz-gap-xs) / min-height:44px / min-height:44px / min-height:44px / min-height:44px / gap:2px, min-width:0, min-height:44px, padding:var(--jz-gap-s) / min-height:44px"
+        "value": "gap:8px, min-height:var(--jz-control-current), padding:8px 16px, font-size:var(--jz-font-m) / width:var(--jz-control-current), min-width:var(--jz-control-current), padding:0, aspect-ratio:1 / min-width:var(--jz-touch-target), min-height:var(--jz-touch-target) / max-width:100% / min-height:34px, padding:6px 12px / min-height:44px / min-width:var(--jz-touch-target) / padding-inline:4px, gap:4px / min-width:var(--jz-touch-target) / min-height:var(--jz-touch-target) / min-height:var(--jz-control-current) / max-width:100% / height:2px / font-size:var(--jz-font-s) / max-width:100% / width:100%, padding:0 / padding-inline:var(--jz-gap-xs) / padding-inline:var(--jz-gap-s) / padding:2px var(--jz-gap-xs) / min-height:44px / min-height:44px / min-height:44px / min-height:44px / gap:2px, min-width:0, min-height:44px, padding:var(--jz-gap-s) / min-height:44px"
       },
       "target": {
         "policy_touch_min_css_px": 44,
@@ -34782,6 +34958,400 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" :loading=\"loading\" @click=\"$emit('retry')\">"
     },
     {
+      "id": "frontend/src/components/OnlineDiscoveryPanel.vue:JzButton:6",
+      "source": "frontend/src/components/OnlineDiscoveryPanel.vue",
+      "line": 7,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "重新探测",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton icon=\"refresh\" @click=\"start\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineDiscoveryPanel.vue:Spinner:11",
+      "source": "frontend/src/components/OnlineDiscoveryPanel.vue",
+      "line": 14,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "Spinner",
+      "purpose": "加载",
+      "assets": [
+        "loading"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "16"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<Spinner v-if=\"running\" :size=\"16\" />"
+    },
+    {
+      "id": "frontend/src/components/OnlineDiscoveryPanel.vue:JzButton:12",
+      "source": "frontend/src/components/OnlineDiscoveryPanel.vue",
+      "line": 15,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "停止探测",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"running\" @click=\"stop\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineDiscoveryPanel.vue:JzButton:13",
+      "source": "frontend/src/components/OnlineDiscoveryPanel.vue",
+      "line": 16,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "重新探测",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-else icon=\"refresh\" :disabled=\"!!enabling\" @click=\"start\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineDiscoveryPanel.vue:JzButton:24",
+      "source": "frontend/src/components/OnlineDiscoveryPanel.vue",
+      "line": 28,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "允许本次试读并复测",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"running || rowBusy(item.id) || !!enabling\" @click=\"recheck(item, true)\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineDiscoveryPanel.vue:input:26",
+      "source": "frontend/src/components/OnlineDiscoveryPanel.vue",
+      "line": 31,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input type=\"checkbox\" :checked=\"posterSelection[item.id]?.includes(host) || false\" :disabled=\"!!enabling || rowBusy(item.id)\" @change=\"selectPoster(item.id, host, $event.target.ch"
+    },
+    {
+      "id": "frontend/src/components/OnlineDiscoveryPanel.vue:JzButton:27",
+      "source": "frontend/src/components/OnlineDiscoveryPanel.vue",
+      "line": 35,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "复测此源",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"!running && !reports[item.id]?.missing_hosts?.length && reports[item.id]?.status !== 'measured'\" :disabled=\"rowBusy(item.id) || !!enabling\" @click=\"recheck(item)\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineDiscoveryPanel.vue:JzButton:30",
+      "source": "frontend/src/components/OnlineDiscoveryPanel.vue",
+      "line": 40,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "保存已选主机",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"pendingHosts(item)\" :loading=\"enabling === item.id\" :disabled=\"!!enabling || rowBusy(item.id)\" @click=\"enable(item)\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineDiscoveryPanel.vue:RouterLink:31",
+      "source": "frontend/src/components/OnlineDiscoveryPanel.vue",
+      "line": 42,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "link",
+      "feature": "通用控件与导航",
+      "element": "RouterLink",
+      "purpose": "'使用此源 ' + item.name",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-link",
+        "specification": "正文链接保留行内文本；导航和按钮式链接按对应class扩展触摸区，不能把所有正文链接声明为44px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": null,
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "'使用此源 ' + item.name",
+      "classification": "semantic link",
+      "source_excerpt": "<RouterLink :to=\"{ path: '/online', query: { source: item.source_id } }\" :aria-label=\"'使用此源 ' + item.name\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineDiscoveryPanel.vue:JzButton:32",
+      "source": "frontend/src/components/OnlineDiscoveryPanel.vue",
+      "line": 44,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "'启用来源 ' + item.name",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "'启用来源 ' + item.name",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-else :loading=\"enabling === item.id\" :disabled=\"!!enabling || !canEnable(item)\" :aria-label=\"'启用来源 ' + item.name\" @click=\"enable(item)\">"
+    },
+    {
       "id": "frontend/src/components/OnlineEpisodes.vue:select:8",
       "source": "frontend/src/components/OnlineEpisodes.vue",
       "line": 6,
@@ -35292,6 +35862,124 @@
       "source_excerpt": "<JzButton v-else variant=\"primary\" :loading=\"checking\" :disabled=\"saving\" @click=\"check\">"
     },
     {
+      "id": "frontend/src/components/OnlinePlaybackAlternatives.vue:JzButton:4",
+      "source": "frontend/src/components/OnlinePlaybackAlternatives.vue",
+      "line": 5,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "切换到 {{ item.source_name }} · {{ item.line_label }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:36px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton size=\"compact\" variant=\"primary\" :loading=\"selected === item.recommendation_token\" :disabled=\"!!selected\" @click=\"choose(item)\">"
+    },
+    {
+      "id": "frontend/src/components/OnlinePlaybackAlternatives.vue:JzButton:6",
+      "source": "frontend/src/components/OnlinePlaybackAlternatives.vue",
+      "line": 10,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "取消切换",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:36px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"selected\" size=\"compact\" @click=\"cancelChoice\">"
+    },
+    {
+      "id": "frontend/src/components/OnlinePlaybackAlternatives.vue:JzButton:7",
+      "source": "frontend/src/components/OnlinePlaybackAlternatives.vue",
+      "line": 11,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "{{ phase === 'idle' ? '查找备用线路' : '重新探测' }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:36px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"!choices.length && !checking && !selected\" size=\"compact\" @click=\"probe\">"
+    },
+    {
       "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:6",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
       "line": 9,
@@ -35651,7 +36339,7 @@
           },
           {
             "source": "frontend/src/onlinePlayer.css",
-            "line": 58,
+            "line": 63,
             "selector": ".online-center-play",
             "values": {
               "width": "60px",
@@ -35713,9 +36401,9 @@
       "source_excerpt": "<PlayerIcon name=\"play\" :size=\"38\" />"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:36",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:37",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 56,
+      "line": 60,
       "platforms": [
         "web",
         "mobile-web"
@@ -35782,9 +36470,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon-only class=\"player-icon-btn\" :aria-label=\"paused ? '播放' : '暂停'\" :title=\"paused ? '播放（空格）' : '暂停（空格）'\" :disabled=\"booting || !!error\" @click=\"togglePl"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:37",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:38",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 58,
+      "line": 62,
       "platforms": [
         "web",
         "mobile-web"
@@ -35820,9 +36508,9 @@
       "source_excerpt": "<PlayerIcon :name=\"paused ? 'play' : 'pause'\" :size=\"26\" />"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:38",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:39",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 60,
+      "line": 64,
       "platforms": [
         "web",
         "mobile-web"
@@ -35889,9 +36577,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon-only class=\"player-icon-btn\" aria-label=\"快退 10 秒\" title=\"快退 10 秒（←）\" :disabled=\"!canSeek || booting || !!error\" @click=\"seekBy(-10)\">"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:39",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:40",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 61,
+      "line": 65,
       "platforms": [
         "web",
         "mobile-web"
@@ -35926,9 +36614,9 @@
       "source_excerpt": "<PlayerIcon name=\"rewind\" />"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:40",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:41",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 62,
+      "line": 66,
       "platforms": [
         "web",
         "mobile-web"
@@ -35995,9 +36683,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon-only class=\"player-icon-btn\" aria-label=\"快进 10 秒\" title=\"快进 10 秒（→）\" :disabled=\"!canSeek || booting || !!error\" @click=\"seekBy(10)\">"
     },
     {
-      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:41",
+      "id": "frontend/src/components/OnlinePlayerModal.vue:PlayerIcon:42",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
-      "line": 63,
+      "line": 67,
       "platforms": [
         "web",
         "mobile-web"
@@ -37420,7 +38108,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton icon=\"back\" :disabled=\"saving || networkSaving || hostApplying || profilesLocked\" @click=\"requestCloseTask\">"
+      "source_excerpt": "<JzButton icon=\"back\" :disabled=\"saving || networkSaving || hostApplying || discoverySaving || profilesLocked\" @click=\"requestCloseTask\">"
     },
     {
       "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:12",
@@ -37502,9 +38190,51 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:21",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:22",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 14,
+      "line": 17,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "发现并探测来源",
+      "assets": [
+        "search"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton icon=\"search\" variant=\"primary\" :disabled=\"saving || networkSaving || profilesLocked || dirty || hostApplying || toggling || testingSource !== '' || !settings.enabled\" @c"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:23",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 18,
       "platforms": [
         "web",
         "mobile-web"
@@ -37544,9 +38274,9 @@
       "source_excerpt": "<JzButton icon=\"plus\" :disabled=\"saving || networkSaving || profilesBusy || dirty || hostApplying\" @click=\"editSource()\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:32",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:34",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 18,
+      "line": 24,
       "platforms": [
         "web",
         "mobile-web"
@@ -37584,9 +38314,9 @@
       "source_excerpt": "<JzButton :aria-label=\"'测试来源 ' + source.name\" :loading=\"testingSource === source.id\" :disabled=\"!!testingSource || hostChecking || saving || networkSaving || profilesBusy || hostAp"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:33",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:35",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 18,
+      "line": 24,
       "platforms": [
         "web",
         "mobile-web"
@@ -37626,9 +38356,9 @@
       "source_excerpt": "<JzButton icon=\"edit\" :aria-label=\"'编辑 ' + source.name\" :disabled=\"saving || networkSaving || profilesBusy || dirty || hostApplying\" @click=\"editSource(source)\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:34",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:36",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 18,
+      "line": 24,
       "platforms": [
         "web",
         "mobile-web"
@@ -37668,9 +38398,9 @@
       "source_excerpt": "<JzButton icon=\"link\" :aria-label=\"'网络 ' + source.name\" :disabled=\"saving || networkSaving || profilesBusy || dirty || hostApplying\" @click=\"editNetwork(source)\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:42",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:44",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 24,
+      "line": 30,
       "platforms": [
         "web",
         "mobile-web"
@@ -37708,9 +38438,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"templateId\" :disabled=\"saving || profilesLocked\" :aria-describedby=\"field.describedby\" @change=\"applyTemplate\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:Spinner:46",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:Spinner:48",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 25,
+      "line": 31,
       "platforms": [
         "web",
         "mobile-web"
@@ -37745,9 +38475,9 @@
       "source_excerpt": "<Spinner :size=\"16\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:48",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:50",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 26,
+      "line": 32,
       "platforms": [
         "web",
         "mobile-web"
@@ -37785,9 +38515,9 @@
       "source_excerpt": "<JzButton size=\"compact\" :disabled=\"templatesLoading\" @click=\"loadTemplates\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:a:52",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:a:54",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 27,
+      "line": 33,
       "platforms": [
         "web",
         "mobile-web"
@@ -37820,9 +38550,9 @@
       "source_excerpt": "<a v-if=\"templateHomepage\" :href=\"templateHomepage\" target=\"_blank\" rel=\"noopener noreferrer\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:56",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:58",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 30,
+      "line": 36,
       "platforms": [
         "web",
         "mobile-web"
@@ -37860,9 +38590,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"form.name\" maxlength=\"128\" required :disabled=\"saving || profilesLocked\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:59",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:61",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 31,
+      "line": 37,
       "platforms": [
         "web",
         "mobile-web"
@@ -37900,9 +38630,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"form.provider\" :disabled=\"saving || profilesLocked || !!editingId\" @change=\"providerChanged\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:64",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:66",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 32,
+      "line": 38,
       "platforms": [
         "web",
         "mobile-web"
@@ -37940,9 +38670,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"form.api_base_url\" type=\"url\" maxlength=\"2048\" required :disabled=\"saving || profilesLocked || form.provider === 'open_catalog'\" :aria-describedby=\"f"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:textarea:67",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:textarea:69",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 33,
+      "line": 39,
       "platforms": [
         "web",
         "mobile-web"
@@ -37980,9 +38710,9 @@
       "source_excerpt": "<textarea :id=\"field.id\" v-model=\"form.hosts\" rows=\"3\" :disabled=\"saving || profilesLocked || form.provider === 'open_catalog'\" :aria-describedby=\"field.describedby\" placeholder=\"m"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:70",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:72",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 34,
+      "line": 40,
       "platforms": [
         "web",
         "mobile-web"
@@ -38020,9 +38750,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model.number=\"form.priority\" type=\"number\" min=\"0\" max=\"1000\" required :disabled=\"saving || profilesLocked\" :aria-describedby=\"field.describedby\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:72",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:74",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 35,
+      "line": 41,
       "platforms": [
         "web",
         "mobile-web"
@@ -38060,9 +38790,9 @@
       "source_excerpt": "<input id=\"online-source-enabled\" v-model=\"form.enabled\" type=\"checkbox\" :disabled=\"saving || profilesLocked\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:Spinner:74",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:Spinner:76",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 37,
+      "line": 43,
       "platforms": [
         "web",
         "mobile-web"
@@ -38097,9 +38827,9 @@
       "source_excerpt": "<Spinner :size=\"16\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:76",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:78",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 38,
+      "line": 44,
       "platforms": [
         "web",
         "mobile-web"
@@ -38136,9 +38866,9 @@
       "source_excerpt": "<JzButton size=\"compact\" @click=\"retryMigration\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:79",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:81",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 40,
+      "line": 46,
       "platforms": [
         "web",
         "mobile-web"
@@ -38175,9 +38905,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:83",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:85",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 40,
+      "line": 46,
       "platforms": [
         "web",
         "mobile-web"
@@ -38215,9 +38945,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"form.search_action\" :disabled=\"saving || profilesLocked\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:89",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:91",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 40,
+      "line": 46,
       "platforms": [
         "web",
         "mobile-web"
@@ -38255,9 +38985,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"form.detail_action\" :disabled=\"saving || profilesLocked\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:95",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:97",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 43,
+      "line": 49,
       "platforms": [
         "web",
         "mobile-web"
@@ -38295,9 +39025,9 @@
       "source_excerpt": "<JzButton size=\"compact\" :disabled=\"profilesLocked\" @click=\"reloadSource\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:97",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:99",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 44,
+      "line": 50,
       "platforms": [
         "web",
         "mobile-web"
@@ -38335,9 +39065,9 @@
       "source_excerpt": "<JzButton type=\"submit\" variant=\"primary\" :loading=\"saving\" :disabled=\"profilesLocked || sourceConflict || migrationBlocked || !form.name.trim() || !form.api_base_url.trim()\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:98",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:100",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 44,
+      "line": 50,
       "platforms": [
         "web",
         "mobile-web"
@@ -38375,9 +39105,9 @@
       "source_excerpt": "<JzButton :disabled=\"saving || profilesLocked\" @click=\"requestCloseTask\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:104",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:107",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 51,
+      "line": 59,
       "platforms": [
         "web",
         "mobile-web"
@@ -38415,9 +39145,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"hostExternalId\" maxlength=\"128\" autocomplete=\"off\" :disabled=\"hostChecking || hostApplying || profilesLocked\" :aria-describedby=\"field.describedby\" /"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:106",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:109",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 52,
+      "line": 60,
       "platforms": [
         "web",
         "mobile-web"
@@ -38455,9 +39185,9 @@
       "source_excerpt": "<JzButton type=\"submit\" :loading=\"hostChecking\" :disabled=\"hostApplying || profilesLocked || !!testingSource || !validHostItem || !settings.enabled || !hostSource.enabled\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:115",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:118",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 60,
+      "line": 68,
       "platforms": [
         "web",
         "mobile-web"
@@ -38495,9 +39225,9 @@
       "source_excerpt": "<input v-model=\"selectedHosts\" type=\"checkbox\" :value=\"host\" :disabled=\"hostApplying || profilesLocked\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:117",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:120",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 61,
+      "line": 69,
       "platforms": [
         "web",
         "mobile-web"
@@ -38535,9 +39265,9 @@
       "source_excerpt": "<JzButton variant=\"primary\" :loading=\"hostApplying\" :disabled=\"profilesLocked || !selectedHosts.length\" @click=\"allowCheckedHosts\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:RouterLink:122",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:RouterLink:125",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 68,
+      "line": 76,
       "platforms": [
         "web",
         "mobile-web"
@@ -38570,9 +39300,9 @@
       "source_excerpt": "<router-link v-if=\"validHostItem\" :to=\"hostReturnTarget\" data-online-host-return>"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:126",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:129",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 72,
+      "line": 80,
       "platforms": [
         "web",
         "mobile-web"
@@ -38611,9 +39341,9 @@
       "source_excerpt": "<JzButton v-if=\"!networkSource\" icon=\"refresh\" @click=\"editNetwork(networkTarget)\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:Spinner:128",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:Spinner:131",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 73,
+      "line": 81,
       "platforms": [
         "web",
         "mobile-web"
@@ -38648,9 +39378,9 @@
       "source_excerpt": "<Spinner :size=\"16\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:132",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:135",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 75,
+      "line": 83,
       "platforms": [
         "web",
         "mobile-web"
@@ -38688,9 +39418,9 @@
       "source_excerpt": "<select :id=\"field.id\" :value=\"networkMode\" :disabled=\"networkSaving || profilesLocked\" :aria-describedby=\"field.describedby\" @change=\"changeNetworkMode($event.target.value)\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:139",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:142",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 77,
+      "line": 85,
       "platforms": [
         "web",
         "mobile-web"
@@ -38728,9 +39458,9 @@
       "source_excerpt": "<select :id=\"field.id\" :value=\"proxyChoice\" :disabled=\"networkSaving || profilesLocked\" @change=\"selectProxy($event.target.value)\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:145",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:148",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 79,
+      "line": 87,
       "platforms": [
         "web",
         "mobile-web"
@@ -38768,9 +39498,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"proxyForm.protocol\" :disabled=\"networkSaving || profilesLocked\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:150",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:153",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 80,
+      "line": 88,
       "platforms": [
         "web",
         "mobile-web"
@@ -38808,9 +39538,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.host\" :disabled=\"networkSaving || profilesLocked\" autocomplete=\"off\" :spellcheck=\"false\" :aria-describedby=\"field.describedby\" placeholder="
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:153",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:156",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 81,
+      "line": 89,
       "platforms": [
         "web",
         "mobile-web"
@@ -38848,9 +39578,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.port\" :disabled=\"networkSaving || profilesLocked\" type=\"number\" min=\"1\" max=\"65535\" inputmode=\"numeric\" placeholder=\"7890\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:155",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:158",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 82,
+      "line": 90,
       "platforms": [
         "web",
         "mobile-web"
@@ -38887,9 +39617,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:159",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:162",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 82,
+      "line": 90,
       "platforms": [
         "web",
         "mobile-web"
@@ -38927,9 +39657,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.username\" :disabled=\"networkSaving || profilesLocked\" autocomplete=\"off\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:162",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:165",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 82,
+      "line": 90,
       "platforms": [
         "web",
         "mobile-web"
@@ -38967,9 +39697,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.password\" :disabled=\"networkSaving || profilesLocked\" type=\"password\" autocomplete=\"new-password\" :aria-describedby=\"field.describedby\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:a:164",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:a:167",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 84,
+      "line": 92,
       "platforms": [
         "web",
         "mobile-web"
@@ -39002,9 +39732,9 @@
       "source_excerpt": "<a href=\"#online-proxy-configurations\" @click.prevent=\"openProfiles\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:169",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:172",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 87,
+      "line": 95,
       "platforms": [
         "web",
         "mobile-web"
@@ -39042,9 +39772,9 @@
       "source_excerpt": "<JzButton size=\"compact\" :disabled=\"networkSaving || profilesLocked\" @click=\"inheritAllPurposes\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:171",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:174",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 88,
+      "line": 96,
       "platforms": [
         "web",
         "mobile-web"
@@ -39081,9 +39811,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:176",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:179",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 90,
+      "line": 98,
       "platforms": [
         "web",
         "mobile-web"
@@ -39121,9 +39851,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"networkChoices[purpose.key]\" :disabled=\"networkSaving || profilesLocked\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:183",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:186",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 93,
+      "line": 101,
       "platforms": [
         "web",
         "mobile-web"
@@ -39161,9 +39891,9 @@
       "source_excerpt": "<JzButton type=\"submit\" variant=\"primary\" :loading=\"networkSaving\" :disabled=\"profilesLocked\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:184",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:187",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 93,
+      "line": 101,
       "platforms": [
         "web",
         "mobile-web"
@@ -39201,9 +39931,9 @@
       "source_excerpt": "<JzButton :disabled=\"networkSaving || profilesLocked\" @click=\"requestCloseTask\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:186",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:189",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 96,
+      "line": 104,
       "platforms": [
         "web",
         "mobile-web"
