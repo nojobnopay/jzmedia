@@ -424,17 +424,24 @@ async function checkGlobalAssistant(go) {
   await page.keyboard.press('Escape')
   await panel.waitFor({ state: 'hidden' })
   await channel('剧集')
-  await launcher.waitFor()
-  const gesture = page.locator('.assistant-launcher:is([data-motion="ambient-wave"], [data-motion="ambient-frown"])')
-  await page.clock.fastForward(106_000)
-  await gesture.waitFor()
-  const firstGesture = await gesture.getAttribute('data-motion')
+  const resultsHeading = page.getByRole('heading', { name: /^全部剧集/ })
+  const idle = page.locator('.assistant-launcher[data-motion="idle"]')
+  await resultsHeading.click()
+  async function nextGesture() {
+    await idle.waitFor()
+    // Each gesture lasts under two seconds. Observe the scheduler on its one-second
+    // ticks so the test sees it even when the route finished loading between ticks.
+    for (let seconds = 0; seconds < 106; seconds++) {
+      await page.clock.runFor(1_000)
+      const phase = await launcher.getAttribute('data-motion')
+      if (phase === 'ambient-wave' || phase === 'ambient-frown') return phase
+    }
+    assert.fail('Expected an idle gesture within the 60–105 second scheduling window')
+  }
+  const firstGesture = await nextGesture()
   assert.equal(await bubble.isVisible(), false, 'An idle gesture gets the screen to itself')
-  await page.getByRole('heading', { name: '剧集', exact: true }).click()
-  await page.locator('.assistant-launcher[data-motion="idle"]').waitFor()
-  await page.clock.fastForward(106_000)
-  await gesture.waitFor()
-  assert.notEqual(await gesture.getAttribute('data-motion'), firstGesture, 'Consecutive gestures use different expressions')
+  await resultsHeading.click()
+  assert.notEqual(await nextGesture(), firstGesture, 'Consecutive gestures use different expressions')
   await page.clock.fastForward(3_000)
   await page.clock.fastForward(240_000)
   await page.locator('.assistant-launcher[data-motion="ambient-sleep"]').waitFor()
@@ -444,8 +451,8 @@ async function checkGlobalAssistant(go) {
     return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
   }), 'On a phone the projector clears the sorting controls, including at a previously saved position')
   await captureChannel('sleep-mobile')
-  await page.getByRole('heading', { name: '剧集', exact: true }).click()
-  await page.locator('.assistant-launcher[data-motion="idle"]').waitFor()
+  await resultsHeading.click()
+  await idle.waitFor()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.locator('.assistant-launcher[data-motion="still"]').waitFor()
   await page.clock.fastForward(240_000)
