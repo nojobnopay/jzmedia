@@ -3,16 +3,19 @@ const EXTERNAL = /^[A-Za-z0-9_-]{1,128}$/
 const FINGERPRINT = /^[0-9a-f]{64}$/
 
 export function validOnlineHostReport(value, sourceId, externalId) {
-  const hosts = value?.missing_hosts
+  const hosts = value?.missing_hosts, posters = value?.missing_poster_hosts
   return SOURCE.test(sourceId || '') && EXTERNAL.test(externalId || '')
     && value?.source_id === sourceId && value.external_id === externalId
     && FINGERPRINT.test(value.configuration_fingerprint || '')
     && Array.isArray(hosts) && hosts.length <= 128 && new Set(hosts).size === hosts.length
+    && (posters === undefined || Array.isArray(posters) && posters.length <= hosts.length
+      && new Set(posters).size === posters.length && posters.every(host => hosts.includes(host)))
     && hosts.every(host => typeof host === 'string' && host.length <= 253
       && /^[a-z0-9][a-z0-9.:-]*$/i.test(host) && !host.includes('..'))
 }
 
-export function onlineHostError(error, saved = false) {
+export function onlineHostError(error, saved = false, fromResults = false) {
+  if (saved && fromResults) return '海报主机已添加，但列表刷新失败。请刷新海报列表。'
   if (saved) return '媒体主机已添加，但详情刷新失败。请重新加载详情，不必重复添加。'
   return ({
     online_source_changed: '视频源配置已变化，请重新检查后再确认。',

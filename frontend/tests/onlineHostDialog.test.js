@@ -11,7 +11,7 @@ const report = () => ({ source_id: SOURCE, external_id: 'show-1', configuration_
 const button = (ui, text) => ui.find(node => node.type === 'button' && nodeText(node) === text)
 async function click(ui, text) { const target = button(ui, text); assert.ok(target, text); await target.props.onClick(); await flush() }
 async function mount(t, { request, refresh = async () => {}, session = {}, authorize = async () => true,
-  refreshSession = async () => {}, current = () => true } = {}) {
+  refreshSession = async () => {}, current = () => true, postersOnly = false } = {}) {
   const calls = [], closes = [], auth = [], viewing = Vue.reactive({ enabled: false, management_unlocked: false, prompt: null, ...session })
   const component = await loadSfc(new URL('../src/components/OnlineHostDialog.vue', import.meta.url), {
     vue: { ...Vue, vModelCheckbox: {} },
@@ -22,7 +22,7 @@ async function mount(t, { request, refresh = async () => {}, session = {}, autho
       setup: (props, { slots, attrs }) => () => Vue.h('section', { ...attrs, 'data-test-busy': props.busy, 'data-test-focus': props.focusActive },
         [...(slots.default?.() || []), ...(slots.footer?.() || [])]) } },
   })
-  const ui = renderHarness(component, { sourceId: SOURCE, externalId: 'show-1', title: '合成节目', sourceName: '合成来源', current, refresh, onClose: () => closes.push(true) })
+  const ui = renderHarness(component, { postersOnly, sourceId: SOURCE, externalId: 'show-1', title: '合成节目', sourceName: '合成来源', current, refresh, onClose: () => closes.push(true) })
   let mounted = true
   const unmount = () => { if (mounted) { mounted = false; ui.app.unmount() } }
   t.after(unmount)
@@ -39,6 +39,15 @@ test('automatic inspection only reads metadata; cancelling never grants any host
   assert.equal(ui.find(node => node.props['data-online-host-candidate'] !== undefined).props.value, 'cdn.example')
   await click(ui, '暂不添加')
   assert.equal(closes.length, 1)
+  assert.equal(calls.length, 1)
+})
+
+test('poster repair cannot approve an unrelated media host when detail reports no pending image host', async t => {
+  const { ui, calls } = await mount(t, { postersOnly: true, request: async () => ({ ...report(), missing_poster_hosts: [] }) })
+  assert.ok(ui.text().includes('没有待允许的海报域名'))
+  assert.equal(button(ui, '确认添加'), undefined)
+  assert.equal(ui.find(node => node.props['data-online-host-candidate'] !== undefined), undefined)
+  await click(ui, '重新加载详情')
   assert.equal(calls.length, 1)
 })
 
@@ -126,7 +135,7 @@ test('a late save for an obsolete detail never refreshes or closes a new detail'
 test('candidate validation and error copy never reflect upstream URLs', () => {
   assert.equal(validOnlineHostReport(report(), SOURCE, 'show-1'), true)
   for (const invalid of [{ source_id: 'other' }, { external_id: 'other' }, { missing_hosts: ['https://private/?sig=secret'] },
-    { missing_hosts: ['cdn.example', 'cdn.example'] }, { configuration_fingerprint: 'bad' }]) {
+    { missing_hosts: ['cdn.example', 'cdn.example'] }, { missing_poster_hosts: ['other.example'] }, { configuration_fingerprint: 'bad' }]) {
     assert.equal(validOnlineHostReport({ ...report(), ...invalid }, SOURCE, 'show-1'), false)
   }
   assert.equal(onlineHostError({ message: 'https://private/?sig=secret' }).includes('secret'), false)

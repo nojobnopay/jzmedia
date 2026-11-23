@@ -286,6 +286,54 @@ def test_hls_range_resume_checks_full_entity_size_and_preserves_source_offsets(m
     assert ready["package"]["records"]["resource_00000.mp4"]["upstream"]["total"] == len(client.data[first])
 
 
+def test_complete_206_hls_fragment_reuses_its_strong_checkpoint(monkeypatch):
+    normal = EntityClient.guarded_stream
+
+    @contextmanager
+    def full_segment(self, method, url, operation, headers=None):
+        with normal(self, method, url, operation, headers) as response:
+            if url.endswith(".ts") and not headers:
+                length = int(response.headers["content-length"])
+                response.status_code = 206
+                response.headers["content-range"] = f"bytes 0-{length - 1}/{length}"
+            yield response
+
+    monkeypatch.setattr(EntityClient, "guarded_stream", full_segment)
+    row, client, first, second = interrupted_hls(monkeypatch)
+    cache.action(row["id"], "resume")
+    assert cache.run_next()
+    ready = ledger.get(row["id"])
+    assert ready["state"] == "ready"
+    record = ready["package"]["records"]["resource_00000.ts"]
+    assert record["upstream"]["total"] == record["size"] == len(b"old-first")
+    assert client.requests.count(("GET", first, {})) == 1
+    assert client.requests.index(("HEAD", first, {})) < client.requests.index(("GET", second, {}))
+    assert ("GET", first, {"Range": "bytes=0-0"}) not in client.requests
+
+
+def test_cache_refuses_an_unsolicited_partial_206(monkeypatch):
+    row = task("hls")
+    url = "https://cache.example.invalid/entry.m3u8"
+    part = "https://cache.example.invalid/part.ts"
+    playlist = b"#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\npart.ts\n#EXT-X-ENDLIST\n"
+    client = install(monkeypatch, row, {url: playlist, part: b"video"}, url=url, transport="hls")
+    normal = client.guarded_stream
+
+    @contextmanager
+    def partial(method, url, operation, headers=None):
+        with normal(method, url, operation, headers) as response:
+            if url == part:
+                response.status_code = 206
+                response.headers["content-range"] = "bytes 0-4/6"
+            yield response
+
+    monkeypatch.setattr(client, "guarded_stream", partial)
+    assert cache.run_next()
+    failed = ledger.get(row["id"])
+    assert failed["state"] == "failed" and failed["error_code"] == "online_cache_range_mismatch"
+    assert not failed["package"].get("records")
+
+
 def test_hls_resume_does_not_trust_same_etag_from_different_redirect_target(monkeypatch):
     row, client, first, second = interrupted_hls(monkeypatch)
     client.data.update({first: b"new-first", second: b"new-second"})
@@ -514,7 +562,7 @@ def test_hls_inventory_reserves_one_resource_for_entry(monkeypatch, count, ready
         f"#EXTINF:1,\npart{index}.ts\n".encode() for index in range(count)) + b"#EXT-X-ENDLIST\n"
     data = {url: playlist, **{f"https://cache.example.invalid/part{index}.ts": b"data" for index in range(count)}}
     install(monkeypatch, row, data, url=url, transport="hls")
-    monkeypatch.setattr(hls, "REFERENCE_LIMIT", 4)
+    monkeypatch.setattr(cache_download.SessionLimits, "max_resources", 4)
     cache.run_next()
     assert (ledger.get(row["id"])["state"] == "ready") is ready
 

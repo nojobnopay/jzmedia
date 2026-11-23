@@ -20,7 +20,7 @@ def endpoint(environment, action="host-check"):
 def inspected(environment):
     environment.show.update(vod_play_from="main", vod_play_url=
         "第1集$https://NEW.EXAMPLE/ep-1.m3u8?signature=server-only-private"
-        "#第2集$https://new.example/ep-2.m3u8?signature=server-only-private",
+        "#第2集$https://new.example/ep-2.m3u8?signature=server-only-private#",
         vod_pic="https://images.example/poster.jpg?secret=server-only-private")
     response = environment.client.post(endpoint(environment), json={"external_id": "show-1"})
     assert response.status_code == 200, response.text
@@ -35,12 +35,44 @@ def test_inspection_reads_one_detail_and_returns_only_missing_exact_hosts(enviro
     report = inspected(environment)
     assert report["source_id"] == environment.source["id"] and report["external_id"] == "show-1"
     assert report["missing_hosts"] == ["images.example", "new.example"]
+    assert report["missing_poster_hosts"] == ["images.example"]
     assert report["allowed_hosts"] == original["allowed_hosts"]
     assert report["rejected_count"] == 0
     assert len(report["configuration_fingerprint"]) == 64
     assert "server-only-private" not in str(report) and "https://" not in str(report)
     assert environment.requests == [{"ac": "detail", "ids": "show-1"}]
     assert online.get_online_source(environment.source["id"]) == original
+
+
+def test_settings_host_check_selects_a_programme_with_a_blocked_poster(environment):
+    environment.movie["vod_pic"] = "https://cdn.example/allowed.png"
+    environment.show["vod_pic"] = "https://poster.example/missing.jpg?private=1"
+    report = environment.client.post(endpoint(environment), json={}).json()
+    assert report["external_id"] == "show-1" and report["title"] == "合成剧集"
+    assert report["missing_hosts"] == report["missing_poster_hosts"] == ["poster.example"]
+    assert environment.requests == [{"ac": "detail", "pg": "1"}]
+    assert "private" not in str(report)
+
+
+def test_settings_host_check_matches_lightweight_list_to_details(environment, monkeypatch):
+    row = {k: v for k, v in environment.movie.items() if not k.startswith("vod_play_")}
+    row["vod_pic"] = "https://list.example/movie.jpg"
+    detail = {**environment.movie, "vod_pic": "https://detail.example/movie.jpg"}
+    def fetch(_source, params):
+        environment.requests.append(params)
+        return {"code": 1, "list": [row if "pg" in params else detail]}
+    monkeypatch.setattr(maccms, "fetch", fetch)
+    report = environment.client.post(endpoint(environment), json={}).json()
+    assert report["missing_poster_hosts"] == ["detail.example", "list.example"]
+    assert environment.requests == [{"ac": "detail", "pg": "1"}, {"ac": "detail", "ids": "movie-1"}]
+    detail["vod_id"] = "different"
+    assert environment.client.post(endpoint(environment), json={}).status_code == 404
+
+
+def test_settings_empty_catalogue_reports_no_programme(environment, monkeypatch):
+    monkeypatch.setattr(maccms, "fetch", lambda *_: {"code": 1, "list": []})
+    answer = environment.client.post(endpoint(environment), json={})
+    assert answer.status_code == 404 and answer.json()["code"] == "online_host_check_empty"
 
 
 def test_liangzi_page_hosts_can_be_reviewed_without_contacting_pages(environment, monkeypatch):

@@ -64,6 +64,28 @@ def test_catalogue_artwork_exposes_only_opaque_same_origin_path(environment):
         "source_id": environment.source["id"], "external_id": "movie-1"})
     assert detail.status_code == 200
     assert detail.json()["poster_path"] == response.json()["items"][0]["poster_path"]
+    assert detail.json()["poster_host_blocked"] is False
+
+
+def test_browse_search_and_detail_flag_an_unapproved_poster_until_the_host_is_allowed(environment):
+    source_id = environment.source["id"]
+    environment.movie["vod_pic"] = "https://posters.example/cover?secret=private-poster"
+
+    def read(path, **params):
+        response = environment.client.get("/api/online/catalog/" + path, params={"source_id": source_id, **params})
+        assert response.status_code == 200
+        assert "posters.example" not in response.text and "private-poster" not in response.text
+        return response.json()
+
+    for blocked in (True, False):
+        browse, search = read("browse")["items"], read("search", q="合成")["items"]
+        detail = read("detail", external_id="movie-1")
+        for card in (browse[0], search[0], detail):
+            assert card["poster_host_blocked"] is blocked
+            assert bool(card["poster_path"]) is not blocked
+        assert browse[1]["poster_host_blocked"] is False and browse[1]["poster_path"] == ""
+        if blocked:
+            online.update_online_source(source_id, {"allowed_hosts": [*environment.source["allowed_hosts"], "posters.example"]})
 
 
 def test_browse_validates_paging_and_category_before_provider_io(environment):

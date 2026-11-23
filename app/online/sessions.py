@@ -15,6 +15,7 @@ import threading
 import time
 
 from ..network.targets import TargetPolicyError
+from . import hls
 from .models import OnlinePlaybackDescriptor, OnlinePlaybackIdentity
 from .providers import PlaybackMatch
 
@@ -48,9 +49,10 @@ class SessionLimits:
     max_reserved_bytes: int = 256 * 1024**2
     max_mp4_response_bytes: int = 8 * 1024**2
     max_segment_response_bytes: int = 32 * 1024**2
-    max_manifest_bytes: int = 256 * 1024
+    max_manifest_bytes: int = hls.MANIFEST_BYTES
     max_subtitle_bytes: int = 2 * 1024**2
-    max_resources: int = 4096
+    # The session also holds parent manifests, renditions and initialization data.
+    max_resources: int = 6144
     max_global_resources: int = 16384
     max_resource_url_bytes: int = 16 * 1024**2
     prefetch_seconds: float = 600.0

@@ -161,6 +161,19 @@ def test_single_unlabelled_film_has_a_stable_default_label():
     assert result.lines[0].entries[0].label == "正片"
 
 
+def test_terminated_episode_lists_preserve_each_lines_entries_and_identities():
+    row = series()
+    terminated = dict(row, vod_play_url=row["vod_play_url"].replace("$$$", "#$$$") + "#")
+    assert maccms.parse_detail(SOURCE, terminated) == maccms.parse_detail(SOURCE, row)
+    row = movie(vod_play_from="main", vod_play_url=MP4)
+    assert maccms.parse_detail(SOURCE, dict(row, vod_play_url=MP4 + "#")) == maccms.parse_detail(SOURCE, row)
+
+
+@pytest.mark.parametrize("entries", ["#", f"#{HLS}", f"第1集${HLS}##第2集${MP4}", f"第1集${MP4}##"])
+def test_empty_episode_slots_still_fail(entries):
+    assert_category(lambda: maccms.parse_detail(SOURCE, series(vod_play_from="main", vod_play_url=entries)))
+
+
 @pytest.mark.parametrize("changes", [
     {"vod_id": "1,2"}, {"vod_name": ""}, {"vod_name": "x" * 513},
     {"vod_play_from": ["main"]}, {"vod_play_url": {}},

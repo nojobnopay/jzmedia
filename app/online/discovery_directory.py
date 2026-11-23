@@ -26,7 +26,16 @@ _fingerprint = None
 
 def entries():
     with _cache_lock:
-        return _entries if time.monotonic() - _last_success <= _STALE_SECONDS else ()
+        return _recent_entries(time.monotonic())
+
+
+def _recent_entries(now):
+    return _entries if now - _last_success <= _STALE_SECONDS else ()
+
+
+def _cached_result(now):
+    recent = _recent_entries(now)
+    return ("cached" if recent else "fallback"), recent
 
 
 def _decode(body, source_id, excluded):
@@ -82,16 +91,18 @@ def _fetch(policy, excluded):
 
 
 def refresh(policy, fingerprint, excluded, guard):
-    """Share a short cache and cooldown across scans; a failed refresh keeps recent results."""
+    """Return the status and immutable candidate list from the same refresh."""
     global _entries, _last_success, _retry_at, _fingerprint
-    now = time.monotonic()
-    with _cache_lock:
-        if _fingerprint == fingerprint and now < _retry_at:
-            return "cached" if _entries and now - _last_success <= _STALE_SECONDS else "fallback"
-    if not _refresh_lock.acquire(blocking=False):
-        return "cached" if entries() else "fallback"
+    # A concurrent refresh may be using another exit. Give this request a
+    # chance to try its selected exit within the same subscription deadline.
+    while not _refresh_lock.acquire(timeout=0.1):
+        check_operation()
     try:
         guard()
+        now = time.monotonic()
+        with _cache_lock:
+            if _fingerprint == fingerprint and now < _retry_at:
+                return _cached_result(now)
         try:
             values = _fetch(policy, excluded)
         except (ValueError, UnicodeError, RecursionError, NetworkRequestError, TargetPolicyError):
@@ -99,11 +110,14 @@ def refresh(policy, fingerprint, excluded, guard):
         guard()
         now = time.monotonic()
         with _cache_lock:
+            # A cancelled socket read can surface as an ordinary transport failure.
+            # It must not publish data or put the next scan into failure cooldown.
+            check_operation()
             _fingerprint = fingerprint
             _retry_at = now + (_CACHE_SECONDS if values is not None else 60)
             if values is not None:
                 _entries, _last_success = values, now
-                return "updated"
-            return "cached" if _entries and now - _last_success <= _STALE_SECONDS else "fallback"
+                return "updated", values
+            return _cached_result(now)
     finally:
         _refresh_lock.release()

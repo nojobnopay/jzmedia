@@ -96,13 +96,34 @@ function api(url, method, body) {
     if (key === '/api/online/sources') return { items: settingsData.sources }
     const saved = settingsData.sources.find(source => source.api_base_url === 'https://fixture.example/api')
     const discoverId = saved?.id || 'fixture-discovery', receipt = saved ? 'saved-fixture-receipt' : 'initial-fixture-receipt'
-    if (key === '/api/online/discovery/refresh') return { items: [{ id: discoverId, name: '新片放映室', origin: '演示目录',
-      api_base_url: 'https://fixture.example/api', source_id: saved?.id || null, enabled: !!saved?.enabled }] }
-    if (key === '/api/online/discovery/' + discoverId + '/probe') return { id: discoverId, status: 'measured',
-      catalog_ms: 70, media_ms: 225, sample_bytes: 131072, sample_kbps: 4660, reason: 'ok',
-      allowed_hosts: saved ? [] : ['media.fixture.example'], probe_token: receipt }
+    if (key === '/api/online/discovery/refresh') {
+      const items = [{ id: discoverId, name: '新片放映室', origin: '演示目录',
+        api_base_url: 'https://fixture.example/api', source_id: saved?.id || null, enabled: !!saved?.enabled }]
+      if (body?.directory_route) {
+        assert.deepEqual(body.directory_route, { mode: 'proxy', profile_id: settingsProfileId })
+        items.push({ id: 'mixed-sample', name: '社区候选', origin: '演示目录', api_base_url: 'https://example.invalid/api', enabled: false })
+      }
+      return { items, directory_status: body?.directory_route ? 'updated' : 'fallback' }
+    }
+    if (key === '/api/online/discovery/mixed-sample/probe') {
+      if (body.extended) {
+        assert.deepEqual(body, { extended: true })
+        return { id: 'mixed-sample', status: 'measured', catalog_ms: 170, media_ms: 5100, sample_kbps: 2680,
+          realtime_ratio: 1.2, attempts: [{ stage: 'media', reason: 'ok' }], reason: 'ok', probe_token: 'extended-receipt' }
+      }
+      assert.deepEqual(body, {})
+      return { id: 'mixed-sample', status: 'catalog_only', catalog_ms: 160, reason: 'manifest_limit',
+        attempts: [{ stage: 'manifest', reason: 'manifest_limit' }, { stage: 'manifest', reason: 'manifest_limit' }, { stage: 'media', reason: 'provider_timeout' }] }
+    }
+    if (key === '/api/online/discovery/' + discoverId + '/probe') {
+      if (body.probe_route) assert.deepEqual(body, { probe_route: { mode: 'proxy', profile_id: settingsProfileId } })
+      return { id: discoverId, status: 'measured',
+        catalog_ms: 70, media_ms: 225, sample_bytes: 131072, sample_kbps: 4660, realtime_ratio: 1.4, reason: 'ok',
+        tested_route: body.probe_route || null, allowed_hosts: saved ? [] : ['media.fixture.example'],
+        probe_token: body.probe_route ? 'proxy-fixture-receipt' : receipt }
+    }
     if (key === '/api/online/discovery/' + discoverId + '/enable') {
-      assert.deepEqual(body, { probe_token: receipt })
+      assert.deepEqual(body, saved ? { probe_token: receipt } : { probe_token: 'proxy-fixture-receipt', apply_route: true })
       if (saved) { saved.enabled = true; return saved }
       const source = { ...settingsData.sources[0], id: 'src_' + '4'.repeat(32), name: '新片放映室',
         api_base_url: 'https://fixture.example/api', allowed_hosts: ['fixture.example', 'media.fixture.example'] }
@@ -127,9 +148,9 @@ function api(url, method, body) {
         if (method === 'PATCH') settingsData.policies[source.id] = body
         return { policy: settingsData.policies[source.id] }
       }
-      if (sourceMatch[2] === 'host-check') return { source_id: source.id, external_id: body.external_id,
-        configuration_fingerprint: 'd'.repeat(64), missing_hosts: ['media.example.com', 'images.example.com'],
-        allowed_hosts: source.allowed_hosts, rejected_count: 0 }
+      if (sourceMatch[2] === 'host-check') return { source_id: source.id, external_id: body.external_id || 'fixture-1', title: metadata[0].item.title,
+        configuration_fingerprint: 'd'.repeat(64), missing_hosts: ['media.example.com', 'images.example.com'].filter(host => !source.allowed_hosts.includes(host)),
+        missing_poster_hosts: source.allowed_hosts.includes('images.example.com') ? [] : ['images.example.com'], allowed_hosts: source.allowed_hosts, rejected_count: 0 }
       if (sourceMatch[2] === 'allow-hosts') source.allowed_hosts = [...new Set([...source.allowed_hosts, ...body.hosts])]
       else if (method === 'PATCH') Object.assign(source, body)
       return source
@@ -147,6 +168,9 @@ function api(url, method, body) {
   if (key === '/api/online/catalog/browse' || key === '/api/online/catalog/search') {
     const page = Number(query.get('page') || 1), source = browseSources.find(source => source.id === query.get('source_id')) || sources[0]
     const items = metadata.filter(entry => entry.source.id === source.id).slice(0, 18).map(entry => ({ ...entry, ...entry.item, title: entry.item.title }))
+    if (settingsOnly && state.posterScene && source.id === sourceA && !source.allowed_hosts.includes('images.example.com')) {
+      for (const item of items) { item.poster_path = ''; item.poster_host_blocked = true }
+    }
     return { source, items: page === 1 ? items : [...items.slice(3), ...items.slice(0, 3)], page, page_count: 2, total: 36, categories,
       ...(query.get('priority') === 'background' ? { status: 'ready', configuration_token: source.configuration_token } : {}) }
   }
@@ -427,10 +451,24 @@ async function checkSourceSettings(page, base, width) {
   await discover.click()
   const result = page.locator('[data-discovery-candidate="fixture-discovery"]')
   await result.getByText(/本轮优先试用/).waitFor()
+  await page.getByText(/社区目录暂不可用/).waitFor()
+  await page.getByLabel('本次候选目录出口').selectOption(settingsProfileId)
+  const mixed = page.locator('[data-discovery-candidate="mixed-sample"]')
+  await mixed.getByText(/播放清单 · 大小或条目数超限（2 次），视频数据 · 读取超时（1 次）/).waitFor()
+  await result.getByText(/约为播放所需的 1.4 倍/).waitFor()
   await result.getByText(/允许访问 media.fixture.example/).waitFor()
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true)
-  await result.getByRole('button', { name: '启用来源 新片放映室' }).click()
+  await capture(page, 'source-probes', width)
+  await mixed.getByRole('button', { name: '延长取样并复测', exact: true }).click()
+  await mixed.getByText(/媒体取样 5100 ms.*约为播放所需的 1.2 倍/).waitFor()
+  await result.getByLabel('复测出口').selectOption(settingsProfileId)
+  assert.equal(await result.getByRole('button', { name: '启用来源 新片放映室' }).isDisabled(), true)
+  await result.getByRole('button', { name: '复测此源', exact: true }).click()
+  await result.getByText(/保存后，目录和媒体均使用代理/).waitFor()
+  await result.getByRole('button', { name: '启用并保存实测出口 新片放映室' }).click()
   await result.getByText('已启用', { exact: true }).waitFor()
+  await result.getByRole('button', { name: '复测此源', exact: true }).click()
+  await result.getByRole('button', { name: '保存实测出口', exact: true }).waitFor()
   await page.getByRole('button', { name: '返回视频源列表', exact: true }).click()
   await page.getByRole('heading', { name: '新片放映室', exact: true }).waitFor()
   assert.equal(await discover.evaluate(button => document.activeElement === button), true)
@@ -514,18 +552,42 @@ async function checkSourceSettings(page, base, width) {
   await page.getByRole('button', { name: '取消编辑', exact: true }).click()
   assert.equal(await network.isEnabled(), true)
 
+  const beforeListCheck = state.requests.length
+  await sourceRow.getByRole('button', { name: '检查媒体主机 已保存的来源名称' }).click()
+  await page.locator('.online-host-report').waitFor()
+  const checks = state.requests.slice(beforeListCheck).filter(r => r.path.endsWith('/host-check'))
+  assert.deepEqual(checks.map(r => r.body), [{}], 'The settings entry discovers a sample without typing a programme ID')
+  await page.getByRole('button', { name: '关闭检查', exact: true }).click()
   await page.goto(base + `/settings?sec=sec-online&source=${sourceA}&item=fixture-1`)
   await page.locator('[data-online-host-check]').waitFor()
   await page.getByRole('button', { name: '检查媒体主机', exact: true }).click()
-  await page.getByRole('checkbox', { name: 'images.example.com', exact: true }).uncheck()
+  await page.getByRole('checkbox', { name: /images\.example\.com/ }).uncheck()
   await page.getByRole('button', { name: '加入允许列表', exact: true }).click()
-  await page.getByText('媒体主机已加入允许列表。返回影片详情后会重新读取播放线路。', { exact: true }).waitFor()
+  await page.getByText('媒体主机已加入允许列表。返回影片详情后会重新读取海报和播放线路。', { exact: true }).waitFor()
   assert.deepEqual(settingsData.sources[0].allowed_hosts, ['catalog.example', 'media.example.com'])
   await capture(page, 'source-hosts', width)
   await page.getByRole('button', { name: '关闭检查', exact: true }).click()
   await sourceRow.waitFor()
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'Settings fit the viewport')
-  report.checks.push({ width, checks: ['source edit visible immediately', 'draft keep/discard', 'focus return', 'source save semantics', 'network failure/retry',
+  state.posterScene = true
+  const beforePoster = state.requests.length
+  await go(page, base, `/online?source=${sourceA}`)
+  await page.getByRole('button', { name: '检查海报主机', exact: true }).click()
+  const panel = page.getByRole('dialog', { name: '允许此来源的海报主机' })
+  const posterHosts = panel.getByRole('checkbox')
+  await posterHosts.first().waitFor()
+  assert.equal(await posterHosts.count(), 1)
+  assert.equal(await posterHosts.first().inputValue(), 'images.example.com')
+  await panel.getByRole('button', { name: '确认添加' }).click()
+  await page.locator('[data-online-poster-help]').waitFor({ state: 'hidden' })
+  await page.locator('[data-online-result="fixture-1"] img').waitFor()
+  await page.waitForFunction(() => document.querySelector('[data-online-result="fixture-1"] img')?.naturalWidth > 0)
+  const writes = state.requests.slice(beforePoster).filter(r => r.path.endsWith('/allow-hosts'))
+  assert.deepEqual(writes.map(r => r.body.hosts), [['images.example.com']])
+  assert.equal(await page.locator('[data-online-host-dialog]').count(), 0)
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true)
+  state.posterScene = false
+  report.checks.push({ width, checks: ['catalogue route selection', 'partial probe failures and playback speed', 'explicit extended retry', 'source edit visible immediately', 'draft keep/discard', 'focus return', 'source save semantics', 'network failure/retry',
     'per-purpose network preservation', 'shared proxy draft locking', 'explicit host permission', 'task cancel', 'no horizontal overflow'] })
 }
 

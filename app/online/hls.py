@@ -11,9 +11,10 @@ import re
 from urllib.parse import unquote, urljoin, urlsplit
 
 
-MANIFEST_BYTES = 256 * 1024
+MANIFEST_BYTES = 512 * 1024
 OUTPUT_BYTES = 1024 * 1024
-REFERENCE_LIMIT = 4096
+REFERENCE_LIMIT = 5120
+MAX_LINES = 12288
 LINE_LIMIT = 8192
 MAX_BYTE_POSITION = 2**63 - 1
 _ATTRIBUTE_NAME = re.compile(r"[A-Z0-9-]+\Z")
@@ -36,6 +37,11 @@ _QUOTED_ATTRIBUTES = {"URI", "CODECS", "AUDIO", "VIDEO", "SUBTITLES", "GROUP-ID"
 
 class ManifestError(ValueError):
     """Fixed failure category, never the original URI or manifest body."""
+
+
+def is_complete_segment_range(kind, value, length, cap):
+    """A few CDNs send 206 for a full HLS segment GET without a Range."""
+    return kind == "segment" and 0 < length <= cap and value == f"bytes 0-{length - 1}/{length}"
 
 
 @dataclass(frozen=True)
@@ -201,15 +207,17 @@ def _reference(value, base, kind, byte_range=None):
     return _Reference(_absolute_uri(value, base), kind, byte_range)
 
 
-def _plan(body, base_url):
-    if not isinstance(body, bytes) or not body or len(body) > MANIFEST_BYTES:
+def _plan(body, base_url, *, cached=False):
+    if not isinstance(body, bytes) or not body or len(body) > (OUTPUT_BYTES if cached else MANIFEST_BYTES):
         raise ManifestError("hls_manifest_size_limit")
     try:
         text = body.decode("utf-8-sig")
     except UnicodeError:
         raise ManifestError("invalid_hls_encoding") from None
-    if _BAD_CONTROL.search(text) or text.count("\n") >= LINE_LIMIT:
+    if _BAD_CONTROL.search(text):
         raise ManifestError("invalid_hls_lines")
+    if text.count("\n") + int(not text.endswith("\n")) > MAX_LINES:
+        raise ManifestError("hls_line_count_limit")
     lines = text.split("\n")
     if lines[0].removesuffix("\r") != "#EXTM3U":
         raise ManifestError("invalid_hls_header")
@@ -380,20 +388,21 @@ def _plan(body, base_url):
     return result
 
 
-def rewrite_manifest(body: bytes, base_url: str, register, *, on_media=None, on_master=None) -> bytes:
+def rewrite_manifest(body: bytes, base_url: str, register, *, on_media=None, on_master=None, cached=False) -> bytes:
     """Rewrite validated VOD references via ``register(url, kind=, byte_range=)``.
 
     ``byte_range`` is an inclusive ``(start, end)`` pair. The callback must return
     an opaque same-origin absolute path. It must enforce source target policy;
-    this parser never opens sockets. On callback failure the gateway must roll
-    back/revoke the session's partially registered references.
+    this parser never opens sockets. Cached manifests were already rewritten
+    at download time, so their input uses the larger output limit.
+    On callback failure the gateway must revoke partially registered references.
 
     After all references and the complete output pass validation, ``on_media``
     may receive an ordered tuple of ``MediaSegment`` entries. Master and
     I-frame-only playlists do not publish a media timeline. Registration alone
     must not start prefetch work: later references can still fail validation.
     """
-    plan = _plan(body, base_url)
+    plan = _plan(body, base_url, cached=cached)
     if not callable(register):
         raise ManifestError("invalid_hls_registrar")
     if on_media is not None and not callable(on_media):

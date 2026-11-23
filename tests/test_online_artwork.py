@@ -173,6 +173,20 @@ def test_a_page_of_poster_registrations_uses_one_db_snapshot(environment, monkey
     assert loads == [environment.source["id"]]
 
 
+def test_host_hint_requires_a_reviewable_url_and_current_configuration(environment, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_args, **_kwargs: pytest.fail("unexpected DNS"))
+    source = environment.source
+    missing = "https://posters.example/cover.jpg?token=secret"
+    invalid = [None, "", "/image.jpg", "file:///tmp/image.jpg", "https://u:p@posters.example/x",
+               "https://127.0.0.1/x", "https://[::1]/x", "http://intranet/x", "http://nas.local/x",
+               "https://posters.example/x#bad", "https://posters.example/%0a", "https://posters.example/" + "图" * 3000]
+    assert artwork.catalog_posters(source, [missing, *invalid]) == [("", True), *[("", False)] * len(invalid)]
+    assert artwork.catalog_posters(source, [missing], expected_configuration="stale") == [("", False)]
+    online.update_online_source(source["id"], {"enabled": False})
+    assert artwork.catalog_posters(source, [missing]) == [("", False)]
+    assert not environment.requests
+
+
 @pytest.mark.parametrize("body,mime", [(JPEG, "image/jpeg"), (PNG, "image/png"), (WEBP, "image/webp")])
 def test_fetch_uses_image_policy_and_returns_the_exact_bounded_image(environment, body, mime):
     environment.chunks = [body]

@@ -7,10 +7,11 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from ..network.client import NetworkRequestError
-from ..network.guard import check_operation
+from ..network.guard import NetworkOperationError, check_operation
 from ..network.targets import TargetPolicy, TargetPolicyError
 from . import diagnostic_probes as probes
 from . import gateway, hls, liangzi, source_hosts
+from .providers import ProviderError
 from .sessions import SessionLimits
 
 
@@ -45,6 +46,8 @@ def _timed_prefix(client, kind, url, restriction, duration):
     probes.check_access()
     started = monotonic()
     with client.stream("GET", url, headers=headers) as response:
+        if response.status_code not in {200, 206, 416}:
+            raise probes.ProbeFailure(f"http_{response.status_code}")
         _, _, length = gateway._metadata(response, SimpleNamespace(kind=kind), requested, cap, "GET")
         target_size = min(SAMPLE_BYTES, length)
         segment_size = length
@@ -109,8 +112,9 @@ class SampleHosts:
 def sample_media(source, entry, media_policy, *, host_review=None):
     """Sample one selected URL on its configured route, under the caller's deadline."""
     if entry.reason or not entry.url or entry.transport not in {"hls", "mp4"}:
-        raise probes.ProbeFailure(entry.reason or "unsupported_media")
+        raise probes.ProbeFailure(entry.reason or "unsupported_media", stage="entry")
     started = monotonic()
+    stage = "entry"
     try:
         if host_review:
             host_review.reference(entry.url)
@@ -130,6 +134,7 @@ def sample_media(source, entry, media_policy, *, host_review=None):
             for _ in range(2):
                 if kind != "manifest":
                     break
+                stage = "manifest"
                 kind, (url, restriction), init, duration = probes._manifest(
                     client, url, reference_url=host_review.reference if host_review else None)
                 if host_review:
@@ -139,10 +144,15 @@ def sample_media(source, entry, media_policy, *, host_review=None):
                         client = clients.enter_context(probes.client_for(media_policy, hosts))
             if kind == "manifest":
                 raise probes.ProbeFailure("manifest_depth")
+            stage = "media"
             if init:
-                gateway.requested_range(None, SessionLimits.max_segment_response_bytes, init[1])
                 probes._sample(client, "map", *init)
             sample = _timed_prefix(client, kind, url, restriction, duration)
-    except (gateway.GatewayError, hls.ManifestError, NetworkRequestError, TargetPolicyError) as error:
-        raise probes.ProbeFailure(str(error)) from None
+    except NetworkOperationError as error:
+        if str(error) != "operation_timeout":
+            raise
+        raise probes.ProbeFailure("provider_timeout", stage=stage) from None
+    except (probes.ProbeFailure, ProviderError, gateway.GatewayError, hls.ManifestError,
+            NetworkRequestError, TargetPolicyError) as error:
+        raise probes.ProbeFailure(str(error), stage=stage) from None
     return {**sample, "media_ms": round((monotonic() - started) * 1000)}

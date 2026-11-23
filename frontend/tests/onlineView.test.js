@@ -1431,6 +1431,66 @@ function hostButton(ui, label) { return ui.find(node => node.type === 'button' &
 function hostReport(externalId) { return { source_id: SOURCE_A, external_id: externalId, configuration_fingerprint: 'f'.repeat(64),
   missing_hosts: ['cdn.example'], allowed_hosts: ['api.example'], rejected_count: 0 } }
 
+test('missing poster permission is offered once on the current page, and consenting only to artwork refreshes that page', async t => {
+  let saved = false
+  const pages = [], checks = [], writes = []
+  const { ui, navigations } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return taxonomySources()
+    const result = categoryRows(path)
+    pages.push(result.page)
+    return { ...result, items: [...result.items, ...['2', '3'].map(id => ({
+      ...rows.items[0], external_id: 'movie-' + id, poster_host_blocked: result.page === 2 && !saved,
+      poster_path: saved ? '/api/online/catalog/artwork/' + SOURCE_A + '/' + '1'.repeat(32) : '',
+    }))] }
+  }, { hostRequest: async (path, options) => {
+    const body = JSON.parse(options.body)
+    if (path.endsWith('/host-check')) {
+      checks.push(body)
+      return { ...hostReport(body.external_id), missing_hosts: ['cdn.example', 'images.example'], missing_poster_hosts: ['images.example'] }
+    }
+    writes.push(body); saved = true; return {}
+  } })
+  const help = () => ui.all().filter(node => node.props['data-online-poster-help'] !== undefined)
+  assert.equal(help().length, 0, 'an absent poster without the host-blocked signal needs no authorization')
+  await ui.find(node => node.props['data-online-page-next'] !== undefined).props.onClick(); await flush()
+  assert.equal(help().length, 1)
+  assert.deepEqual(checks, [], 'inline advice never opens a dialog or reads extra metadata by itself')
+  await ui.find(node => node.props['data-online-poster-repair'] !== undefined).props.onClick(); await flush()
+  assert.deepEqual(checks, [{ external_id: 'movie-2' }])
+  assert.deepEqual(ui.all().filter(node => node.props['data-online-host-candidate'] !== undefined).map(input => input.props.value), ['images.example'])
+  await hostButton(ui, '确认添加').props.onClick(); await flush()
+  assert.deepEqual(writes, [{ hosts: ['images.example'], expected_fingerprint: 'f'.repeat(64) }])
+  assert.deepEqual(pages, [1, 2, 2])
+  assert.equal(navigations.length, 0)
+  assert.equal(help().length, 0)
+  assert.equal(ui.find(node => node.props['data-online-host-dialog'] !== undefined), undefined)
+})
+
+test('poster-only detail uses inline consent and displays the new artwork while preserving the selected line', async t => {
+  let saved = false, checks = 0
+  const { ui } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return cacheableSources(saved ? 'c'.repeat(64) : 'a'.repeat(64))
+    if (path.includes('/detail?')) return { ...multiLineShow(), poster_host_blocked: !saved,
+      poster_path: saved ? '/api/online/catalog/artwork/' + SOURCE_A + '/' + '3'.repeat(32) : '' }
+    return rows
+  }, { hostRequest: async (path, options) => {
+    const body = JSON.parse(options.body)
+    if (path.endsWith('/host-check')) {
+      checks++
+      return { ...hostReport(body.external_id), missing_hosts: ['images.example'], missing_poster_hosts: ['images.example'] }
+    }
+    saved = true; return {}
+  } })
+  await openShow(ui)
+  chooseDetailLine(ui, ALT_LINE); await flush()
+  assert.equal(checks, 0)
+  await hostButton(ui, '检查海报主机').props.onClick(); await flush()
+  await hostButton(ui, '确认添加').props.onClick(); await flush()
+  assert.equal(checks, 1)
+  assert.equal(hostButton(ui, '检查海报主机'), undefined)
+  assert.equal(ui.find(node => node.props['data-online-line'] === ALT_LINE).props['aria-pressed'], true)
+})
+
 test('blocked details remind once; confirmation refreshes configuration without navigation, line loss or autoplay', async t => {
   let configuration = 'a'.repeat(64), checks = 0, writes = 0
   const requests = []

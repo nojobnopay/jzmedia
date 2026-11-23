@@ -33,11 +33,13 @@ class _Contract(BaseModel):
 
 
 class HostCheckRequest(_Contract):
-    external_id: str = Field(min_length=1, max_length=128)
+    external_id: str | None = Field(default=None, min_length=1, max_length=128)
 
     @field_validator("external_id")
     @classmethod
     def checked_id(cls, value):
+        if value is None:
+            return None
         try:
             return maccms.external_id(value)
         except ProviderError:
@@ -47,7 +49,9 @@ class HostCheckRequest(_Contract):
 class HostCheckReport(_Contract):
     source_id: SourceId
     external_id: str
+    title: str
     missing_hosts: list[str]
+    missing_poster_hosts: list[str]
     allowed_hosts: list[str]
     rejected_count: int
     configuration_fingerprint: str
@@ -103,21 +107,23 @@ def _candidate(source_id, value, *, media, page=False):
     return host
 
 
-def _suggestions(source, row):
+def _suggestions(source, row, page_poster):
     # Reuse the provider parser's group/entry/string limits before traversing
     # raw links. Unsupported host entries remain visible without being trusted.
     maccms.parse_detail(source, row)
-    hosts = set()
+    hosts, poster_hosts = set(), set()
     rejected = 0
     groups = row.get("vod_play_url", "")
     links = []
     if groups:
         for name, group in zip(row.get("vod_play_from", "").split("$$$"), groups.split("$$$")):
-            for entry in group.split("#"):
+            for entry in group.removesuffix("#").split("#"):
                 links.append((entry.split("$", 1)[-1], True, maccms.plain(name, 128, required=True)))
     poster = row.get("vod_pic")
     if poster:
         links.append((poster, False, ""))
+    if page_poster and page_poster != poster:
+        links.append((page_poster, False, ""))
     from . import liangzi
     for value, media, line_name in links:
         try:
@@ -127,35 +133,58 @@ def _suggestions(source, row):
             rejected += 1
             continue
         hosts.add(host)
+        if not media:
+            poster_hosts.add(host)
         if len(hosts) > MAX_HOSTS:
             raise HostCheckError("online_host_candidate_limit", 422)
-    return sorted(hosts), rejected
+    return hosts, poster_hosts, rejected
+
+
+def _homepage_sample(source, action):
+    page = maccms.fetch(source, {"ac": action, "pg": "1"})
+    items = maccms._search_result(page, 1)["items"]
+    if not items:
+        raise HostCheckError("online_host_check_empty", 404)
+    for item, row in zip(items, page["list"]):
+        try:
+            host = _candidate(source["id"], item["_poster_url"], media=False)
+        except (TypeError, ValueError):
+            continue
+        if host not in source["allowed_hosts"]:
+            return row
+    return page["list"][0]
 
 
 def check(access, source_id, external_id, *, operation=None):
-    """Read one source item and return host names only, without mutating trust."""
+    """Inspect a requested programme or select one from the first catalogue page."""
     _management(access)
     with catalog._admit(access.owner, operation):
         source = catalog._ready_source(source_id)
         if source["provider"] != "maccms":
             raise HostCheckError("online_host_check_unsupported", 422)
         version = fingerprint(source)
-        selected = maccms.external_id(external_id)
         action = source.get("provider_options", {}).get("detail_action", "detail")
-        payload = maccms.fetch(source, {"ac": action, "ids": selected})
-        rows = payload.get("list")
-        if (not isinstance(rows, list) or len(rows) != 1
-                or maccms.external_id(rows[0].get("vod_id")) != selected):
-            raise ProviderError("provider_not_found")
-        candidates, rejected = _suggestions(source, rows[0])
+        row = _homepage_sample(source, action) if external_id is None else None
+        selected = maccms.external_id(row["vod_id"] if row is not None else external_id)
+        page_poster = maccms.poster_url(row) if row is not None else ""
+        if row is None or "vod_play_url" not in row:
+            if row is not None:
+                _management(access)
+                if fingerprint(catalog._ready_source(source_id)) != version:
+                    raise HostCheckError("online_source_changed", 409)
+            rows = maccms.fetch(source, {"ac": action, "ids": selected})["list"]
+            if len(rows) != 1 or maccms.external_id(rows[0].get("vod_id")) != selected:
+                raise ProviderError("provider_not_found")
+            row = rows[0]
+        candidates, posters, rejected = _suggestions(source, row, page_poster)
         _management(access)
         latest = online_store.get_online_source(source_id)
         if latest is None or fingerprint(latest) != version:
             raise HostCheckError("online_source_changed", 409)
         catalog._ready_source(source_id)
         allowed = source["allowed_hosts"]
-        return {"source_id": source_id, "external_id": selected,
-                "missing_hosts": [host for host in candidates if host not in allowed],
+        return {"source_id": source_id, "external_id": selected, "title": maccms.plain(row.get("vod_name"), required=True),
+                "missing_hosts": sorted(candidates.difference(allowed)), "missing_poster_hosts": sorted(posters.difference(allowed)),
                 "allowed_hosts": allowed, "rejected_count": rejected,
                 "configuration_fingerprint": version}
 

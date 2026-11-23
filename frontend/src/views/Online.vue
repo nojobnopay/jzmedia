@@ -81,9 +81,9 @@
           </p>
           <p v-else-if="itemStateLoading" class="online-scope online-loading-label" data-online-detail-state-loading role="status"><Spinner :size="16" />正在读取观看记录…</p>
           <p v-if="!primaryEntry && !itemStateLoading" class="online-scope" data-online-no-playable>当前线路暂无可直接播放的内容，请选择其他线路。</p>
-          <div v-if="needsHostUpdate" class="online-host-help" data-online-host-help role="status">
-            <p>此来源使用了尚未允许的媒体主机。可在当前页面检查并确认新增域名。</p>
-            <JzButton data-online-host-repair @click="openHostDialog(false)">检查媒体主机</JzButton>
+          <div v-if="needsHostUpdate || detailPosterBlocked" class="online-host-help" data-online-host-help role="status">
+            <p>{{ needsHostUpdate ? (detailPosterBlocked ? '部分分集和海报使用的主机尚未获准访问。' : '此来源使用了尚未允许的播放主机。') : '这张海报使用的图片主机尚未获准访问。' }}</p>
+            <JzButton data-online-host-repair @click="openHostDialog(false)">{{ needsHostUpdate ? '检查媒体主机' : '检查海报主机' }}</JzButton>
           </div>
           <section class="online-play-selection" aria-label="线路与选集">
             <h3>播放线路</h3>
@@ -117,7 +117,7 @@
           </section>
         </section>
         <div v-show="browseVisible" ref="browseRoot" class="online-browser" :aria-busy="searching" data-online-browser>
-          <OnlineBrowseResults :searched="searched" :has-updates="hasUpdates" :searching="searching" :applying-updates="applyingUpdates" :checking-updates="checkingUpdates" :update-check-error="updateCheckError" :checked-at="checkedAt" :checked-time="checkedTime" :search-error="searchError" :results="results" :loaded-query="loadedQuery" :query="query" :selected-source="selectedSource" :loaded-category-name="loadedCategoryName" :loaded-year="loadedYear" :total="total" :poster-generation="posterGeneration" :page-count="pageCount" :last-query="lastQuery" :page="page" :progressive="searchProgress" @more="loadMoreResults" @apply-update="applyUpdates" @retry="retryResults" @refresh="refreshResults" @detail="openDetail($event)" @page="search($event, loadedQuery)" />
+          <OnlineBrowseResults :searched="searched" :has-updates="hasUpdates" :searching="searching" :applying-updates="applyingUpdates" :checking-updates="checkingUpdates" :update-check-error="updateCheckError" :checked-at="checkedAt" :checked-time="checkedTime" :search-error="searchError" :results="results" :loaded-query="loadedQuery" :query="query" :selected-source="selectedSource" :loaded-category-name="loadedCategoryName" :loaded-year="loadedYear" :total="total" :poster-generation="posterGeneration" :page-count="pageCount" :last-query="lastQuery" :page="page" :progressive="searchProgress" @poster-check="openHostDialog(false, $event)" @more="loadMoreResults" @apply-update="applyUpdates" @retry="retryResults" @refresh="refreshResults" @detail="openDetail($event)" @page="search($event, loadedQuery)" />
         </div>
       </template>
       <div v-show="recordsVisible" ref="libraryRoot">
@@ -125,7 +125,7 @@
       </div>
         <OnlineCacheView v-if="pageView === 'cache'" v-show="cacheVisible" ref="cacheView" :active="cacheVisible && safeMode" @back="showBrowse" @detail="openCacheItem" @changed="refreshDetailCache" @status="cacheStatus" />
     </template>
-    <OnlineHostDialog v-if="hostDialog && safeMode && !playing" :key="hostDialog.key" :source-id="hostDialog.source" :external-id="hostDialog.externalId" :title="hostDialog.title" :source-name="hostDialog.sourceName" :current="hostDialogCurrent" :refresh="refreshHostDetail" @close="closeHostDialog" />
+    <OnlineHostDialog v-if="hostDialog && safeMode && !playing" :key="hostDialog.key" :source-id="hostDialog.source" :external-id="hostDialog.externalId" :title="hostDialog.title" :source-name="hostDialog.sourceName" :posters-only="hostDialog.postersOnly" :from-results="hostDialog.fromResults" :current="hostDialogCurrent" :refresh="refreshHostView" @close="closeHostDialog" />
     <OnlinePlayerModal v-if="playing" ref="onlinePlayer" :key="playing.key" :online-identity="playing.identity" :title="playing.title" :initial-position="playing.position" :cache-only="playing.local" :prepared-playback="playing.prepared" :prepare-session="playing.prepareSession" :switch-source="playing.switchSource" @close="playing.close" @failure="playing.failure" @progress="playing.progress" @ended="playing.ended" />
     <OnlineCacheDialog v-if="cacheDialog && detail && selectedLine && safeMode" :key="detail.item.id + lineId" :detail="detail" :line="selectedLine" :entries="detailCacheEntries" @close="cacheDialog = false" @created="cacheCreated" />
     <JzDialog v-if="networkPrompt && safeMode" title="此集尚未缓存" :busy="starting" @close="networkPrompt = null"><p>“{{ networkPrompt.label }}”没有完整的本地缓存。是否连接视频源在线播放？</p><p v-if="networkError" class="online-cache-error" role="alert">{{ networkError }}</p><template #footer><JzButton :disabled="starting" @click="networkPrompt = null">暂不播放</JzButton><JzButton variant="primary" :loading="starting" :disabled="starting" data-online-cache-network-confirm @click="playFromNetwork">联网播放</JzButton></template></JzDialog>
@@ -228,6 +228,7 @@ const selectedLine = computed(() => {
   return line && detailCached.value ? { ...line, entries: line.entries.map(entry => onlineCachedEntry(detailCacheEntries.value, entry.identity)?.state === 'ready' ? { ...entry, supported: true, reason: '' } : entry) } : line
 })
 const needsHostUpdate = computed(() => !detailCached.value && detail.value?.lines.some(line => line.entries.some(entry => ['host_not_allowed', 'target_host_not_allowed'].includes(entry.reason))))
+const detailPosterBlocked = computed(() => !detailCached.value && detail.value?.poster_host_blocked === true)
 const lastQuery = ref({ page: 1, query: '' })
 const browseLoadingText = computed(() => lastQuery.value.query.trim() ? '正在搜索…' : `正在加载第 ${lastQuery.value.page} 页…`)
 const surfaceVisible = computed(() => !detail.value && !detailLoading.value && !detailError.value)
@@ -653,12 +654,13 @@ async function loadRelated(immediate = false) {
 }
 function hostViewScope() { return JSON.stringify([cacheScope, viewing.mode, viewing.generation, viewing.revision, !!viewing.locallyLocked]) }
 function hostReminderKey() { return JSON.stringify([hostViewScope(), sourceId.value, lastDetailId.value, selectedSource.value?.configuration_token || '']) }
-function hostDialogCurrent() {
-  const context = hostDialog.value
-  return !!context && current(context.view) && context.source === sourceId.value
-    && context.externalId === lastDetailId.value && context.itemId === detail.value?.item.id
-    && context.scope === hostViewScope() && !playing.value && !starting.value
+function matchesHostView(context) {
+  if (!context || !current(context.view) || context.source !== sourceId.value || context.scope !== hostViewScope()
+    || playing.value || starting.value) return false
+  return context.fromResults ? browseVisible.value && results.value.some(item => item.external_id === context.externalId)
+    : context.externalId === lastDetailId.value && context.itemId === detail.value?.item.id
 }
+function hostDialogCurrent() { return matchesHostView(hostDialog.value) }
 async function restoreHostDialogFocus(context) {
   if (!context) return
   try {
@@ -667,11 +669,12 @@ async function restoreHostDialogFocus(context) {
     // both the host child and its JzDialog have actually unmounted.
     await nextTick()
     await nextTick()
-    if (!current(context.view) || hostDialog.value || !detail.value || playing.value || starting.value
-      || nextLoading.value || categoriesOpen.value || viewing.prompt || context.source !== sourceId.value
-      || context.externalId !== lastDetailId.value || context.itemId !== detail.value.item.id
-      || context.scope !== hostViewScope()
+    if (!matchesHostView(context) || hostDialog.value || nextLoading.value || categoriesOpen.value || viewing.prompt
       || globalThis.document?.querySelector?.('[role="dialog"][aria-modal="true"]')) return
+    if (context.fromResults) {
+      focusDetailReturn({ element: context.focusElement, attribute: 'data-online-result', key: context.externalId, source: context.source })
+      return
+    }
     const origin = context.focusElement
     if (origin?.isConnected && !origin.disabled && detailRoot.value?.contains?.(origin) && typeof origin.focus === 'function') {
       origin.focus({ preventScroll: true })
@@ -681,28 +684,33 @@ async function restoreHostDialogFocus(context) {
 function closeHostDialog(resume = true) {
   const context = hostDialog.value
   hostDialog.value = null
-  if (resume) { void restoreHostDialogFocus(context); void loadRelated() }
+  if (resume) { void restoreHostDialogFocus(context); void loadRelated(); scheduleAutomaticRefresh() }
   else if (context) context.focusElement = null
 }
-function openHostDialog(automatic = false) {
-  if (!needsHostUpdate.value || !safeMode.value || detailLoading.value || itemStateLoading.value
+function openHostDialog(automatic = false, row = null) {
+  if (row) {
+    if (!browseVisible.value || searching.value || !results.value.includes(row) || row.poster_host_blocked !== true) return
+  } else if (!needsHostUpdate.value && (automatic || !detailPosterBlocked.value)) return
+  if (!safeMode.value || detailLoading.value || itemStateLoading.value
     || playing.value || starting.value || nextLoading.value || hostDialog.value) return
-  const key = hostReminderKey()
+  const key = row ? JSON.stringify([hostViewScope(), sourceId.value, row.external_id, 'poster']) : hostReminderKey()
   if (automatic && !hostReminders.claim(key)) return
-  if (!automatic) hostReminders.remember(key)
+  if (!row && !automatic) hostReminders.remember(key)
+  cancelAutomaticRefresh()
   cancelRelated(false, true)
   const origin = globalThis.document?.activeElement
   hostDialog.value = { key, scope: hostViewScope(), view: generation, source: sourceId.value,
-    externalId: lastDetailId.value, itemId: detail.value.item.id, title: detail.value.item.title,
-    sourceName: detail.value.source.name, focusElement: origin && typeof origin === 'object' ? markRaw(origin) : null }
+    fromResults: !!row, postersOnly: !!row || !needsHostUpdate.value,
+    externalId: row ? row.external_id : lastDetailId.value, itemId: row ? null : detail.value.item.id,
+    title: row ? row.title : detail.value.item.title, sourceName: selectedSource.value?.name, focusElement: origin && typeof origin === 'object' ? markRaw(origin) : null }
 }
-async function refreshHostDetail() {
+async function refreshHostView() {
   if (!hostDialogCurrent()) throw new Error('stale host dialog')
   const context = hostDialog.value, originalLine = lineId.value
   // Keep navigation conditions and anchors, but never reuse old artwork leases
   // or catalogue responses after the allowlist changes its configuration token.
   clearOnlineBrowse()
-  if (searched.value) loadedAt = 1
+  if (searched.value) loadedAt = context.fromResults ? 0 : 1
   const response = await client.sources()
   if (!hostDialogCurrent() || hostDialog.value !== context) throw new Error('stale host dialog')
   const source = response?.items?.find(item => item.id === context.source)
@@ -712,6 +720,20 @@ async function refreshHostDetail() {
   cacheScope = onlineBrowseScope(response.scope_token, viewing)
   acceptCategories()
   context.scope = hostViewScope()
+  if (context.fromResults) {
+    const turn = generation + 1
+    // The normal refresh owns the new request, its retry action and its cache.
+    const position = captureOnlinePosition(browseRoot.value) || browsePosition
+    await refreshResults(position)
+    if (current(turn) && browseVisible.value && !hostDialog.value && !viewing.prompt && !playing.value) {
+      focusDetailReturn({ source: context.source, attribute: 'data-online-result', key: context.externalId })
+    }
+    return
+  }
+  if (detailOrigin?.sourceId === source.id && detailOrigin.browse.response) {
+    detailOrigin.configuration = source.configuration_token
+    detailOrigin.browse.loadedAt = 1
+  }
   hostReminders.remember(hostReminderKey())
   const refreshed = await client.detail(context.source, context.externalId)
   if (!hostDialogCurrent() || hostDialog.value !== context || refreshed?.item.id !== context.itemId) throw new Error('stale host detail')
@@ -1121,10 +1143,10 @@ async function search(nextPage = 1, text = query.value, options = {}) {
   } catch (error) { if (current(turn) && navigationCurrent(navigation)) searchError.value = onlineCatalogError(error) }
   finally { if (current(turn) && navigationCurrent(navigation)) { searching.value = false; void loadHealth(); scheduleAutomaticRefresh() } }
 }
-function refreshResults() {
+function refreshResults(position = null) {
   categoryId.value = loadedCategoryId.value; searchCategoryScope.value = loadedCategoryScope.value
   channelId.value = loadedChannelId.value; setYear(loadedYear.value)
-  void search(page.value, loadedQuery.value, { force: true })
+  return search(page.value, loadedQuery.value, { force: true, position })
 }
 async function readItemState(data, turn) {
   const ticket = ++itemStateGeneration
@@ -1487,6 +1509,7 @@ const stopCleanup = registerViewingPlaybackCleanup(async () => {
   stateNotice.value = ''; searching.value = detailLoading.value = starting.value = false
   await closing
 })
+watch(browseVisible, visible => { if (!visible && hostDialog.value?.fromResults) closeHostDialog(false) })
 watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locallyLocked], () => {
   navigationGeneration++
   closeHostDialog(false); hostReminders.clear()

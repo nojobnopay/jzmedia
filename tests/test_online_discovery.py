@@ -3,6 +3,9 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
 import json
+from threading import Event
+import time
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 import httpx
@@ -10,12 +13,22 @@ import pytest
 
 from app import store
 from app.main import app
-from app.online import diagnostic_probes as probes, discovery_directory as directory, discovery_hints, discovery_media, maccms
+from app.network import guard
+from app.network.client import NetworkRequestError
+from app.online import diagnostic_probes as probes, discovery, discovery_directory as directory, discovery_hints, discovery_media, maccms
 from app.store import online, online_network
 import test_online_diagnostics as diagnostics_tests
 
 
 upstream = diagnostics_tests.env
+
+
+@pytest.fixture(autouse=True)
+def fresh_directory_cache(monkeypatch):
+    monkeypatch.setattr(directory, "_entries", ())
+    monkeypatch.setattr(directory, "_retry_at", 0)
+    monkeypatch.setattr(directory, "_last_success", 0)
+    monkeypatch.setattr(directory, "_fingerprint", None)
 
 
 @pytest.fixture
@@ -133,11 +146,94 @@ def test_probe_never_persists_failed_media_host(env):
     assert failed["status"] == "failed" and failed["probe_token"] is None and failed["catalog_ms"] is None
 
 
+def test_refresh_exit_only_applies_to_public_directory(env, monkeypatch):
+    path = "/api/online/discovery/refresh"
+    proxy = online_network.create_network_profile({"name": "公开目录代理", "mode": "proxy",
+                                                  "proxy_url": "http://proxy.example:8080"})
+    rule = {"mode": "proxy", "profile_id": proxy["id"]}
+    for mode in ("direct", "proxy"):
+        env.answers[(mode, "segment")] = (200, "text/plain", json.dumps({"api_site": {
+            "demo": {"name": "示例", "api": "https://example.org/api.php/provide/vod/"}}}).encode())
+    for body, mode in (({"directory_route": rule}, "proxy"), ({}, "direct")):
+        response = env.client.post(path, json=body)
+        assert response.json()["directory_status"] == "updated"
+        assert env.requests[-1][:2] == ("subscription", mode)
+    online_network.update_online_network_default(rule)
+    assert env.client.post(path, json={"directory_route": {"mode": "direct"}}).json()["directory_status"] == "updated"
+    assert env.requests[-1][:2] == ("subscription", "direct")
+    env.requests.clear()
+    env.answers.clear()
+    assert probe(env).json()["status"] == "measured"
+    assert [r[:2] for r in env.requests] == [("api", "proxy"), ("media", "proxy"), ("media", "proxy")]
+    assert online_network.get_online_network_default()["rule"] == rule
+
+    # Removing a profile during a refresh invalidates the in-flight result and
+    # a later attempt with the stale selection, even with a cached public list.
+    online_network.update_online_network_default({"mode": "direct"})
+    def remove_selected(policy, excluded):
+        online_network.delete_network_profile(proxy["id"])
+        return (("Changed", "https://changed.example/api.php/provide/vod/"),)
+    monkeypatch.setattr(directory, "_fetch", remove_selected)
+    for _ in range(2):
+        assert env.client.post(path, json={"directory_route": rule}).status_code == 409
+    assert not any(name == "Changed" for name, _ in directory.entries())
+    assert env.client.post(path, json={"directory_route": {"mode": "proxy", "proxy_url": "http://example.org"}}).status_code == 422
+
+
+@pytest.mark.parametrize("transport_failure", [True, False])
+def test_cancelled_refresh_does_not_publish_or_suppress_a_retry(monkeypatch, transport_failure):
+    request = guard.NetworkOperation(time.monotonic() + 5)
+    rows = (("公开来源", "https://new.example/api.php/provide/vod"),)
+    def fetch(policy, excluded):
+        if not request.cancelled.is_set():
+            request.abort()
+            if transport_failure:
+                raise NetworkRequestError("network_request_failed")
+        return rows
+
+    monkeypatch.setattr(directory, "_fetch", fetch)
+    with guard.operation_context(request), pytest.raises(guard.NetworkOperationError, match="operation_cancelled"):
+        directory.refresh(None, "route", set(), lambda: None)
+    assert not directory.entries()
+    assert directory.refresh(None, "route", set(), lambda: None) == ("updated", rows)
+
+
+def test_concurrent_refreshes_return_their_own_exit_results(env, monkeypatch):
+    proxy = online_network.create_network_profile({"name": "目录", "mode": "proxy", "proxy_url": "http://proxy.example"})
+    direct_fetching, proxy_waiting, proxy_published = Event(), Event(), Event()
+    refresh = directory.refresh
+
+    def fetch(policy, excluded):
+        if policy.mode == "direct":
+            direct_fetching.set()
+            assert proxy_waiting.wait(5)
+        return ((policy.mode, f"https://{policy.mode}.example/api.php/provide/vod"),)
+
+    def overlap(policy, *args):
+        if policy.mode == "proxy":
+            proxy_waiting.set()
+        result = refresh(policy, *args)
+        if policy.mode == "proxy":
+            proxy_published.set()
+        else:
+            assert proxy_published.wait(5)
+        return result
+
+    monkeypatch.setattr(directory, "_fetch", fetch)
+    monkeypatch.setattr(directory, "refresh", overlap)
+    path = "/api/online/discovery/refresh"
+    with ThreadPoolExecutor(2) as pool:
+        direct = pool.submit(env.client.post, path, json={})
+        assert direct_fetching.wait(5)
+        routed = pool.submit(env.client.post, path, json={"directory_route": {"mode": "proxy", "profile_id": proxy["id"]}})
+        for mode, future in (("direct", direct), ("proxy", routed)):
+            report = future.result().json()
+            assert report["directory_status"] == "updated"
+            assert [r["name"] for r in report["items"] if r["id"].startswith("feed-")] == [mode]
+    assert [name for name, _ in directory.entries()] == ["proxy"]
+
+
 def test_public_directory_refresh_accepts_only_bounded_https_vod_and_falls_back(env, monkeypatch):
-    monkeypatch.setattr(directory, "_entries", ())
-    monkeypatch.setattr(directory, "_retry_at", 0)
-    monkeypatch.setattr(directory, "_last_success", 0)
-    monkeypatch.setattr(directory, "_fingerprint", None)
     cases = {"first": {"name": "示例新源", "api": "https://extra.example/api.php/provide/vod/"}}
     for i, url in enumerate(("https://extra.example/api.php/provide/vod", "http://other.example/api.php/provide/vod",
                              "https://127.0.0.1/api.php/provide/vod", "https://user@x.example/api.php/provide/vod",
@@ -276,10 +372,6 @@ def test_settings_probe_prioritizes_only_recent_valid_sample_after_enable(env, m
 
 
 def test_empty_feed_keeps_previously_reviewed_selection(env, monkeypatch):
-    monkeypatch.setattr(directory, "_entries", ())
-    monkeypatch.setattr(directory, "_retry_at", 0)
-    monkeypatch.setattr(directory, "_last_success", 0)
-    monkeypatch.setattr(directory, "_fingerprint", None)
     path = "/api/online/discovery/refresh"
     url = "https://catalogue.example/api.php/provide/vod"
     env.answers[("direct", "segment")] = (200, "text/plain", json.dumps({
@@ -368,6 +460,230 @@ def test_tries_another_title_after_unreachable_media_and_skips_empty_catalog(env
     assert empty["status"] == "empty" and not empty["probe_token"] and len(attempts) == 2
 
 
+@pytest.mark.parametrize("alternate", ["fourth_title", "second_line"])
+def test_failed_first_host_tries_another_origin_before_same_cdn(env, monkeypatch, alternate):
+    first = env.rows[0]
+    env.rows = [dict(first, vod_id=str(i), vod_play_url=f"正片$https://bad.example/{i}.m3u8") for i in range(3)]
+    if alternate == "fourth_title":
+        env.rows.append(dict(first, vod_id="4"))
+    else:
+        env.rows[0]["vod_play_from"] += "$$$alternate"
+        env.rows[0]["vod_play_url"] += "$$$" + first["vod_play_url"]
+    original = discovery_media.sample_media
+    calls = []
+
+    def sample(source, entry, policy, **kwargs):
+        calls.append(entry.url)
+        if "bad.example" in entry.url:
+            raise probes.ProbeFailure("target_dns_failed", stage="manifest")
+        return original(source, entry, policy, **kwargs)
+
+    monkeypatch.setattr(discovery_media, "sample_media", sample)
+    result = probe(env).json()
+    assert result["attempts"] == [{"stage": "manifest", "reason": "target_dns_failed"}, {"stage": "media", "reason": "ok"}]
+    assert len(calls) == 2 and result["allowed_hosts"] == ["cdn.example"] and result["status"] == "measured"
+    assert "private-test" not in json.dumps(result)
+
+
+def test_ready_page_links_before_supplemental_detail_and_bounded_empty_lookups(env):
+    no_links = [dict(env.detail, vod_id=str(i), vod_play_url="") for i in range(6)]
+    env.rows = [*no_links, env.detail]
+    assert probe(env).json()["status"] == "measured"
+    assert [r[0] for r in env.requests] == ["api", "media", "media"]
+    env.requests.clear()
+    env.rows = no_links
+    report = probe(env).json()
+    assert report["reason"] == "no_media_sample" and not report["attempts"]
+    assert len(env.requests) == 4 and all(req[0] == "api" for req in env.requests)
+
+
+@pytest.mark.parametrize(("ratios", "selected", "tried"), [
+    ([.4, 1, 2], 1, 2),
+    ([.4, None, 1.2], 2, 3),
+    ([.4, .8, .6], 1, 3),
+    ([.4, None, "http_404"], 0, 3),
+    ([None, 1.2], 0, 1),
+])
+def test_slow_sample_keeps_best_evidence_and_only_its_hosts(env, monkeypatch, ratios, selected, tried):
+    env.rows = [dict(env.detail, vod_id=str(i + 1), vod_pic=f"https://cover{i}.example/p.jpg",
+                     vod_play_url=f"正片$https://cdn{i}.example/show.m3u8") for i in range(len(ratios))]
+    outcomes = iter(ratios)
+
+    def sample(source, entry, policy, *, host_review):
+        host_review.reference(entry.url)
+        ratio = next(outcomes)
+        if ratio == "http_404":
+            raise probes.ProbeFailure(ratio, stage="media")
+        return {"realtime_ratio": ratio, "sample_bytes": 32768, "sample_kbps": 4096, "media_ms": 100}
+
+    monkeypatch.setattr(discovery_media, "sample_media", sample)
+    report = probe(env).json()
+    assert report["status"] == "measured" and report["reason"] == "ok"
+    assert [attempt["reason"] for attempt in report["attempts"]] == [
+        value if value == "http_404" else "ok" for value in ratios[:tried]]
+    assert report["realtime_ratio"] == ratios[selected]
+    assert report["allowed_hosts"] == [f"cdn{selected}.example"]
+    assert report["poster_hosts"] == [f"cover{selected}.example"]
+    saved = enable(env, "ikun", report["probe_token"]).json()
+    assert set(saved["allowed_hosts"]) == {"ikunzyapi.com", f"cdn{selected}.example"}
+
+
+@pytest.mark.parametrize("first_is_slow", [True, False])
+@pytest.mark.parametrize("deadline_stage", ["media", "detail"])
+def test_tight_deadline_preserves_actual_attempts_and_the_parent_budget(env, monkeypatch, deadline_stage, first_is_slow):
+    clock = SimpleNamespace(now=1000)
+    clock.monotonic = lambda: clock.now
+    monkeypatch.setattr(discovery, "time", clock)
+    monkeypatch.setattr(guard, "time", clock)
+    operation = guard.NetworkOperation(clock.now + 12)
+    first = dict(env.detail, vod_id="1")
+    second = dict(env.detail, vod_id="2", vod_play_url="" if deadline_stage == "detail"
+                  else "正片$https://cdn.example/second.m3u8")
+    calls = []
+
+    def reach_cutoff():
+        clock.now = operation.deadline - 0.1
+        guard.check_operation()
+
+    def sample(*args, **kwargs):
+        calls.append("media")
+        if len(calls) == 2:
+            reach_cutoff()
+        if first_is_slow:
+            return {"realtime_ratio": .6, "sample_bytes": 32768, "sample_kbps": 65, "media_ms": 4000}
+        raise probes.ProbeFailure("http_404", stage="manifest")
+
+    def detail(*args):
+        calls.append("detail")
+        reach_cutoff()
+
+    monkeypatch.setattr(discovery_media, "sample_media", sample)
+    monkeypatch.setattr(probes, "_payload", detail)
+    report = {"status": "catalog_only", "attempts": []}
+    candidate = discovery.Candidate(env.source["id"], "已配置来源", env.source, ())
+    try:
+        discovery._sample_rows(candidate, [first, second], None, None, report, (), operation)
+        operation.check()
+    finally:
+        operation.close()
+    assert calls == ["media", deadline_stage]
+    first_reason = "ok" if first_is_slow else "http_404"
+    expected_attempts = [first_reason, "provider_timeout"] if deadline_stage == "media" else [first_reason]
+    assert [a["reason"] for a in report["attempts"]] == expected_attempts
+    assert report["reason"] == first_reason
+    if first_is_slow:
+        assert report["status"] == "measured" and report["realtime_ratio"] == .6
+
+
+def test_measured_source_offers_only_the_selected_titles_poster(env, monkeypatch):
+    first = dict(env.detail, vod_id="1", vod_pic="https://unused.example/p.jpg",
+                 vod_play_url="正片$https://cdn.example/file.txt")
+    bad = dict(env.detail, vod_id="2", vod_pic="https://failed.example/p.jpg",
+               vod_play_url="正片$https://bad.example/1.m3u8")
+    valid = dict(env.detail, vod_id="3", vod_pic="https://cover.example/p.jpg")
+    env.rows = [first, bad, valid]
+    original = discovery_media.sample_media
+
+    def sample(source, entry, policy, **kwargs):
+        if "bad.example" in entry.url:
+            raise probes.ProbeFailure("network_timeout", stage="manifest")
+        return original(source, entry, policy, **kwargs)
+
+    monkeypatch.setattr(discovery_media, "sample_media", sample)
+    result = probe(env).json()
+    assert result["status"] == "measured" and result["poster_hosts"] == ["cover.example"]
+    for host in ("unused.example", "failed.example"):
+        rejected = env.client.post("/api/online/discovery/ikun/enable", json={
+            "probe_token": result["probe_token"], "poster_hosts": [host]})
+        assert rejected.status_code == 422
+
+
+def test_extended_retest_only_widens_the_explicitly_requested_budgets(env, monkeypatch):
+    from app.routers import online_discovery as router
+    requests, samples = [], []
+    read, sample = router._read, discovery_media.sample_media
+
+    async def observe_read(*args, deadline_seconds):
+        requests.append(deadline_seconds)
+        return await read(*args, deadline_seconds=deadline_seconds)
+
+    def delayed_sample(source, entry, policy, **kwargs):
+        remaining = guard.current_operation().remaining()
+        samples.append((remaining, policy.connect_timeout_seconds, policy.read_timeout_seconds))
+        if remaining < 5:
+            raise probes.ProbeFailure("network_timeout", stage="media")
+        return sample(source, entry, policy, **kwargs)
+
+    monkeypatch.setattr(router, "_read", observe_read)
+    monkeypatch.setattr(discovery_media, "sample_media", delayed_sample)
+    env.rows = [dict(env.detail, vod_id=str(i), vod_play_url=f"正片$https://cdn.example/{i}.m3u8") for i in range(5)]
+    first = probe(env).json()
+    assert first["status"] == "catalog_only" and first["attempts"] == [{"stage": "media", "reason": "provider_timeout"}] * 3
+    path = "/api/online/discovery/ikun/probe"
+    extended = env.client.post(path, json={"extended": True}).json()
+    assert extended["status"] == "measured" and extended["sample_bytes"] == len(diagnostics_tests.SEGMENT)
+    assert requests == [12, 20] and len(samples) == 4
+    assert all(0 < row[0] <= 4 for row in samples[:3]) and 5 < samples[3][0] <= 8
+    assert {(connect, read) for _, connect, read in samples[:3]} == {(3, 4)}
+    assert samples[3][1:] == (5, 8)
+    assert env.client.post(path, json={"extended": "true"}).status_code == 422
+    assert requests == [12, 20]
+
+    profile = online_network.create_network_profile({"name": "short timeouts", "mode": "direct",
+                                                     "connect_timeout_seconds": 1.5, "read_timeout_seconds": 2})
+    online_network.update_online_network_default({"mode": "direct", "profile_id": profile["id"]})
+    limited = env.client.post(path, json={"extended": True}).json()
+    assert limited["status"] == "measured" and samples[-1][1:] == (1.5, 2)
+
+
+def test_mixed_sample_failures_keep_stage_counts_and_majority_reason(env, monkeypatch):
+    first = env.rows[0]
+    env.rows = [dict(first, vod_id=str(i), vod_play_url=f"第1集$https://cdn{i}.example/v.m3u8?token=never-print")
+                for i in range(4)]
+    original = probes.create_client
+
+    def factory(policy, *, targets):
+        client = original(policy, targets=targets)
+        previous = client.stream
+
+        @contextmanager
+        def stream(method, url, **kwargs):
+            if "cdn2.example" in url:
+                raise discovery_media.NetworkRequestError("network_timeout")
+            with previous(method, url, **kwargs) as response:
+                response.headers["content-length"] = str(discovery_media.hls.MANIFEST_BYTES + 1)
+                yield response
+
+        client.stream = stream
+        return client
+
+    monkeypatch.setattr(probes, "create_client", factory)
+    report = probe(env).json()
+    assert report["status"] == "catalog_only" and report["reason"] == "manifest_limit"
+    assert report["attempts"] == [{"stage": "manifest", "reason": reason}
+                                  for reason in ("manifest_limit", "manifest_limit", "provider_timeout")]
+    assert "never-print" not in json.dumps(report)
+
+
+def test_catalog_and_media_statuses_keep_their_stage(env):
+    env.new = 403
+    report = probe(env).json()
+    assert report["status"] == "failed" and report["reason"] == "http_403" and report["attempts"] == []
+    env.new = 200
+    env.answers[("direct", "segment")] = (404, "text/plain", b"not found")
+    report = probe(env).json()
+    assert report["status"] == "catalog_only" and report["attempts"] == [{"stage": "media", "reason": "http_404"}]
+
+
+def test_later_large_range_does_not_block_sampling_the_first_segment(env):
+    playlist = (b"#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:8\n#EXTINF:8,\nfirst.ts\n"
+                b"#EXTINF:8,\n#EXT-X-BYTERANGE:41943040@0\nsecond.ts\n#EXT-X-ENDLIST\n")
+    env.answers[("direct", "manifest")] = (200, "application/vnd.apple.mpegurl", playlist)
+    result = probe(env).json()
+    assert result["status"] == "measured" and result["attempts"] == [{"stage": "media", "reason": "ok"}]
+    assert env.requests[-1][2].endswith("/first.ts")
+
+
 @pytest.mark.parametrize("select_poster", [True, False])
 def test_new_source_manifest_and_segment_domains_selective_poster(env, select_poster):
     env.rows = [dict(env.rows[0], vod_pic="https://covers.example/poster.jpg")]
@@ -395,7 +711,7 @@ def test_saved_source_confirms_only_observed_media_hosts_before_retest(env):
     assert all("segments.example" not in req[2] for req in env.requests)
     token = report["probe_token"]
     assert env.client.post(path, json={"hosts": ["arbitrary.example"], "probe_token": token}).status_code == 422
-    result = env.client.post(path, json={"probe_token": token, "hosts": report["missing_hosts"]}).json()
+    result = env.client.post(path, json={"probe_token": token, "hosts": report["missing_hosts"], "extended": True}).json()
     assert result["status"] == "measured" and result["allowed_hosts"] == report["missing_hosts"]
     assert "segments.example" not in online.get_online_source(sid)["allowed_hosts"]
     assert "segments.example" in enable(env, sid, result["probe_token"]).json()["allowed_hosts"]
@@ -490,3 +806,157 @@ def test_builtin_candidate_does_not_silently_persist_unused_template_or_poster_h
     assert result["status"] == "measured" and result["poster_hosts"] == ["p.lzp261118.com"]
     saved = enable(env, "liangzi", result["probe_token"]).json()
     assert set(saved["allowed_hosts"]) == {"lzzyapi.com", "cdn.example"}
+
+
+def _proxy_rule():
+    profile = online_network.create_network_profile({"name": "试读出口", "mode": "proxy", "proxy_url": "http://proxy.example"})
+    return {"mode": "proxy", "profile_id": profile["id"]}
+
+
+@pytest.mark.parametrize("saved", [False, True])
+@pytest.mark.parametrize("mode", ["direct", "proxy"])
+def test_preview_route_requires_consent_and_atomically_applies_only_api_and_media(env, monkeypatch, saved, mode):
+    proxy, direct = _proxy_rule(), {"mode": "direct", "profile_id": None}
+    route, original = (proxy, direct) if mode == "proxy" else (direct, proxy)
+    online_network.update_online_network_default(original)
+    sid = env.source["id"]
+    policy = online_network.update_source_network_policy(sid, {"image": original, "subtitle": direct})
+    key = sid if saved else "ikun"
+    path = f"/api/online/discovery/{key}"
+    revoked, hints = [], []
+    monkeypatch.setattr(discovery.service.registry, "revoke_source", revoked.append)
+    monkeypatch.setattr(discovery_hints, "remember", lambda state, observation: hints.append(state))
+    response = env.client.post(path + "/probe", json={"probe_route": route})
+    assert response.status_code == 200, response.text
+    report = response.json()
+    assert report["status"] == "measured" and report["tested_route"] == route
+    assert [r[:2] for r in env.requests] == [("api", mode), ("media", mode), ("media", mode)]
+    assert online_network.get_source_network_policy(sid) == policy
+    token = {"probe_token": report["probe_token"]}
+    for extra in ({}, {"apply_route": False}):
+        assert env.client.post(path + "/enable", json={**token, **extra}).status_code == 422
+    assert len(online.list_online_sources()) == 1 and not hints and not revoked
+    with ThreadPoolExecutor(2) as pool:
+        responses = list(pool.map(lambda _: env.client.post(path + "/enable", json={**token, "apply_route": True}), range(2)))
+    assert [r.status_code for r in responses] == [200, 200]
+    target = responses[0].json()["id"]
+    assert responses[1].json()["id"] == target and (target == sid) == saved
+    rule = online_network.get_source_network_policy(target)
+    assert rule["revision"] == (policy["revision"] if saved else 0) + 1
+    assert rule["policy"]["api"] == rule["policy"]["media"] == route
+    for purpose in ("default", "image", "subtitle", "subscription"):
+        assert rule["policy"][purpose] == (policy["policy"][purpose] if saved else {"mode": "inherit", "profile_id": None})
+    assert online_network.get_online_network_default()["rule"] == original
+    assert revoked == ([sid] if saved else []) and len(hints) == 1
+    assert hints[0] == online_network.load_online_network_state(target)
+    assert env.client.post(path + "/enable", json=token).status_code == 422
+
+
+def test_preview_route_host_consent_bound_to_exact_route_and_profile_revision(env):
+    proxy = _proxy_rule()
+    sid = env.source["id"]
+    path = f"/api/online/discovery/{sid}"
+    env.answers[("proxy", "manifest")] = (200, "application/vnd.apple.mpegurl",
+        diagnostics_tests.PLAYLIST.replace(b"first.ts", b"https://segments.example/video.ts"))
+    current = online_network.get_source_network_policy(sid)
+    def probe_route(body):
+        return env.client.post(path + "/probe", json={"probe_route": proxy, **body})
+
+    report = probe_route({}).json()
+    assert report["status"] == "catalog_only" and report["missing_hosts"] == ["segments.example"]
+    consent = {"probe_token": report["probe_token"], "hosts": report["missing_hosts"]}
+    assert env.client.post(path + "/enable", json={"probe_token": report["probe_token"], "apply_route": True}).status_code == 422
+    count = len(env.requests)
+    assert env.client.post(path + "/probe", json=consent).status_code == 409
+    assert probe_route({**consent, "probe_route": {"mode": "direct"}}).status_code == 409
+    assert len(env.requests) == count
+    measured = probe_route(consent).json()
+    assert measured["status"] == "measured" and measured["allowed_hosts"] == ["segments.example"]
+    assert online_network.get_source_network_policy(sid) == current
+    assert "segments.example" not in online.get_online_source(sid)["allowed_hosts"]
+    online_network.update_network_profile(proxy["profile_id"], {"name": "已编辑"})
+    assert probe_route(consent).status_code == 409
+    body = {"probe_token": measured["probe_token"], "apply_route": True}
+    assert env.client.post(path + "/enable", json=body).status_code == 409
+    assert online_network.get_source_network_policy(sid) == current
+    assert "segments.example" not in online.get_online_source(sid)["allowed_hosts"]
+    fresh = probe_route({}).json()
+    confirmed = probe_route({"probe_token": fresh["probe_token"], "hosts": fresh["missing_hosts"]}).json()
+    assert confirmed["tested_route"] == proxy and confirmed["status"] == "measured"
+    applied = env.client.post(path + "/enable", json={**body, "probe_token": confirmed["probe_token"]})
+    assert "segments.example" in applied.json()["allowed_hosts"]
+    assert online_network.get_source_network_policy(sid)["policy"]["media"] == proxy
+
+
+@pytest.mark.parametrize("saved", [True, False])
+def test_route_receipt_guards_inflight_edits_expiration_and_transaction_rollback(env, monkeypatch, saved):
+    proxy = _proxy_rule()
+    sid = env.source["id"]
+    if saved:
+        online.update_online_source(sid, {"enabled": False})
+    path = "/api/online/discovery/" + (sid if saved else "ikun")
+    probe_body = {"probe_route": proxy}
+    before = online.list_online_sources()
+    before_policy = online_network.get_source_network_policy(sid)
+    read = discovery._read_catalogue
+    def change_profile(*args):
+        result = read(*args)
+        online_network.update_network_profile(proxy["profile_id"], {"name": "已编辑"})
+        return result
+    with monkeypatch.context() as patch:
+        patch.setattr(discovery, "_read_catalogue", change_profile)
+        assert env.client.post(path + "/probe", json=probe_body).status_code == 409
+    report = env.client.post(path + "/probe", json=probe_body).json()
+    body = {"probe_token": report["probe_token"], "apply_route": True}
+    update = online_network._update_source_policy
+    def abort(*args):
+        update(*args)
+        raise online.OnlineNotFound("rollback")
+    with monkeypatch.context() as patch:
+        patch.setattr(online_network, "_update_source_policy", abort)
+        assert env.client.post(path + "/enable", json=body).status_code == 409
+    assert online.list_online_sources() == before and online_network.get_source_network_policy(sid) == before_policy
+    with monkeypatch.context() as patch:
+        patch.setattr(discovery._RECEIPTS[report["probe_token"]], "expires", 0)
+        assert env.client.post(path + "/enable", json=body).status_code == 409
+    assert env.client.post(path + "/enable", json=body).status_code == 200
+    online_network.update_network_profile(proxy["profile_id"], {"name": "使用中变更"})
+    assert env.client.post(path + "/enable", json=body).status_code == 409
+
+
+def test_preview_rejects_invalid_routes_and_prior_profile_changes_hidden_by_override(env):
+    proxy = _proxy_rule()
+    sid = env.source["id"]
+    path = f"/api/online/discovery/{sid}"
+    for invalid in ({"mode": "inherit"}, {"mode": "proxy"}, {"mode": "direct", "profile_id": proxy["profile_id"]},
+                    {"mode": "proxy", "proxy_url": "http://test.example"}):
+        assert env.client.post(path + "/probe", json={"probe_route": invalid}).status_code == 422
+    assert not env.requests
+    online_network.update_source_network_policy(sid, {"api": proxy})
+    report = env.client.post(path + "/probe", json={"probe_route": {"mode": "direct"}}).json()
+    online_network.update_network_profile(proxy["profile_id"], {"read_timeout_seconds": 30})
+    assert env.client.post(path + "/enable", json={"probe_token": report["probe_token"], "apply_route": True}).status_code == 409
+    assert online_network.get_source_network_policy(sid)["policy"]["api"] == proxy
+    plain = probe(env, sid).json()
+    assert plain["tested_route"] is None
+    assert env.client.post(path + "/enable", json={"probe_token": plain["probe_token"], "apply_route": True}).status_code == 422
+
+
+def test_reapplying_same_rules_preserves_session_and_superseded_preview_cannot_enable(env, monkeypatch):
+    sid = env.source["id"]
+    route = _proxy_rule()
+    path = f"/api/online/discovery/{sid}"
+    old = online_network.update_source_network_policy(sid, {"media": route, "api": route})
+    token = env.client.post(path + "/probe", json={"probe_route": route}).json()["probe_token"]
+    revoked = []
+    monkeypatch.setattr(discovery.service.registry, "revoke_source", revoked.append)
+    assert env.client.post(path + "/enable", json={"probe_token": token, "apply_route": True}).status_code == 200
+    assert online_network.get_source_network_policy(sid) == old and not revoked
+
+    alternate = _proxy_rule()
+    path = "/api/online/discovery/ikun"
+    token = env.client.post(path + "/probe", json={"probe_route": alternate}).json()["probe_token"]
+    online_network.delete_network_profile(alternate["profile_id"])
+    assert env.client.post(path + "/enable", json={"probe_token": token, "apply_route": True}).status_code == 409
+    assert env.client.post(path + "/probe", json={"probe_route": alternate}).status_code == 409
+    assert len(online.list_online_sources()) == 1

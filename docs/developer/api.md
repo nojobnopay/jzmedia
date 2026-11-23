@@ -66,7 +66,7 @@
 
 ## 在线来源配置
 
-读取模板与保存开关、来源配置均在本地完成。`host-check` 会读取一项上游目录资料，[播放诊断](#online-diagnosis)会根据上下文读取目录、运营方帮助页或媒体样本。总开关默认关闭；创建来源的 API 省略 `enabled` 时仍默认关闭，网页新增表单会默认提交 `enabled:true`。关闭时仍可管理来源，以便先完成配置。正式网页入口为“在线”，管理入口为“设置 → 在线视频源”；目录与播放分别使用下述独立接口。
+读取模板与保存开关、来源配置均在本地完成。`host-check` 会通过上游目录检查指定节目或首页样本，[播放诊断](#online-diagnosis)会根据上下文读取目录、运营方帮助页或媒体样本。总开关默认关闭；创建来源的 API 省略 `enabled` 时仍默认关闭，网页新增表单会默认提交 `enabled:true`。关闭时仍可管理来源，以便先完成配置。正式网页入口为“在线”，管理入口为“设置 → 在线视频源”；目录与播放分别使用下述独立接口。
 
 | 请求 | 行为 |
 |---|---|
@@ -74,10 +74,10 @@
 | `PATCH /api/online/settings` | 必须提供布尔 `enabled`，持久保存总开关 |
 | `GET /api/online/source-templates` | 返回本地配置建议 `{items:[...]}`。每项的 `api_base_url` 为模板当前地址，`known_api_urls` 列出已核对的同运营方接口，用于在换址时辨认已有来源 |
 | `GET /api/online/discovery` | 列出已配置的来源与本机已知候选，返回候选 ID、名称、出处、目录地址与启用状态 |
-| `POST /api/online/discovery/refresh` | 管理员提交 `{}`，服务器通过订阅出口更新公开候选，返回列表和 `directory_status`（已更新、缓存或内置候选） |
-| `POST /api/online/discovery/{candidate_id}/probe` | 提交 `{}` 从目录及媒体出口取样。返回 `measured`、`catalog_only`、`empty` 或 `failed`，以及 `sample_bytes`、可空的 `sample_kbps` 和 `realtime_ratio`。已有源可提交本轮 `probe_token` 与 `hosts` 复测所列 `missing_hosts`。429 携带 `Retry-After` |
-| `POST /api/online/discovery/{candidate_id}/enable` | 提交本轮 `probe_token` 和可选的 `poster_hosts`，原子保存核对过的主机。空目录没有启用凭据，重复请求复用原结果，来源或网络修订变化时返回 409 |
-| `POST /api/online/sources/{source_id}/host-check` | 管理员提交 `{external_id}`，只读取一项目录；返回缺失主机、原允许列表、拒绝地址数及配置指纹，不返回播放 URL，也不访问候选媒体 |
+| `POST /api/online/discovery/refresh` | 管理员提交 `{}` 使用服务默认出口，也可传 `directory_route` 选择 `{"mode":"direct"}` 或 `{"mode":"proxy","profile_id":"…"}`。临时规则只用于抓取公共名单。返回列表和 `directory_status`（已更新、缓存或内置候选），档案失效返回 409 |
+| `POST /api/online/discovery/{candidate_id}/probe` | 提交 `{}` 按来源网络配置取样。可用 `probe_route` 对单个来源临时换出口，用 `extended:true` 延长取样。已有源可提交本轮 `probe_token` 与 `hosts` 复测所列 `missing_hosts`。并发已满时 429 携带 `Retry-After` |
+| `POST /api/online/discovery/{candidate_id}/enable` | 提交本轮 `probe_token` 和可选的 `poster_hosts`，原子保存核对过的主机。确认采用实测出口时一并提交 `apply_route:true`。空目录没有启用凭据，重复提交同一确认可复用原结果，来源或网络修订变化时返回 409 |
+| `POST /api/online/sources/{source_id}/host-check` | 管理员提交 `{}` 检查来源首页样本，或提交 `{external_id}` 检查指定节目。返回节目编号、标题、缺失主机和海报主机子集，供用户确认 |
 | `POST /api/online/sources/{source_id}/allow-hosts` | 提交 `{hosts,expected_fingerprint}`，在同一事务检查完整来源指纹并只追加主机；冲突返回 409，变更后撤销该来源旧会话 |
 | `POST /api/online/sources/{source_id}/host-migration-preview` | 按草稿接口地址、允许主机和本地已核对的公告预览主机替换，返回待确认的变更与草稿指纹 |
 | `GET /api/online/sources` | 返回 `{items:[...]}`，按优先级、创建时间和 ID 排序 |
@@ -85,11 +85,15 @@
 | `GET /api/online/sources/{source_id}` | 读取单个来源及其当前 `configuration_fingerprint`，不存在返回 `404` |
 | `PATCH /api/online/sources/{source_id}` | 原子更新已提供的字段，可一并确认主机迁移；可用 `enabled:false` 停用并保留身份 |
 
+探测默认最多试三个样片，单个样片最多 4 秒、整个来源最多 12 秒。`{"extended":true}` 将这两项上限分别延长至 8 秒和 20 秒，连接与读取继续使用网络档案中更短的超时。响应包含 `measured`、`catalog_only`、`empty` 或 `failed` 状态，以及实读的 `sample_bytes`、可空的 `sample_kbps` 和 `realtime_ratio`。有序的 `attempts` 记录各次取样的 `stage` 和 `reason`。
+
+单源复测可传 `"probe_route":{"mode":"direct"}` 或 `"probe_route":{"mode":"proxy","profile_id":"…"}`，对该来源的 API 和媒体使用同一出口。响应的 `tested_route` 标识本次选择的临时规则，沿用现有配置时为 `null`。确认缺失主机并复测时提交同一出口。成功取样后，以该轮票据和 `apply_route:true` 确认，将出口保存到同一来源的 `api` 和 `media` 规则。其他用途保留原有规则或继承关系。临时出口只得到 `catalog_only`、确认标志与票据不符等情况返回 `422 online_discovery_route_unconfirmed`。`refresh` 的 `directory_route` 只用于公共名单。
+
 `host-migration-preview` 接收 `{api_base_url,allowed_hosts}`，可用单项 GET 的 `configuration_fingerprint` 作为 `expected_fingerprint` 检查编辑基线。此操作只读取本地配置。返回 `{expected_fingerprint,changes}`，其中每项含 `old_host`、`new_host`、`kind`（`api`、`media` 或 `image`）及 `notice_url`。仅在接口主机变化时生成候选。旧、新地址均为已核对的同一运营方 JSON 接口时，也会按原允许列表及草稿筛选媒体或封面替换。公告链接供管理员核对。
 
 确认时 PATCH 提交与预览相同的 `api_base_url` 和 `allowed_hosts`，另传 `host_migration:{expected_fingerprint,selected_old_hosts}`。此指纹取自**预览响应**；数组可为空，新 API 主机始终加入。只替换勾选的旧主机，来源 ID 与网络规则保留。配置已变更或预览草稿失配返回 `409`，应重新预览；非法主机或候选之外的选择返回 `422`，来源不存在返回 `404`。普通 PATCH 若仅修改接口地址，移除原 API 主机并加入新的主机；若显式提交 `allowed_hosts`，按该列表保存并包含当前 API 主机。整源移除尚无 DELETE 接口。
 
-主机检查与追加还需先通过 `/api/viewing/session` 取得设备身份，并遵循管理授权与已配置的写令牌。网页和电视复用这两个管理接口。`host-check` 提交 `{external_id}`，只通过该来源的 API 网络用途读取一项详情，复用目录期限、取消和并发限制；候选取自该内容的全部线路、分集及海报地址，不做 DNS 或媒体探测，也不展开 HLS 子资源或重定向。量子官方 `liangzi` 线路的已识别网页地址也可作为主机候选，检查不会读取该网页。返回 `source_id`、`external_id`、`missing_hosts`、`allowed_hosts`、`rejected_count` 和 64 位小写十六进制 `configuration_fingerprint`。`allow-hosts` 接收 1–128 个精确主机与该指纹，在同一写事务核对完整来源状态，仅追加用户选择的主机，不覆盖并发编辑；已有主机的无变化追加不撤销会话。指纹过期返回 `409 online_source_changed`，需要重新检查。发生变更时撤销当前来源已有播放会话，配置影响使用该来源的所有设备。
+主机检查与追加还需先通过 `/api/viewing/session` 取得设备身份，并遵循管理授权与已配置的写令牌。网页和电视复用这两个管理接口。`host-check` 通过来源的 API 出口读取目录，遵循目录期限、取消和并发限制。提交 `{external_id}` 读取指定节目详情。提交 `{}` 时读取首页，优先选取海报使用未获准主机的节目，其次选首页首项，必要时再读取所选节目的详情。空首页返回 `404 online_host_check_empty`。候选来自节目的播放线路、分集及海报，仅检查地址格式和主机规则，不探测候选域名、HLS 子资源或重定向。量子官方 `liangzi` 线路的已识别网页地址也可作为主机候选，检查不会读取该网页。返回 `source_id`、`external_id`、`title`、`missing_hosts`、`missing_poster_hosts`、`allowed_hosts`、`rejected_count` 和 64 位小写十六进制 `configuration_fingerprint`。`missing_poster_hosts` 是 `missing_hosts` 中用于海报的主机，网页可以只请求确认此子集。`allow-hosts` 接收 1–128 个精确主机与该指纹，在同一写事务核对完整来源状态，仅追加用户选择的主机，不覆盖并发编辑；已有主机的无变化追加不撤销会话。指纹过期返回 `409 online_source_changed`，需要重新检查。发生变更时撤销当前来源已有播放会话，配置影响使用该来源的所有设备。
 
 创建来源必须提供 `name`、`provider`、`api_base_url`，提供方支持 `maccms` 与固定开放样例 `open_catalog`。可选 `allowed_hosts` 为精确主机名列表，自动包含 API 主机，不支持通配符；`enabled` 默认 `false`，`priority` 为 0–1000 的整数、默认 100，数值越小越优先。地址只接受无内嵌账号密码、查询参数或片段的 HTTP(S) 基础地址；保存时只检查结构和字面地址，不发 DNS 或网络请求。实际读取执行[公网目标与头部策略](playback.md#在线远程读取)，保存成功不代表来源已经可播放。
 
@@ -180,6 +184,8 @@
 会话仅保存进程内目录摘要，每会话最多 5000 条、50 个源页、8 MiB，全局最多 8 个会话、64 MiB，并按 LRU 淘汰。达到预算返回或携带 `online_search_limit_reached`，需缩小关键词。缓存按设备、观看代次、保护修订、来源及完整网络配置和关键词隔离；每次交付与源页读取前后仍复核权限和配置。新鲜期 15 分钟，读取不延长；闲置 30 分钟淘汰。过期会话在保留期内仍可 GET 已读内容，但 `/more` 拒绝继续；重启、淘汰或范围不匹配也可使标识失效。遇到 `410 online_search_session_expired`，客户端保留关键词及筛选条件，从 `offset=0` 重建一次新会话，并替换旧显示前缀，不能混合不同会话的数据。搜索会话不创建本地媒体记录或读取视频。
 
 搜索与浏览条目提供 `external_id`、文本元数据及可选的服务内 `poster_path`，不创建本地媒体记录；详情按来源和内容种类保存独立在线身份。海报路径是不透明的来源绑定租约，受当前观看权限、来源与网络配置检查约束；停用来源、配置变化或租约失效后需重新读取目录或详情，不能将它作为持久图片地址保存。
+
+浏览、搜索（含渐进搜索）、相关推荐和实时详情返回布尔字段 `poster_host_blocked`。值为 `true` 表示来源给出了格式有效、符合主机检查条件的海报地址，但其主机尚未获准，页面可提示用户检查该节目的海报主机。该标记来自本次目录读取的配置快照，不会触发额外网络请求。缺失或格式错误的地址、离线缓存详情返回 `false`。旧服务省略该字段时，客户端按 `false` 处理。
 
 列表和详情还提供可选的 `category/category_id/parent_category_id/remarks/genres/actors/directors/area/language/subtitle`。文本去除 HTML；题材最多 16 项、演员 24 项、导演 12 项，缺失或格式不合适的可选资料返回空值。更新备注直接来自来源，不用 `vod_total` 等不可靠字段生成分集。展示类别与现有播放 `kind` 分开，补资料不会重建在线身份、收藏或进度。
 

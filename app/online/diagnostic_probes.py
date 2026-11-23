@@ -38,15 +38,16 @@ def check_access():
 
 class ProbeFailure(Exception):
     """Only fixed categories and HTTP status numbers reach evidence."""
-    def __init__(self, code):
+    def __init__(self, code, *, stage=None):
         self.code = code
+        self.stage = stage
         super().__init__(code)
 
 
-def snapshot(state, purpose):
+def snapshot(state, purpose, *, extended=False):
     policy = resolve_policy_state(state, purpose)
-    return replace(policy, connect_timeout_seconds=min(3, policy.connect_timeout_seconds),
-                   read_timeout_seconds=min(4, policy.read_timeout_seconds))
+    return replace(policy, connect_timeout_seconds=min(8 if extended else 3, policy.connect_timeout_seconds),
+                   read_timeout_seconds=min(8 if extended else 4, policy.read_timeout_seconds))
 
 
 def client_for(policy, hosts):
@@ -127,8 +128,6 @@ def _manifest(client, url, *, reference_url=None):
     references, segments, variants = {}, [], []
 
     def register(address, *, kind, byte_range=None):
-        if byte_range:
-            gateway.requested_range(None, SessionLimits.max_segment_response_bytes, byte_range)
         canonical = reference_url(address) if reference_url else client.targets._canonical_url(address)[0]
         path = f"/sample/{len(references)}"
         references[path] = (canonical, byte_range)
@@ -145,6 +144,8 @@ def _manifest(client, url, *, reference_url=None):
 
 
 def _sample(client, kind, url, restriction):
+    if restriction:
+        gateway.requested_range(None, SessionLimits.max_segment_response_bytes, restriction)
     start, end = restriction or (0, 511)
     requested = gateway.RequestedRange(start, min(end, start + 511))
     # Ordinary HLS segments are fetched whole by the player. Stream just their

@@ -244,6 +244,7 @@ def item_detail(item_id):
     detail = _retained_snapshot(rows)
     # Snapshot-only detail remains usable when the source is offline/disabled.
     detail["poster_path"] = f"/api/online/cache/artwork/{item_id}" if artwork_path(item_id) else ""
+    detail["poster_host_blocked"] = False
     return {"detail": detail, "entries": [public_entry(row) for row in rows], "external_id": rows[-1]["external_id"]}
 
 

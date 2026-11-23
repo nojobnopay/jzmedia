@@ -25,6 +25,7 @@ const topics = [
   ['online-source-directory', 'sec-online', 'watch-online', 'online-source-directory', '去哪里找视频源？', '去哪里找视频源 哪里找视频源 哪里找片源 找片源 在线资源哪里找 稳定的在线资源 获取接口 来源官网 JSON采集接口 主接口 备用接口 暴风 量子 非凡 开放样例'],
   ['online-source-diagnosis', 'sec-online', 'watch-online', 'online-source-diagnosis', '问小映为什么在线资源无法播放', '为什么在线资源无法播放 在线资源播不了 视频源故障 分集播放失败 播放诊断 检测依据 目录失效 临时直连 同意修改 重新诊断 保存后复测'],
   ['online-source-migration', 'sec-online', 'watch-online', 'online-source-migration', '请小映更新视频源接口', '更新视频源接口 更新量子资源接口 更换接口 更换视频源地址 更新来源地址 换接口 换址 替换旧域名 保留旧域名 主机替换'],
+  ['online-host-check', 'sec-online', 'watch-online', '在网页确认', '检查海报或视频主机', '海报加载不出来 海报为空 检查海报主机 检查媒体主机 允许列表 域名授权 视频源主机'],
   ['online-network', 'sec-online', 'watch-online', 'step-3-选择网络方式', '配置视频源网络', '视频源 网络 直连 代理'],
   ['tmdb', 'sec-tmdb', 'settings', '在线资料服务', '配置和测试 TMDB 连接', 'tmdb 在线资料 海报 语言 代理 api key read token'],
   ['matching', 'sec-matching', 'settings', '匹配规则', '调整视频库的匹配规则', '匹配 匹配规则 来源顺序 优先级 资料来源 本地索引 TMDB 维基数据 豆瓣 Bangumi TVmaze Wikidata NFO 优先 首位 排第一 放在第一 排在前面'],

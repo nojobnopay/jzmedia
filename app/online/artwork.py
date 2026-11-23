@@ -15,7 +15,7 @@ from ..network.policy import NetworkPolicyError
 from ..network.targets import TargetPolicy, TargetPolicyError
 from ..store.online import OnlineNotFound
 from ..store.online_network import load_online_network_state, online_network_fingerprint
-from . import health, image_pool, service
+from . import health, image_pool, service, source_hosts
 from .artwork_cache import ArtworkCache, ArtworkCacheBusy
 from .artwork_disk import ArtworkDiskCache
 from .catalog import CatalogError
@@ -140,29 +140,39 @@ def register(source, url, *, expected_configuration=None):
 
 
 def register_many(source, urls, *, expected_configuration=None):
-    """Register one catalogue page using only one network/source DB snapshot."""
+    return [path for path, _ in catalog_posters(source, urls, expected_configuration=expected_configuration)]
+
+
+def _register_poster(policy, url, configuration, can_review):
+    try:
+        canonical = policy._canonical_url(url)[0]
+    except TargetPolicyError as error:
+        if can_review and str(error) == "target_host_not_allowed":
+            try:
+                source_hosts._candidate(policy.source_id, url, media=False)
+            except (TypeError, ValueError):
+                return "", False
+            return "", True
+        return "", False
+    return registry.register(policy.source_id, canonical, configuration), False
+
+
+def catalog_posters(source, urls, *, expected_configuration=None):
+    """Register a page against one snapshot; flag only hosts eligible for administrator review."""
     if not isinstance(urls, (list, tuple)) or len(urls) > 100:
         raise ValueError("invalid artwork catalogue page")
-    empty = [""] * len(urls)
+    empty = [("", False)] * len(urls)
     if not isinstance(source, dict) or not any(isinstance(url, str) and url for url in urls):
         return empty
     try:
         policy = TargetPolicy(source["id"], source["allowed_hosts"])
-        canonical = []
-        for url in urls:
-            try:
-                canonical.append(policy._canonical_url(url)[0])
-            except (TargetPolicyError, TypeError, ValueError):
-                canonical.append("")
-        if not any(canonical):
-            return empty
         state = _state(source["id"])
         if source != state["source_config"]:
             return empty
         fingerprint = _fingerprint(state)
         if expected_configuration is not None and fingerprint != expected_configuration:
             return empty
-        return [registry.register(source["id"], url, fingerprint) if url else "" for url in canonical]
+        return [_register_poster(policy, url, fingerprint, source["provider"] == "maccms") for url in urls]
     except (ArtworkError, TargetPolicyError, KeyError, TypeError, ValueError):
         # Missing artwork must not invalidate an otherwise valid catalogue row.
         return empty

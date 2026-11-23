@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from ..network.client import NetworkRequestError
 from ..network.guard import NetworkOperation, NetworkOperationError
 from . import health
-from .hls import ManifestError, rewrite_manifest
+from .hls import ManifestError, is_complete_segment_range, rewrite_manifest
 from .prefetch import CacheStore, CacheUnavailable, CachedSegment
 from .sessions import CHUNK_BYTES, SessionError
 
@@ -170,26 +170,32 @@ def _metadata(response, resource, requested, cap, method):
     if method != "HEAD" and length > cap:
         raise GatewayError("range_required" if requested is None and resource.kind == "mp4" else "response_byte_limit",
                            416 if requested is None and resource.kind == "mp4" else 413)
-    if response.status_code == 206:
+    status = response.status_code
+    if status == 206:
         raw = _one(response.headers, "content-range", required=True)
         match = _CONTENT_RANGE.fullmatch(raw)
-        if match is None or requested is None:
+        if match is None:
             raise GatewayError("invalid_upstream_range")
         start, end, total = map(int, match.groups())
         if not 0 <= start <= end < total <= 2**63 - 1 or end - start + 1 != length:
             raise GatewayError("invalid_upstream_range")
-        expected = ((max(0, total - requested.end), total - 1) if requested.start is None
-                    else (requested.start, min(requested.end, total - 1)))
-        if (start, end) != expected:
-            raise GatewayError("upstream_range_mismatch")
-        result["Content-Range"] = raw
+        if requested is None:
+            if not is_complete_segment_range(resource.kind, raw, length, cap):
+                raise GatewayError("invalid_upstream_range")
+            status = 200
+        else:
+            expected = ((max(0, total - requested.end), total - 1) if requested.start is None
+                        else (requested.start, min(requested.end, total - 1)))
+            if (start, end) != expected:
+                raise GatewayError("upstream_range_mismatch")
+            result["Content-Range"] = raw
     elif requested is not None and method != "HEAD":
         raise GatewayError("upstream_ignored_range")
     for name in ("ETag", "Last-Modified"):
         value = _one(response.headers, name)
         if value is not None:
             result[name] = value
-    return response.status_code, result, length
+    return status, result, length
 
 
 def start_workers():

@@ -22,11 +22,12 @@ from ..store.online_network import load_online_network_state, online_network_fin
 from . import hls, providers
 from .cache_files import CacheError
 from . import cache_files as files
+from .sessions import SessionLimits
 
 
 CHUNK = 64 * 1024
 MP4_WINDOW = 8 * 1024**2
-MAX_RESOURCE = 32 * 1024**2
+MAX_RESOURCE = SessionLimits.max_segment_response_bytes
 _CONTENT_RANGE = re.compile(r"bytes ([0-9]+)-([0-9]+)/([0-9]+)\Z")
 _STRONG_ETAG = re.compile(r'"[\x21\x23-\x7e\x80-\xff]*"\Z')
 
@@ -214,7 +215,7 @@ class Download:
             if key in inventory:
                 return inventory[key]["name"]
             # The entry manifest also occupies one ordinary playback resource.
-            if len(inventory) >= hls.REFERENCE_LIMIT - 1:
+            if len(inventory) >= SessionLimits.max_resources - 1:
                 raise CacheError("hls_reference_limit", 422)
             suffix = urlsplit(url).path.rsplit(".", 1)[-1].lower()
             if kind == "manifest":
@@ -265,7 +266,10 @@ class Download:
             return None
         total = int(length)
         if response.status_code == 206:
-            match = _CONTENT_RANGE.fullmatch(response.headers.get("content-range", ""))
+            raw = response.headers.get("content-range", "")
+            if requested_range is None and hls.is_complete_segment_range(resource["kind"], raw, total, MAX_RESOURCE):
+                requested_range = (0, total - 1)
+            match = _CONTENT_RANGE.fullmatch(raw)
             if (match is None or tuple(map(int, match.groups()[:2])) != requested_range
                     or int(match[2]) - int(match[1]) + 1 != total or int(match[3]) <= int(match[2])):
                 return None
@@ -364,6 +368,10 @@ class Download:
                             or tuple(map(int, match.groups()[:2])) != byte_range
                             or length != byte_range[1] - byte_range[0] + 1
                             or int(match[3]) <= byte_range[1]):
+                        raise CacheError("online_cache_range_mismatch", 502)
+                elif response.status_code == 206:
+                    if not hls.is_complete_segment_range(resource["kind"], response.headers.get("content-range"),
+                                                         length, MAX_RESOURCE):
                         raise CacheError("online_cache_range_mismatch", 502)
                 elif response.status_code != 200:
                     raise CacheError("online_cache_upstream_status", 502)

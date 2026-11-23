@@ -28,7 +28,7 @@ export function onlineBrowseScope(token, viewing = {}) {
 }
 
 function displayed(response) {
-  const fields = ['external_id', 'title', 'kind', 'year', 'description', 'poster_path', 'category', 'category_id',
+  const fields = ['external_id', 'title', 'kind', 'year', 'description', 'poster_path', 'poster_host_blocked', 'category', 'category_id',
     'parent_category_id', 'remarks', 'genres', 'actors', 'directors', 'area', 'language', 'subtitle']
   return JSON.stringify({ items: response.items.map(item => Object.fromEntries(fields
     .filter(field => item[field] !== undefined).map(field => [field, item[field]]))),

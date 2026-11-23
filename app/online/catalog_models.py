@@ -59,6 +59,7 @@ class CatalogSearchItem(CatalogMetadata):
     kind: Literal["movie", "tv", "unknown"] = "unknown"
     description: str = ""
     poster_path: str = ""
+    poster_host_blocked: bool = False
 
 
 class CatalogRelatedItem(CatalogSearchItem):
@@ -170,3 +171,4 @@ class CatalogDetail(CatalogMetadata):
     lines: list[CatalogLine]
     attribution: list[CatalogAttribution] = Field(default_factory=list)
     poster_path: str = ""
+    poster_host_blocked: bool = False

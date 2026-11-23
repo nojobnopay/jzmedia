@@ -127,7 +127,7 @@ def _manifest(registry, session, resource):
                 raise hls.ManifestError("invalid_local_hls_reference")
             return selected.path(session.id)
 
-        return hls.rewrite_manifest(body, "https://cache.invalid/" + resource.url, register)
+        return hls.rewrite_manifest(body, "https://cache.invalid/" + resource.url, register, cached=True)
     except (OSError, ValueError, hls.ManifestError):
         if session.cancelled.is_set():
             raise SessionError("session_closed") from None

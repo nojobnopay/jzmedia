@@ -270,8 +270,8 @@ def search(access, source_id, query, page=1, *, operation=None, background=False
 def _artwork(source, result):
     from . import artwork
     urls = [item.pop("_poster_url", "") for item in result["items"]]
-    for item, path in zip(result["items"], artwork.register_many(source, urls)):
-        item["poster_path"] = path
+    for item, poster in zip(result["items"], artwork.catalog_posters(source, urls)):
+        item["poster_path"], item["poster_host_blocked"] = poster
     return result
 
 
@@ -412,10 +412,12 @@ def _public_detail(source, detail, saved, configuration=None):
             entries.append({"label": entry.label, "identity": identity, "transport": entry.transport,
                             "supported": identity is not None, "reason": entry.reason})
         lines.append({"id": line.id, "label": line.name, "entries": entries})
+    poster_path, poster_host_blocked = artwork.catalog_posters(
+        source, [detail.poster_url], expected_configuration=configuration)[0]
     return {"source": _public_source(source), "item": {key: item[key] for key in ("id", "source_id", "kind", "title")},
             "description": detail.description, "year": detail.year, "lines": lines,
             "attribution": [{"label": label, "url": url} for label, url in detail.attribution],
-            "poster_path": artwork.register(source, detail.poster_url, expected_configuration=configuration),
+            "poster_path": poster_path, "poster_host_blocked": poster_host_blocked,
             **detail.metadata}
 
 

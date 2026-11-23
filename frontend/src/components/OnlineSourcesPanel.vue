@@ -21,7 +21,11 @@
         <p v-show="!taskActive" class="hint">{{ settings.enabled ? '新来源会临时试读样片及其清单引用的媒体主机，启用时确认要保存的域名。已有来源按当前允许主机探测。' : '启用上方的在线点播后，可从此服务器探测候选来源。' }}</p>
         <HelpLink page="user-guide/watch-online" anchor="online-source-directory" label="去哪里找视频源？" />
         <EmptyState v-if="!sources.length && !taskActive" state="empty" title="还没有视频源" text="选择「发现并探测来源」查找可用来源，也可以手动添加。" />
-        <div v-show="!taskActive" class="online-source-list"><article v-for="source in sources" :key="source.id" class="online-source-row" :data-online-source-row="source.id"><div><h4>{{ source.name }}</h4><p>{{ source.provider === 'open_catalog' ? '开放样例目录' : 'MacCMS JSON' }} · {{ source.enabled ? '已启用' : '已停用' }} · 优先级 {{ source.priority }}</p><p v-if="sourceChecks[source.id]" role="status">{{ sourceChecks[source.id] }}</p></div><div class="online-source-actions"><JzButton :aria-label="'测试来源 ' + source.name" :loading="testingSource === source.id" :disabled="!!testingSource || hostChecking || saving || networkSaving || profilesBusy || hostApplying || !settings.enabled || !source.enabled" @click="testSource(source)">测试来源</JzButton><JzButton icon="edit" :aria-label="'编辑 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editSource(source)">编辑</JzButton><JzButton icon="link" :aria-label="'网络 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editNetwork(source)">网络</JzButton></div></article></div>
+        <div v-show="!taskActive" class="online-source-list"><article v-for="source in sources" :key="source.id" class="online-source-row" :data-online-source-row="source.id"><div><h4>{{ source.name }}</h4><p>{{ source.provider === 'open_catalog' ? '开放样例目录' : 'MacCMS JSON' }} · {{ source.enabled ? '已启用' : '已停用' }} · 优先级 {{ source.priority }}</p><p v-if="sourceChecks[source.id]" role="status">{{ sourceChecks[source.id] }}</p></div><div class="online-source-actions"><JzButton :aria-label="'测试来源 ' + source.name" :loading="testingSource === source.id" :disabled="!!testingSource || hostChecking || saving || networkSaving || profilesBusy || hostApplying || !settings.enabled || !source.enabled" @click="testSource(source)">测试来源</JzButton>
+            <JzButton v-if="source.provider === 'maccms'" :aria-label="'检查媒体主机 ' + source.name"
+              :disabled="!!testingSource || hostChecking || profilesLocked || dirty || saving || networkSaving || hostApplying || !settings.enabled || !source.enabled"
+              @click="openHostCheck(source)">检查媒体主机</JzButton>
+            <JzButton icon="edit" :aria-label="'编辑 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editSource(source)">编辑</JzButton><JzButton icon="link" :aria-label="'网络 ' + source.name" :disabled="saving || networkSaving || profilesBusy || dirty || hostApplying" @click="editNetwork(source)">网络</JzButton></div></article></div>
         <p v-if="!taskActive && sources.length && !settings.enabled" class="hint">先启用上方的在线点播，再测试已启用来源。</p>
         <EmptyState v-if="editorOpen && snapshotLoading" state="loading" title="正在读取来源配置" />
         <EmptyState v-else-if="editorOpen && snapshotError" state="error" title="无法读取来源配置" text="请核对连接与管理权限。" retry @retry="reloadSource" />
@@ -50,30 +54,32 @@
           <SettingsFormActions :dirty="sourceDirty" :busy="saving" label="来源配置"><JzButton type="submit" variant="primary" :loading="saving" :disabled="profilesLocked || sourceConflict || migrationBlocked || !form.name.trim() || !form.api_base_url.trim()">保存来源</JzButton><JzButton :disabled="saving || profilesLocked" @click="requestCloseTask">取消</JzButton></SettingsFormActions>
         </form>
       </section>
-      <OnlineDiscoveryPanel v-if="discoveryOpen || discoverySaving" :open="discoveryOpen"
+      <OnlineDiscoveryPanel v-if="discoveryOpen || discoverySaving" :open="discoveryOpen" :proxy-profiles="proxyProfiles" :default-summary="defaultSummary"
         @enabled="reflectSourceUpdate" @saving="discoverySaving = $event" />
       <section v-if="hostSource" class="card-block online-host-check" data-online-host-check>
-        <p class="hint">检查所选内容的目录信息，列出尚未允许的媒体和图片主机。检查不会访问这些新主机，也不会自动修改来源。</p>
-        <form class="online-host-form" data-online-host-form @submit.prevent="checkHosts">
-          <JzField id="online-host-item" label="来源内容编号" hint="从影片详情进入时自动填写。">
-            <template #default="field"><input :id="field.id" v-model="hostExternalId" maxlength="128" autocomplete="off" :disabled="hostChecking || hostApplying || profilesLocked" :aria-describedby="field.describedby" /></template>
-            <template #actions><JzButton type="submit" :loading="hostChecking" :disabled="hostApplying || profilesLocked || !!testingSource || !validHostItem || !settings.enabled || !hostSource.enabled">检查媒体主机</JzButton></template>
-          </JzField>
-        </form>
+        <p class="hint">检查节目目录中引用的海报和播放主机，勾选并确认后才会加入此来源。</p>
         <p v-if="!settings.enabled || !hostSource.enabled" class="hint">先启用在线点播和此来源，再检查所选内容。</p>
+        <p v-if="hostChecking" role="status">正在读取节目目录…</p>
         <p v-if="hostError" class="online-source-feedback is-error" role="alert">{{ hostError }}</p>
         <div v-if="hostReport" class="online-host-report" aria-label="媒体主机检查结果">
+          <p v-if="hostReport.title">本次检查《{{ hostReport.title }}》</p>
           <template v-if="hostReport.missing_hosts.length">
             <p>以下主机尚未加入此来源。核对后选择要允许的主机，再保存。</p>
-            <ul class="online-host-list"><li v-for="host in hostReport.missing_hosts" :key="host"><label><input v-model="selectedHosts" type="checkbox" :value="host" :disabled="hostApplying || profilesLocked" /><span>{{ host }}</span></label></li></ul>
+            <ul class="online-host-list"><li v-for="host in hostReport.missing_hosts" :key="host"><label><input v-model="selectedHosts" type="checkbox" :value="host" :disabled="hostApplying || profilesLocked" /><span>{{ host }}{{ hostReport.missing_poster_hosts?.includes(host) ? '（海报）' : '' }}</span></label></li></ul>
             <JzButton variant="primary" :loading="hostApplying" :disabled="profilesLocked || !selectedHosts.length" @click="allowCheckedHosts">加入允许列表</JzButton>
             <p class="hint">仅新增勾选的精确主机，保留原有允许列表和其它配置。保存后会关闭此来源的旧播放会话。</p>
           </template>
           <p v-else role="status">未发现需要新增的主机，可返回影片详情重新加载线路。</p>
           <p v-if="hostReport.rejected_count" class="hint">{{ hostReport.rejected_count }} 个地址格式或主机不符合要求，未列为可添加项。</p>
         </div>
-        <p v-if="hostApplied" class="online-source-feedback" role="status">媒体主机已加入允许列表。返回影片详情后会重新读取播放线路。</p>
-        <router-link v-if="validHostItem" :to="hostReturnTarget" data-online-host-return>返回影片详情</router-link>
+        <p v-if="hostApplied" class="online-source-feedback" role="status">媒体主机已加入允许列表。返回影片详情后会重新读取海报和播放线路。</p>
+        <router-link v-if="checkedHostItem" :to="hostReturnTarget" data-online-host-return>{{ hostExternalId ? '返回影片详情' : '查看节目详情' }}</router-link>
+        <form class="online-host-form" data-online-host-form @submit.prevent="checkHosts">
+          <JzField id="online-host-item" label="来源内容编号（可选）" hint="留空时从首页选取一个节目，优先检查缺少海报主机的节目。">
+            <template #default="field"><input :id="field.id" v-model="hostExternalId" maxlength="128" autocomplete="off" :disabled="hostChecking || hostApplying || profilesLocked" :aria-describedby="field.describedby" /></template>
+            <template #actions><JzButton type="submit" :loading="hostChecking" :disabled="hostApplying || profilesLocked || !!testingSource || !validHostInput || !settings.enabled || !hostSource.enabled">检查媒体主机</JzButton></template>
+          </JzField>
+        </form>
       </section>
       <section v-if="networkTarget" class="card-block online-source-task">
         <p class="hint">按运行 jzmedia 的服务器能否访问来源，选择直连或代理。服务默认：{{ defaultSummary }}。</p>
@@ -145,8 +151,11 @@ const discoveryOpen = ref(false), discoverySaving = ref(false)
 const route = useRoute()
 const hostSource = ref(null), hostExternalId = ref(''), hostReport = ref(null), selectedHosts = ref([])
 const hostChecking = ref(false), hostApplying = ref(false), hostError = ref(''), hostApplied = ref(false)
-const validHostItem = computed(() => /^[A-Za-z0-9_-]{1,128}$/.exec(hostExternalId.value)?.[0] === hostExternalId.value)
-const hostReturnTarget = computed(() => ({ path: '/online', query: { source: hostSource.value?.id, item: hostExternalId.value } }))
+const sampledHostItem = ref('')
+const validId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.exec(value)?.[0] === value
+const validHostInput = computed(() => !hostExternalId.value || validId(hostExternalId.value))
+const checkedHostItem = computed(() => validId(hostExternalId.value) ? hostExternalId.value : sampledHostItem.value)
+const hostReturnTarget = computed(() => ({ path: '/online', query: { source: hostSource.value?.id, item: checkedHostItem.value } }))
 const networkTarget = ref(null), networkLoading = ref(false)
 const networkSource = ref(null), networkChoices = ref({}), savedNetwork = ref(''), networkError = ref('')
 const emptyProxyForm = () => ({ protocol: 'http', host: '', port: '7890', username: '', password: '' })
@@ -234,21 +243,24 @@ async function hostRequest(path, options = {}) {
 function invalidateHostResult() {
   hostGeneration++; hostController?.abort(); hostController = null
   hostReport.value = null; selectedHosts.value = []; hostChecking.value = false
-  hostError.value = ''; hostApplied.value = false
+  hostError.value = ''; hostApplied.value = false; sampledHostItem.value = ''
 }
 function cancelHostCheck() {
   if (hostApplying.value) return
   invalidateHostResult(); hostSource.value = null; hostExternalId.value = ''
 }
-function openHostCheck(source, externalId) {
+function openHostCheck(source, externalId = '') {
   if (saving.value || networkSaving.value || profilesLocked.value || hostApplying.value || dirty.value || discoverySaving.value) return
   discoveryOpen.value = false
   cancelEditor(); cancelNetwork(); cancelHostCheck()
   hostSource.value = source; hostExternalId.value = externalId
-  const turn = hostGeneration
-  void nextTick(() => {
-    if (!disposed && turn === hostGeneration && typeof document !== 'undefined') document.getElementById('online-host-item')?.focus()
-  })
+  if (!externalId) void checkHosts()
+  else {
+    const turn = hostGeneration
+    void nextTick(() => {
+      if (!disposed && turn === hostGeneration && typeof document !== 'undefined') document.getElementById('online-host-item')?.focus()
+    })
+  }
 }
 function hostLinkKey() {
   const target = onlineRouteTarget(route?.query)
@@ -256,7 +268,10 @@ function hostLinkKey() {
 }
 function syncHostLink() {
   const key = hostLinkKey()
-  if (!key) { lastHostLink = ''; cancelHostCheck(); return }
+  if (!key) {
+    if (lastHostLink) { lastHostLink = ''; cancelHostCheck() }
+    return
+  }
   if (key === lastHostLink || loading.value || dirty.value || saving.value || networkSaving.value || profilesBusy.value || hostApplying.value || discoverySaving.value) return
   const source = sources.value.find(item => item.id === route.query.source)
   if (!source) return
@@ -265,6 +280,7 @@ function syncHostLink() {
 function hostFailure(error, applying = false) {
   if (error?.status === 409 || error?.code === 'online_source_changed') return '来源配置已变化，请重新检查后再添加。'
   if (error?.code === 'online_allowed_host_limit') return '允许的主机数量已达上限，请保留必要主机后重试。'
+  if (error?.code === 'online_host_check_empty') return '首页暂无节目，可稍后重试或输入已知的节目编号。'
   if (error?.code === 'online_host_check_unsupported') return '此来源暂不支持媒体主机检查，请编辑来源的允许列表。'
   if ([401, 403].includes(error?.status)) return '请重新验证管理权限后再检查。'
   return applying ? '未能确认主机是否已保存，请重新检查后核对。' : '媒体主机检查未完成，请核对来源连接后重试。'
@@ -272,12 +288,13 @@ function hostFailure(error, applying = false) {
 function validHostReport(value, source, externalId) {
   const hosts = values => Array.isArray(values) && values.length <= 128 && values.every(host =>
     typeof host === 'string' && host.length > 0 && host.length <= 253 && !/[\s/\\@?#%<>]/.test(host))
-  return value?.source_id === source.id && value.external_id === externalId
+  return value?.source_id === source.id && validId(value.external_id) && (!externalId || value.external_id === externalId)
+    && (value.missing_poster_hosts == null || hosts(value.missing_poster_hosts) && value.missing_poster_hosts.every(h => value.missing_hosts?.includes(h)))
     && /^[0-9a-f]{64}$/.test(value.configuration_fingerprint) && hosts(value.missing_hosts)
     && hosts(value.allowed_hosts) && Number.isInteger(value.rejected_count) && value.rejected_count >= 0
 }
 async function checkHosts() {
-  if (!hostSource.value || !validHostItem.value || hostChecking.value || hostApplying.value
+  if (!hostSource.value || !validHostInput.value || hostChecking.value || hostApplying.value
     || profilesLocked.value || testingSource.value || !settings.value.enabled || !hostSource.value.enabled) return
   invalidateHostResult()
   const source = hostSource.value, externalId = hostExternalId.value, turn = hostGeneration
@@ -285,12 +302,14 @@ async function checkHosts() {
   hostChecking.value = true
   try {
     const report = await hostRequest('/api/online/sources/' + source.id + '/host-check', {
-      method: 'POST', body: JSON.stringify({ external_id: externalId }),
+      method: 'POST', body: JSON.stringify(externalId ? { external_id: externalId } : {}),
     })
     if (disposed || turn !== hostGeneration || hostSource.value?.id !== source.id
       || sourceSnapshot !== JSON.stringify(sources.value.find(item => item.id === source.id))) return
     if (!validHostReport(report, source, externalId)) throw new Error('invalid host report')
-    hostReport.value = report; selectedHosts.value = [...new Set(report.missing_hosts)]
+    sampledHostItem.value = report.external_id
+    hostReport.value = report
+    selectedHosts.value = [...new Set(!externalId && report.missing_poster_hosts?.length ? report.missing_poster_hosts : report.missing_hosts)]
   } catch (error) { if (!disposed && turn === hostGeneration) hostError.value = hostFailure(error) }
   finally { if (!disposed && turn === hostGeneration) hostChecking.value = false }
 }
@@ -498,7 +517,9 @@ async function saveNetwork() {
   finally { if (!disposed) networkSaving.value = false }
 }
 watch(hostExternalId, invalidateHostResult, { flush: 'sync' })
-watch(() => route?.query?.sec, section => { if (section !== 'sec-online') discoveryOpen.value = false })
+watch(() => route?.query?.sec, section => {
+  if (section !== 'sec-online') { discoveryOpen.value = false; cancelHostCheck() }
+})
 watch(() => [route?.query?.sec, route?.query?.source, route?.query?.item, loading.value, sources.value, dirty.value, saving.value, networkSaving.value, profilesBusy.value, hostApplying.value, discoverySaving.value], syncHostLink, { immediate: true, flush: 'post' })
 onMounted(load)
 onUnmounted(() => { disposed = true; generation++; networkGeneration++; hostGeneration++; snapshotController?.abort(); controllers.forEach(controller => controller.abort()); controllers.clear() })

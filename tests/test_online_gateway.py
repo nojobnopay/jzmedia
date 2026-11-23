@@ -16,7 +16,7 @@ from starlette.requests import ClientDisconnect
 
 from app.network.client import create_client
 from app.network.policy import resolve_online_policy
-from app.online import gateway
+from app.online import discovery_media, gateway, hls
 from app.online.models import OnlinePlaybackIdentity
 from app.online.sessions import SessionError, SessionLimits, SessionRegistry
 from test_network_transport import LoopbackPolicy, running_server
@@ -26,6 +26,7 @@ pytest_plugins = ["test_network_transport"]
 
 OWNER = "gateway-owner-fixture"
 DATA = bytes(range(100))
+TS_SEGMENT = (b"\x47" + bytes(187)) * 3
 LARGE_DATA = bytes(range(256)) * (8 * 1024 * 1024 // 256) + b"final-mp4-bytes"
 MASTER = (b"#EXTM3U\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=1000\n"
           b"child.m3u8?token=media-secret\n")
@@ -95,6 +96,15 @@ def upstream():
                 body, content_type = CHILD, "application/x-mpegurl"
             elif path == "/too-large.m3u8":
                 body, content_type = OVERSIZED_MANIFEST, "application/vnd.apple.mpegurl"
+            elif path == "/long.m3u8":
+                # Published lists can contain several thousand short segments with distinct query strings.
+                rows = (f"#EXTINF:2,\n/complete.ts?segment={i}&padding={'a' * 45}\n" for i in range(hls.REFERENCE_LIMIT))
+                body = ("#EXTM3U\n#EXT-X-TARGETDURATION:2\n" + "".join(rows) + "#EXT-X-ENDLIST\n").encode()
+                content_type = "application/vnd.apple.mpegurl"
+            elif path in {"/complete.ts", "/partial.ts"}:
+                body, content_type = TS_SEGMENT, "video/mp2t"
+                total = len(body) if path == "/complete.ts" else len(body) + 1
+                status, extra = 206, {"Content-Range": f"bytes 0-{len(body) - 1}/{total}"}
             elif path == "/encrypted.m3u8":
                 body = (b'#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n'
                         b'#EXTINF:4.0,\nasset.bin\n#EXT-X-ENDLIST\n')
@@ -375,6 +385,28 @@ def test_unknown_length_manifest_over_limit_is_charged_before_rejection(bridge):
     assert response.status_code == 413 and response.json()["code"] == "response_byte_limit"
     assert harness.registry.stats()["consumed_bytes"] == len(OVERSIZED_MANIFEST)
     assert len(OVERSIZED_MANIFEST) > harness.limits.max_manifest_bytes
+
+
+def test_long_manifest_registers_all_segments_and_streams_complete_unsolicited_206(bridge, upstream):
+    harness = bridge("/long.m3u8", "hls", configured=SessionLimits(prefetch_seconds=0))
+    with TestClient(harness.app) as client:
+        manifest = client.get(harness.url)
+        assert manifest.status_code == 200
+        segments = [line for line in manifest.text.splitlines() if line.startswith("/")]
+        assert len(set(segments)) == hls.REFERENCE_LIMIT
+        response = client.get(segments[-1])
+        assert response.status_code == 200 and response.content == TS_SEGMENT
+        assert "content-range" not in response.headers
+        assert response.headers["Content-Length"] == str(len(TS_SEGMENT))
+        sliced = client.get(segments[-1], headers={"Range": "bytes=3-8"})
+        assert sliced.status_code == 206 and sliced.content == TS_SEGMENT[3:9]
+        assert sliced.headers["content-range"] == f"bytes 3-8/{len(TS_SEGMENT)}"
+        partial = harness.registry.register(harness.session, upstream["url"] + "/partial.ts", "segment")
+        rejected = client.get(partial.path(harness.session.id))
+        assert rejected.status_code == 502 and rejected.json()["code"] == "invalid_upstream_range"
+        sample = discovery_media._timed_prefix(harness.session.client, "segment", upstream["url"] + "/complete.ts",
+                                              None, 2)
+        assert sample["sample_bytes"] == len(TS_SEGMENT)
 
 
 def test_total_session_budget_rejects_before_another_upstream_request(bridge, upstream):

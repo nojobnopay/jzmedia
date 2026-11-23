@@ -227,11 +227,23 @@ def test_reference_limit_rejects_before_registration(monkeypatch):
 
 
 def test_line_count_and_output_budgets_are_enforced(monkeypatch):
+    with pytest.raises(hls.ManifestError, match="^hls_line_count_limit$"):
+        rewrite(b"#EXTM3U\n" + b"\n" * hls.MAX_LINES)
     with pytest.raises(hls.ManifestError, match="^invalid_hls_lines$"):
-        rewrite(b"#EXTM3U\n" + b"\n" * hls.LINE_LIMIT)
+        rewrite(media("#" * (hls.LINE_LIMIT + 1), "#EXTINF:6,", "one.ts"))
     monkeypatch.setattr(hls, "OUTPUT_BYTES", 40)
     with pytest.raises(hls.ManifestError, match="^hls_output_size_limit$"):
         rewrite(media("#EXTINF:6,", "one.ts"))
+
+
+def test_cache_playback_can_reread_a_manifest_expanded_by_local_file_names(monkeypatch):
+    source = media("#EXTINF:6,", "a.ts")
+    monkeypatch.setattr(hls, "MANIFEST_BYTES", len(source))
+    saved = hls.offline_manifest(source, BASE, lambda *args, **kwargs: "resource_00001.ts")["body"]
+    assert len(saved) > len(source)
+    with pytest.raises(hls.ManifestError, match="^hls_manifest_size_limit$"):
+        hls.rewrite_manifest(saved, BASE, Registrar())
+    assert hls.rewrite_manifest(saved, BASE, Registrar(), cached=True).startswith(b"#EXTM3U\n")
 
 
 @pytest.mark.parametrize("path", ["https://upstream.example/secret", "//upstream.example/secret",

@@ -24,7 +24,7 @@ async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail 
   let draft
   const api = async (path, options = {}) => {
     const body = options.body && JSON.parse(options.body)
-    requests.push({ path, method: options.method || 'GET', body, signal: options.signal })
+    requests.push({ path, method: options.method || 'GET', body, signal: options.signal, timeout: options.timeout })
     if (path === '/api/online/settings') return { enabled: onlineEnabled }
     if (discoveryApi && path.startsWith('/api/online/discovery')) return discoveryApi(path, body)
     if (path === '/api/online/sources') return options.method === 'POST' ? { ...body, id: SOURCE } : { items: sourceList }
@@ -295,6 +295,23 @@ test('a detail deep link opens an explicit host review and atomically appends on
   assert.equal(ui.text().includes('返回影片详情'), true)
 })
 
+test('source settings inspect a programme without typing and identify just the poster permission', async t => {
+  const report = { source_id: SOURCE, external_id: 'example-42', title: '首页样片',
+    missing_hosts: ['cdn.extra.example', 'poster.example'], missing_poster_hosts: ['poster.example'],
+    allowed_hosts: ['api.example'], rejected_count: 0, configuration_fingerprint: 'f'.repeat(64) }
+  const { ui, requests } = await mount(t, { hostReport: report })
+  await click(ui, '检查媒体主机 演示来源')
+  assert.deepEqual(requests.filter(call => call.path.endsWith('/host-check')).map(call => call.body), [{}])
+  assert.match(ui.text(), /本次检查《首页样片》/)
+  assert.match(ui.text(), /poster\.example（海报）/)
+  assert.equal(requests.some(call => call.path.endsWith('/allow-hosts')), false)
+  await click(ui, '加入允许列表')
+  assert.deepEqual(requests.find(call => call.path.endsWith('/allow-hosts')).body.hosts, ['poster.example'])
+  assert.match(ui.text(), /媒体主机已加入允许列表/)
+  const link = ui.find(node => 'data-online-host-return' in node.props)
+  assert.equal(nodeText(link), '查看节目详情')
+})
+
 test('a stale source fingerprint clears the old proposal and requires a fresh inspection', async t => {
   const { ui, requests } = await mount(t, { routeQuery: { source: SOURCE, item: 'movie-7' }, hostApplyFailures: 1 })
   await submit(ui, 'data-online-host-form')
@@ -385,15 +402,18 @@ const discoveryItem = id => ({ id, name: id, api_base_url: 'https://' + id + '.e
 const measured = (id, kbps) => ({ id, status: 'measured', catalog_ms: 50, media_ms: 100,
   sample_kbps: kbps, allowed_hosts: ['media-' + id + '.example'], probe_token: 'receipt-' + id })
 
-test('discovery samples two candidates at once, ranks successful media samples and only saves the explicitly chosen one', async t => {
-  const items = ['alpha', 'beta', 'gamma', 'expensive'].map(discoveryItem)
+test('discovery samples one source at a time and ranks playback headroom before raw throughput', async t => {
+  const items = ['alpha', 'beta', 'gamma', 'expensive', 'realtime', 'slowest'].map(discoveryItem)
   const slow = deferred()
   const { ui, requests } = await mount(t, { discoveryApi(path, body) {
     if (path === '/api/online/discovery/refresh') return { items }
     if (path.endsWith('/alpha/probe')) return slow.promise
-    if (path.endsWith('/beta/probe')) return measured('beta', 2000)
+    if (path.endsWith('/beta/probe')) return measured('beta', 9000)
+    if (path.endsWith('/realtime/probe')) return { ...measured('realtime', 5000), realtime_ratio: 1 }
     if (path.endsWith('/expensive/probe')) return { ...measured('expensive', 5500), realtime_ratio: 0.7 }
-    if (path.endsWith('/gamma/probe')) return { id: 'gamma', status: 'catalog_only', reason: 'no_media_sample', catalog_ms: 1, probe_token: 'catalog' }
+    if (path.endsWith('/slowest/probe')) return { ...measured('slowest', 6000), realtime_ratio: 0.5 }
+    if (path.endsWith('/gamma/probe')) return { id: 'gamma', status: 'catalog_only', reason: 'manifest_limit', catalog_ms: 1, probe_token: 'catalog',
+      attempts: [{ stage: 'manifest', reason: 'manifest_limit' }, { stage: 'manifest', reason: 'manifest_limit' }, { stage: 'media', reason: 'provider_timeout' }] }
     if (path.endsWith('/alpha/enable')) {
       assert.deepEqual(body, { probe_token: 'receipt-alpha' })
       return { ...items[0], enabled: true, id: 'src_new', provider: 'maccms', priority: 100 }
@@ -402,20 +422,62 @@ test('discovery samples two candidates at once, ranks successful media samples a
   } })
   assert.ok(!requests.some(r => r.path.includes('/discovery')))
   await click(ui, '发现并探测来源')
-  assert.match(ui.text(), /正在探测 · 3 \/ 4/)
-  assert.match(ui.text(), /当前优先试用/)
+  assert.match(ui.text(), /正在探测 · 0 \/ 6 · 排队 5/)
+  assert.equal(requests.filter(r => r.path.endsWith('/probe')).length, 1)
   assert.equal(button(ui, '启用来源 alpha').props.disabled, true)
-  slow.resolve(measured('alpha', 3000)); await flush()
-  assert.deepEqual(ui.all().filter(n => 'data-discovery-candidate' in n.props).map(n => n.props['data-discovery-candidate']), ['alpha', 'beta', 'expensive', 'gamma'])
-  assert.match(ui.text(), /探测完成 · 4 \/ 4/)
+  slow.resolve({ ...measured('alpha', 3000), realtime_ratio: 1.24,
+    attempts: [{ stage: 'entry', reason: 'target_dns_failed' }, { stage: 'media', reason: 'ok' }] }); await flush()
+  assert.deepEqual(ui.all().filter(n => 'data-discovery-candidate' in n.props).map(n => n.props['data-discovery-candidate']),
+    ['alpha', 'realtime', 'beta', 'expensive', 'slowest', 'gamma'])
+  assert.match(ui.text(), /探测完成 · 6 \/ 6/)
   assert.match(ui.text(), /本轮优先试用/)
-  assert.match(ui.text(), /取样速度低于该片段播放所需/)
+  assert.match(ui.text(), /取样速度低于该片段播放所需（0.7 倍）/)
+  const result = id => nodeText(ui.find(n => n.props['data-discovery-candidate'] === id))
+  assert.match(result('gamma'), /仅目录可读 · 目录读取 1 ms/)
+  assert.match(result('gamma'), /已试 3 个样片，播放清单 · 大小或条目数超限（2 次），视频数据 · 读取超时（1 次）/)
+  assert.match(result('alpha'), /媒体取样 100 ms.*约为播放所需的 1.24 倍/)
+  assert.match(result('alpha'), /已试 2 个样片，播放地址 · 域名解析失败（1 次）/)
+  assert.doesNotMatch(result('beta'), /已试|播放所需的 .* 倍/)
   assert.match(ui.text(), /允许访问 media-alpha.example/)
   assert.equal(requests.some(r => r.path.endsWith('/enable')), false)
   await click(ui, '启用来源 alpha')
   assert.equal(button(ui, '启用来源 alpha'), undefined)
   await click(ui, '返回视频源列表')
   assert.ok(ui.find(n => n.props['data-online-source-row'] === 'src_new'))
+})
+
+test('changing the catalogue route only affects refresh and ignores late results from abandoned routes', async t => {
+  const lateRefresh = deferred(), lateSample = deferred()
+  let refreshes = 0
+  const { ui, requests } = await mount(t, { profiles: [{ id: PROFILE, mode: 'proxy', name: '现有代理' }], discoveryApi(path, body) {
+    if (path.endsWith('/refresh')) {
+      refreshes++
+      if (refreshes === 1) return { items: [discoveryItem('default')] }
+      if (body.directory_route.mode === 'direct') return lateRefresh.promise
+      return { items: [discoveryItem('proxy')] }
+    }
+    if (path.endsWith('/default/probe')) return lateSample.promise
+    assert.equal(path, '/api/online/discovery/proxy/probe')
+    assert.deepEqual(body, {})
+    return measured('proxy', 1200)
+  } })
+  await click(ui, '发现并探测来源')
+  const routeField = element(ui, 'online-discovery-route')
+  assert.match(nodeText(routeField), /服务默认（直连）.*直连.*代理 · 现有代理/)
+  await field(ui, 'online-discovery-route', 'direct')
+  const stale = routeField.props.onChange()
+  await flush()
+  assert.equal(requests.find(r => r.path.endsWith('/default/probe')).signal.aborted, true)
+  await field(ui, 'online-discovery-route', PROFILE)
+  await routeField.props.onChange()
+  const refreshCalls = requests.filter(r => r.path.endsWith('/refresh'))
+  assert.deepEqual(refreshCalls.map(r => r.body), [{}, { directory_route: { mode: 'direct' } }, { directory_route: { mode: 'proxy', profile_id: PROFILE } }])
+  assert.equal(refreshCalls[1].signal.aborted, true)
+  lateRefresh.resolve({ items: [discoveryItem('obsolete')] })
+  lateSample.resolve(measured('default', 99999))
+  await stale; await flush()
+  assert.deepEqual(ui.all().filter(n => n.props['data-discovery-candidate']).map(n => n.props['data-discovery-candidate']), ['proxy'])
+  assert.ok(!requests.some(r => r.path.endsWith('/obsolete/probe') || ['/api/online/network/profiles','/api/online/network/default'].includes(r.path) && r.method !== 'GET'))
 })
 
 test('stopping discovery cancels pending probes and prevents queued requests and late results', async t => {
@@ -426,12 +488,12 @@ test('stopping discovery cancels pending probes and prevents queued requests and
   } })
   await click(ui, '发现并探测来源')
   const probes = requests.filter(r => r.path.endsWith('/probe'))
-  assert.equal(probes.length, 2)
+  assert.equal(probes.length, 1)
   await click(ui, '停止探测')
   assert.ok(probes.every(r => r.signal.aborted))
   assert.match(ui.text(), /探测已停止 · 0 \/ 3/)
   pending.resolve(measured('first', 1800)); await flush()
-  assert.equal(requests.filter(r => r.path.endsWith('/probe')).length, 2)
+  assert.equal(requests.filter(r => r.path.endsWith('/probe')).length, 1)
   assert.equal(ui.text().includes('本轮优先试用'), false)
 })
 
@@ -519,7 +581,7 @@ test('two simultaneous scans keep busy entries queued and eventually sample ever
   let occupied = 0, busy = 0
   const discoveryApi = async path => {
     if (path.endsWith('/refresh')) return { items }
-    if (occupied === 3) { busy++; throw Object.assign(new Error('busy'), { status: 429, code: 'provider_catalog_busy', retryAfterSeconds: 1 }) }
+    if (occupied === 1) { busy++; throw Object.assign(new Error('busy'), { status: 429, code: 'provider_catalog_busy', retryAfterSeconds: 1 }) }
     occupied++
     await gate.promise
     occupied--
@@ -528,7 +590,7 @@ test('two simultaneous scans keep busy entries queued and eventually sample ever
   const a = await mount(t, { discoveryApi }), b = await mount(t, { discoveryApi })
   await click(a.ui, '发现并探测来源')
   await click(b.ui, '发现并探测来源')
-  assert.equal(occupied, 3)
+  assert.equal(occupied, 1)
   assert.equal(busy, 1)
   assert.match(b.ui.text(), /正在探测 · 0 \/ 10 · 排队/)
   gate.resolve()
@@ -558,6 +620,38 @@ test('empty sources can be retested but only a nonempty catalogue can be enabled
   assert.equal(button(ui, '启用来源 alpha').props.disabled, false)
 })
 
+test('extended probes require an explicit timeout retry and preserve host review and receipt expiry', async t => {
+  const approval = deferred()
+  let calls = 0
+  const { ui, requests } = await mount(t, { discoveryApi(path) {
+    if (path.endsWith('/refresh')) return { items: [discoveryItem('alpha')] }
+    calls++
+    if (calls === 1) return { status: 'catalog_only', reason: 'target_host_not_allowed', probe_token: 'host-receipt',
+      missing_hosts: ['media.example'], attempts: [{ stage: 'entry', reason: 'target_host_not_allowed' }, { stage: 'media', reason: 'provider_timeout' }] }
+    if (calls === 2) return approval.promise
+    if (calls === 3) throw Object.assign(new Error(), { status: 504, code: 'provider_timeout' })
+    return measured('alpha', 2600)
+  } })
+  await click(ui, '发现并探测来源')
+  assert.equal(button(ui, '延长取样并复测'), undefined)
+  const confirming = button(ui, '允许本次试读并延长复测').props.onClick()
+  await flush()
+  assert.equal(button(ui, '启用来源 alpha').props.disabled, true)
+  approval.reject(Object.assign(new Error(), { status: 409, code: 'online_discovery_probe_expired' }))
+  await confirming; await flush()
+  assert.match(ui.text(), /探测结果已失效/)
+  assert.equal(button(ui, '允许本次试读并延长复测'), undefined)
+  assert.equal(button(ui, '延长取样并复测'), undefined)
+  await click(ui, '复测此源')
+  await click(ui, '延长取样并复测')
+  assert.ok(button(ui, '启用来源 alpha'))
+  assert.equal(button(ui, '延长取样并复测'), undefined)
+  await click(ui, '重新探测')
+  const probes = requests.filter(r => r.path.endsWith('/probe'))
+  assert.deepEqual(probes.map(r => r.body), [{}, { extended: true, probe_token: 'host-receipt', hosts: ['media.example'] }, {}, { extended: true }, {}])
+  assert.deepEqual(probes.map(r => r.timeout), [20000, 28000, 20000, 28000, 20000])
+})
+
 test('an active source can explicitly test missing domains and save a selected poster domain', async t => {
   const item = { ...discoveryItem('saved'), id: SOURCE, source_id: SOURCE, enabled: true }
   const { ui, requests } = await mount(t, { discoveryApi(path, body) {
@@ -583,4 +677,75 @@ test('an active source can explicitly test missing domains and save a selected p
   await click(ui, '保存已选主机')
   assert.ok(requests.find(r => r.path.endsWith('/enable')))
   assert.match(ui.text(), /已保存/)
+})
+
+test('alternate route approval stays with the tested source, selected proxy and tested hosts', async t => {
+  const item = { ...discoveryItem('saved'), id: SOURCE, source_id: SOURCE, enabled: true }
+  const proxy = { mode: 'proxy', profile_id: PROFILE }
+  const { ui, requests } = await mount(t, { profiles: [{ id: PROFILE, mode: 'proxy', name: '线路甲' }], discoveryApi(path, body) {
+    if (path.endsWith('/refresh')) return { items: [item] }
+    if (path.endsWith('/enable')) {
+      assert.deepEqual(body, { probe_token: 'verified', apply_route: true })
+      return item
+    }
+    if (!body.probe_route) return { ...measured(SOURCE, 4400), realtime_ratio: .75 }
+    if (body.probe_route.mode === 'direct') return { status: 'catalog_only', tested_route: { mode: 'direct', profile_id: null },
+      reason: 'http_403', probe_token: 'catalog', catalog_ms: 200 }
+    assert.deepEqual(body.probe_route, proxy)
+    if (!body.probe_token) return { status: 'catalog_only', tested_route: proxy, probe_token: 'proxy-host',
+      reason: 'target_host_not_allowed', missing_hosts: ['media.example'] }
+    assert.deepEqual(body, { probe_route: proxy, probe_token: 'proxy-host', hosts: ['media.example'] })
+    return { ...measured(SOURCE, 6000), realtime_ratio: 1.4, allowed_hosts: ['media.example'], tested_route: proxy, probe_token: 'verified' }
+  } })
+  await click(ui, '发现并探测来源')
+  await click(ui, '延长取样并复测')
+  assert.deepEqual(requests.at(-1).body, { extended: true })
+  async function select(value) {
+    const id = 'online-probe-route-' + SOURCE
+    await field(ui, id, value)
+    element(ui, id).props.onChange()
+    await flush()
+  }
+  await select(PROFILE)
+  await click(ui, '复测此源')
+  assert.equal(button(ui, '复测此源'), undefined)
+  assert.ok(button(ui, '允许本次试读并复测'))
+  await select('direct')
+  assert.equal(button(ui, '允许本次试读并复测'), undefined)
+  await click(ui, '复测此源')
+  assert.deepEqual(requests.at(-1).body, { probe_route: { mode: 'direct' } })
+  assert.equal(button(ui, '保存实测出口'), undefined)
+  await select(PROFILE)
+  await click(ui, '复测此源')
+  await click(ui, '允许本次试读并复测')
+  assert.match(ui.text(), /本次探测出口 · 代理 · 线路甲/)
+  assert.match(ui.text(), /目录和媒体均使用代理 · 线路甲/)
+  assert.equal(requests.some(r => r.path.endsWith('/enable')), false)
+  await click(ui, '保存出口和主机')
+  assert.equal(requests.filter(r => r.path.endsWith('/enable')).length, 1)
+})
+
+test('new source only saves a measured explicit route and subsequently retests its saved ID', async t => {
+  const item = discoveryItem('candidate')
+  const { ui, requests } = await mount(t, { discoveryApi(path, body) {
+    if (path.endsWith('/refresh')) return { items: [item] }
+    if (path.endsWith('/enable')) {
+      assert.deepEqual(body, { probe_token: 'verified-direct', apply_route: true })
+      return { ...item, id: SOURCE, enabled: true }
+    }
+    if (!body.probe_route) return measured(item.id, 1200)
+    return { ...measured(item.id, 2500), tested_route: { mode: 'direct', profile_id: null },
+      attempts: [{ stage: 'media', reason: 'provider_timeout' }, { stage: 'media', reason: 'ok' }], probe_token: 'verified-direct' }
+  } })
+  await click(ui, '发现并探测来源')
+  const id = 'online-probe-route-candidate'
+  await field(ui, id, 'direct')
+  element(ui, id).props.onChange()
+  await flush()
+  assert.equal(button(ui, '启用来源 candidate').props.disabled, true)
+  await click(ui, '复测此源')
+  await click(ui, '启用并保存实测出口 candidate')
+  await click(ui, '延长取样并复测')
+  assert.equal(requests.at(-1).path, '/api/online/discovery/' + SOURCE + '/probe')
+  assert.deepEqual(requests.at(-1).body, { probe_route: { mode: 'direct' }, extended: true })
 })

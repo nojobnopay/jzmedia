@@ -595,8 +595,11 @@ def parse_detail(source, row):
                       plain(row.get("vod_content"), 4000), plain(row.get("vod_year"), 16), (),
                       poster_url=poster_url(row), metadata=metadata(row))
     split_names, split_groups = names.split("$$$"), groups.split("$$$")
-    if len(split_names) != len(split_groups) or len(split_names) > MAX_LINES:
+    if len(split_names) != len(split_groups) or len(split_names) > MAX_LINES or "#" in split_groups:
         raise ProviderError("invalid_provider_response")
+    # Some providers terminate each line with an episode separator. Only
+    # remove one terminator, so an empty slot between episodes is still invalid.
+    split_groups = [group.removesuffix("#") for group in split_groups]
     # Count before splitting episodes or validating any media URL. A bounded
     # body can still contain many separators, and one over-budget later line
     # must not spend the budget parsing all preceding entries first.

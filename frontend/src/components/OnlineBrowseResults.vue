@@ -16,6 +16,10 @@
         <span v-else data-online-search-progress role="status">{{ progressive.status === 'complete' ? `${progressive.total} 项` : `已找到 ${progressive.found} 项，尚未检索完` }} · {{ selectedSource?.name }}<span v-if="progressive.status !== 'complete'"> · 已检查 {{ progressive.scanned }} 条</span></span>
         <JzButton variant="ghost" icon="refresh" aria-label="刷新" :aria-describedby="checkedAt && !progressive ? 'online-checked-at' : undefined" data-online-refresh :loading="searching && !progressive" @click="$emit('refresh')"><span class="online-refresh-label">刷新<small v-if="checkedAt && !progressive" id="online-checked-at" data-online-checked-at :data-timestamp="checkedAt">上次检查 {{ checkedTime }}</small></span></JzButton>
       </div>
+      <div v-if="blockedPoster" class="online-host-help" data-online-poster-help role="status">
+        <p>部分海报使用的图片主机尚未获准访问。</p>
+        <JzButton data-online-poster-repair :disabled="searching" @click="$emit('poster-check', blockedPoster)">检查海报主机</JzButton>
+      </div>
       <p v-if="progressive && loadedQuery" class="online-search-term" data-online-search-term>搜索：{{ loadedQuery }}</p>
       <EmptyState v-if="!results.length && progressive && progressive.status !== 'complete'" :state="searching ? 'loading' : 'empty'" :title="searching ? '正在查找匹配内容' : '尚未找到匹配内容'" text="还有搜索结果尚未检索，可以继续查找或调整筛选条件。" />
       <EmptyState v-else-if="!results.length" state="no-results" title="没有找到相关内容" text="试试其他片名、清除筛选，或选择其他来源。" />
@@ -32,12 +36,14 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import JzButton from './JzButton.vue'
 import EmptyState from './EmptyState.vue'
 import OnlineSkeleton from './OnlineSkeleton.vue'
 import OnlineArtwork from './OnlineArtwork.vue'
 import AppIcon from './AppIcon.vue'
 import Spinner from './Spinner.vue'
-defineProps(['searched', 'hasUpdates', 'searching', 'applyingUpdates', 'checkingUpdates', 'updateCheckError', 'checkedAt', 'checkedTime', 'searchError', 'results', 'loadedQuery', 'query', 'selectedSource', 'loadedCategoryName', 'loadedYear', 'total', 'posterGeneration', 'pageCount', 'lastQuery', 'page', 'progressive'])
-defineEmits(['apply-update', 'retry', 'refresh', 'detail', 'page', 'more'])
+const props = defineProps(['searched', 'hasUpdates', 'searching', 'applyingUpdates', 'checkingUpdates', 'updateCheckError', 'checkedAt', 'checkedTime', 'searchError', 'results', 'loadedQuery', 'query', 'selectedSource', 'loadedCategoryName', 'loadedYear', 'total', 'posterGeneration', 'pageCount', 'lastQuery', 'page', 'progressive'])
+const blockedPoster = computed(() => props.results.find(item => item.poster_host_blocked === true))
+defineEmits(['poster-check', 'apply-update', 'retry', 'refresh', 'detail', 'page', 'more'])
 </script>

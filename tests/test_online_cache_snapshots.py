@@ -77,3 +77,8 @@ def test_same_labels_do_not_substitute_other_episode_or_line(monkeypatch):
     result = read(monkeypatch, [row(2, old), row(3, latest)])
     assert {value["identity"]["episode_id"] for value in result["detail"]["lines"][0]["entries"]} == {
         identity(2)["episode_id"], identity(3)["episode_id"]}
+
+
+def test_offline_detail_does_not_report_historical_poster_host_as_blocked(monkeypatch):
+    detail = {**snapshot([entry(1)]), "poster_host_blocked": True}
+    assert read(monkeypatch, [row(1, detail)])["detail"]["poster_host_blocked"] is False

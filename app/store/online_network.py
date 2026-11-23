@@ -279,14 +279,22 @@ def save_verified_operator(connection, source_id, operator_id):
         ("online_operator:" + source_id, operator_id, int(time.time())))
 
 
-def online_network_snapshot(connection, source_id: str, *, candidate=None) -> dict:
+def online_network_snapshot(connection, source_id: str, *, candidate=None, candidate_policy=None, probe_route=None) -> dict:
     """Use the caller's transaction when a metadata write needs the same snapshot."""
     application = _application(connection)
     source = (_source_policy(connection, source_id) if candidate is None else
-              {"source_id": source_id, "policy": SourceNetworkPolicy().model_dump(mode="json"), "revision": 0})
-    referenced = {rule["profile_id"] for rule in (application["rule"], *source["policy"].values())
-                  if rule["profile_id"] is not None}
-    for rule in (application["rule"], *source["policy"].values()):
+              {"source_id": source_id, "policy": (candidate_policy or SourceNetworkPolicy()).model_dump(mode="json"),
+               "revision": 0})
+    rules = [application["rule"], *source["policy"].values()]
+    preview = {}
+    if probe_route is not None:
+        # Keep the persisted rules and all referenced profile revisions in the
+        # receipt fingerprint, including a profile temporarily overridden here.
+        preview["persisted_source_policy"] = source["policy"]
+        source = {**source, "policy": {**source["policy"], "api": probe_route, "media": probe_route}}
+        rules.append(probe_route)
+    referenced = {rule["profile_id"] for rule in rules if rule["profile_id"] is not None}
+    for rule in rules:
         _validate_rule(connection, rule)
     profiles = {profile_id: dict(connection.execute(
         "SELECT * FROM network_profiles WHERE id=?", (profile_id,)).fetchone())
@@ -296,7 +304,7 @@ def online_network_snapshot(connection, source_id: str, *, candidate=None) -> di
     enabled = connection.execute("SELECT value FROM app_settings WHERE key='online_enabled'").fetchone()
     return {"application": application, "source": source, "profiles": profiles,
             "source_revision": source_revision(connection, source_id) if candidate is None else 0,
-            "source_config": source_config, "online_enabled": bool(enabled and enabled["value"] == "true")}
+            "source_config": source_config, "online_enabled": bool(enabled and enabled["value"] == "true"), **preview}
 
 
 def online_network_fingerprint(state) -> str:

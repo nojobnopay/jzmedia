@@ -1,17 +1,18 @@
 <template>
-  <JzDialog title="允许此来源的媒体主机" :busy="saving || authorizing" :focus-active="!viewing.prompt" data-online-host-dialog @close="close">
+  <JzDialog :title="postersOnly ? '允许此来源的海报主机' : '允许此来源的媒体主机'" :busy="saving || authorizing" :focus-active="!viewing.prompt" data-online-host-dialog @close="close">
     <div class="online-host-dialog">
-      <p>《{{ title }}》的部分分集使用了尚未允许的媒体域名，检查也会列出需要的图片域名。</p>
-      <p class="online-scope">确认后对本服务的“{{ sourceName }}”视频源生效，此来源正在播放的会话会关闭。只添加你勾选的域名，不改变网络代理设置。</p>
+      <p v-if="postersOnly">正在核对《{{ title }}》的海报域名。允许后，同一来源使用该域名的海报也可加载。</p>
+      <p v-else>《{{ title }}》的部分分集使用了尚未允许的媒体域名，检查也会列出需要的图片域名。</p>
+      <p class="online-scope">确认后对本服务的“{{ sourceName }}”视频源生效，此来源正在播放的会话会关闭。</p>
       <p v-if="checking" class="online-loading-label" data-online-host-loading role="status"><Spinner :size="16" />正在检查媒体主机…</p>
       <p v-if="permissionRequired" role="status">需要管理权限才能检查并添加媒体主机。</p>
       <p v-if="saved" data-online-host-saved role="status">媒体主机已加入允许列表。</p>
       <p v-if="error" class="online-host-dialog-error" data-online-host-error role="alert">{{ error }}</p>
       <template v-if="report && !saved">
-        <p v-if="!report.missing_hosts.length" role="status">没有发现需要新增的域名，可重新加载详情。</p>
+        <p v-if="!candidates.length" role="status">{{ postersOnly ? '这部节目的详情中没有待允许的海报域名。' : '没有发现需要新增的域名。' }}</p>
         <fieldset v-else class="online-host-dialog-hosts" :disabled="saving">
           <legend>确认允许的域名</legend>
-          <label v-for="host in report.missing_hosts" :key="host"><input v-model="selected" type="checkbox" :value="host" data-online-host-candidate /><span>{{ host }}</span></label>
+          <label v-for="host in candidates" :key="host"><input v-model="selected" type="checkbox" :value="host" data-online-host-candidate /><span>{{ host }}{{ !postersOnly && report.missing_poster_hosts?.includes(host) ? '（海报）' : '' }}</span></label>
         </fieldset>
         <p v-if="report.rejected_count" class="online-scope">部分地址格式不受支持，未列入候选。</p>
       </template>
@@ -19,7 +20,7 @@
     <template #footer>
       <JzButton :disabled="saving || authorizing" @click="close">{{ saved ? '关闭' : '暂不添加' }}</JzButton>
       <JzButton v-if="permissionRequired" variant="primary" :loading="authorizing" :disabled="saving" @click="authorize">验证并检查</JzButton>
-      <JzButton v-else-if="saved || report && !report.missing_hosts.length" variant="primary" :loading="saving" @click="reload">重新加载详情</JzButton>
+      <JzButton v-else-if="saved || report && !candidates.length" variant="primary" :loading="saving" @click="reload">{{ fromResults ? '刷新海报列表' : '重新加载详情' }}</JzButton>
       <JzButton v-else-if="report" variant="primary" :loading="saving" :disabled="!selected.length || checking" @click="apply">确认添加</JzButton>
       <JzButton v-else variant="primary" :loading="checking" :disabled="saving" @click="check">重新检查</JzButton>
     </template>
@@ -27,7 +28,7 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api.js'
 import { ensureManagement, refreshViewing, viewing } from '../viewing.js'
 import { onlineHostError, validOnlineHostReport } from '../onlineHosts.js'
@@ -37,9 +38,11 @@ import Spinner from './Spinner.vue'
 
 const props = defineProps({ sourceId: { type: String, required: true }, externalId: { type: String, required: true },
   title: { type: String, required: true }, sourceName: { type: String, required: true },
+  postersOnly: Boolean, fromResults: Boolean,
   current: { type: Function, required: true }, refresh: { type: Function, required: true } })
 const emit = defineEmits(['close'])
 const report = ref(null), selected = ref([]), checking = ref(false), saving = ref(false), error = ref(''), saved = ref(false)
+const candidates = computed(() => (props.postersOnly ? report.value?.missing_poster_hosts : report.value?.missing_hosts) || [])
 const permissionRequired = ref(!!viewing.enabled && !viewing.management_unlocked), authorizing = ref(false)
 let disposed = false, generation = 0, controller = null
 function current(turn) { return !disposed && turn === generation && props.current() }
@@ -61,7 +64,7 @@ async function check() {
     const value = await request('host-check', { external_id: props.externalId }, controller.signal)
     if (!current(turn)) return
     if (!validOnlineHostReport(value, props.sourceId, props.externalId)) throw new Error('invalid host report')
-    report.value = value; selected.value = [...value.missing_hosts]
+    report.value = value; selected.value = [...candidates.value]
   } catch (problem) { if (current(turn)) failed(problem) }
   finally { if (current(turn)) checking.value = false }
 }
@@ -85,13 +88,13 @@ async function reload() {
   const turn = generation
   saving.value = true; error.value = ''
   try { await props.refresh(); if (current(turn)) emit('close') }
-  catch { if (current(turn)) error.value = onlineHostError(null, saved.value) }
+  catch { if (current(turn)) error.value = onlineHostError(null, saved.value, props.fromResults) }
   finally { if (current(turn)) saving.value = false }
 }
 async function apply() {
   if (saving.value || checking.value || !report.value || !selected.value.length || !props.current()) return
   const turn = generation, checked = report.value
-  const hosts = selected.value.filter(host => checked.missing_hosts.includes(host))
+  const hosts = selected.value.filter(host => candidates.value.includes(host))
   if (!hosts.length) return
   controller?.abort(); controller = new AbortController()
   saving.value = true; error.value = ''
@@ -104,7 +107,7 @@ async function apply() {
   } catch (problem) {
     if (current(turn)) {
       report.value = null; selected.value = []
-      if (saved.value) error.value = onlineHostError(problem, true)
+      if (saved.value) error.value = onlineHostError(problem, true, props.fromResults)
       else failed(problem)
     }
   } finally { if (current(turn)) saving.value = false }
