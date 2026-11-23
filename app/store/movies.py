@@ -224,26 +224,39 @@ def get_movie_tags(movie_id: int) -> list[str] | None:
             return []
 
 
+def _clear_deleted_members(c, library_id, movie_ids, tmdb_ids):
+    ids = ",".join("?" for _ in movie_ids)
+    c.execute(f"DELETE FROM collection_members WHERE movie_id IN ({ids})", movie_ids)
+    if tmdb_ids:
+        tids = ",".join("?" for _ in tmdb_ids)
+        c.execute(f"""
+            DELETE FROM collection_members
+            WHERE movie_tmdb_id IN ({tids})
+              AND collection_id IN (
+                  SELECT col.id FROM main.collections col JOIN libraries lib
+                    ON lib.media_library_id=col.media_library_id WHERE lib.id=?)
+              AND NOT EXISTS (
+                  SELECT 1 FROM main.movies m JOIN libraries live ON live.id=m.library_id
+                    JOIN libraries removed ON removed.media_library_id=live.media_library_id
+                  WHERE removed.id=? AND m.tmdb_id=collection_members.movie_tmdb_id)
+        """, (*tmdb_ids, library_id, library_id))
+
+
 def delete_movie(movie_id: int) -> bool:
     """彻底删除单行（软件外删片/移动后产生）：删关联+主行+FTS行。
     海报与 tmdb_cache 保留（多版本/重扫复用）。播放侧 media_info/progress 级联清理。
     花絮归属置空（评审 B7/R02-B2：悬挂 movie_id 会让花絮既不在归属也不在 orphan 列表）。
-    合集成员同步清理（两种键都删：tmdb 键覆盖同片全版本，id 键覆盖未匹配行），
+    按影片行清理未匹配合集成员；同媒体库的最后一个版本删除后清理 TMDB 成员，
     否则合集列表的 member_count 会残留已删影片。"""
     with _lock, _conn() as c:
-        row = c.execute("SELECT id, tmdb_id FROM movies WHERE id=?", (movie_id,)).fetchone()
+        row = c.execute("SELECT id, tmdb_id, library_id FROM movies WHERE id=?", (movie_id,)).fetchone()
         if not row:
             return False
         tid = row["tmdb_id"]
         c.execute("DELETE FROM movie_person WHERE movie_id=?", (movie_id,))
         c.execute("DELETE FROM movies WHERE id=?", (movie_id,))
         c.execute("DELETE FROM movies_fts WHERE rowid=?", (movie_id,))
-        try:
-            if tid:
-                c.execute("DELETE FROM collection_members WHERE movie_tmdb_id=?", (int(tid),))
-            c.execute("DELETE FROM collection_members WHERE movie_id=?", (movie_id,))
-        except Exception as e:
-            logger.warning("clear collection refs failed mid=%s: %s", movie_id, e)
+        _clear_deleted_members(c, row["library_id"], [movie_id], [tid] if tid else [])
         try:
             c.execute("UPDATE extras SET movie_id=NULL, updated_at=? WHERE movie_id=?",
                       (int(time.time()), movie_id))
@@ -290,13 +303,7 @@ def delete_movies_not_in(keep_paths, library_id=None) -> int:
             c.execute(f"DELETE FROM movie_person WHERE movie_id IN ({ph})", ids)
             c.execute(f"DELETE FROM movies WHERE id IN ({ph})", ids)
             c.execute(f"DELETE FROM movies_fts WHERE rowid IN ({ph})", ids)
-            try:
-                if tids:
-                    tph = ",".join("?" for _ in tids)
-                    c.execute(f"DELETE FROM collection_members WHERE movie_tmdb_id IN ({tph})", tids)
-                c.execute(f"DELETE FROM collection_members WHERE movie_id IN ({ph})", ids)
-            except Exception as e:
-                logger.warning("clear collection refs failed lib=%s: %s", lib_id, e)
+            _clear_deleted_members(c, lib_id, ids, tids)
             try:
                 c.execute(f"UPDATE extras SET movie_id=NULL, updated_at=? WHERE movie_id IN ({ph})",
                           (now, *ids))

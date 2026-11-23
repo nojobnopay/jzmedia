@@ -83,6 +83,7 @@ class CastSession:
     position: float = 0
     position_known: bool = False
     last_position: float | None = None
+    saved_position: float | None = None
     volume: int | None = None
     volume_checked: bool = False
     warning: str = ""
@@ -557,7 +558,10 @@ class CastManager:
                     # No guessed positions, unrelated tracks or reset-to-zero stopped progress.
                     if state in ("PLAYING", "PAUSED_PLAYBACK") or state == "STOPPED" and pos > 0:
                         session.last_position = pos
-                        store.save_progress(session.version_id, pos, session.duration, session.kind)
+                        if pos != session.saved_position:
+                            session.saved_position = None
+                            store.save_progress(session.version_id, pos, session.duration, session.kind)
+                            session.saved_position = pos
                 session.state = state
                 session.error = ("电视报告播放失败，请检查片源格式和服务器地址"
                                  if transport_error else "")

@@ -73,6 +73,7 @@ _tasks: dict[tuple, dict] = {}
 
 
 _sess_lock = threading.RLock()
+_task_retired = threading.Condition(_sess_lock)
 
 _sweeper_thread: threading.Thread | None = None
 _sweeper_stop = threading.Event()
@@ -644,6 +645,15 @@ def _wake_session_maintenance() -> None:
     _sweeper_wake.set()
 
 
+def _retire_task(task: dict) -> bool:
+    """Release this directory reservation and wake waiting creators (under _sess_lock)."""
+    if _tasks.get(task["key"]) is not task:
+        return False
+    _tasks.pop(task["key"])
+    _task_retired.notify_all()
+    return True
+
+
 def _drop_session(sid: str, kill: bool = True, *, expired_at: float | None = None) -> None:
     """Remove one lease atomically; slow process termination never holds the global lock."""
     with _sess_lock:
@@ -681,8 +691,7 @@ def _drop_session(sid: str, kill: bool = True, *, expired_at: float | None = Non
         with _sess_lock:
             _release_task_slot(task)
             if proc is None or proc.poll() is not None:
-                if _tasks.get(task["key"]) is task:
-                    _tasks.pop(task["key"])
+                if _retire_task(task):
                     _clear_session_meta(task["sdir"])
                 task["done"].set()
             elif proc is not None and not task.get("watched"):
@@ -726,7 +735,7 @@ def _watch_task(task: dict, proc) -> None:
             if _tasks.get(task["key"]) is task:
                 _clear_session_meta(task["sdir"])
                 if not task["owners"]:
-                    _tasks.pop(task["key"])
+                    _retire_task(task)
     except Exception as e:
         logger.warning("transcode completion observer failed: %s", e)
         with _sess_lock:
@@ -737,8 +746,7 @@ def _watch_task(task: dict, proc) -> None:
         with _sess_lock:
             _release_task_slot(task)
             if proc.poll() is not None:
-                if _tasks.get(task["key"]) is task and not task["owners"]:
-                    _tasks.pop(task["key"])
+                if not task["owners"] and _retire_task(task):
                     _clear_session_meta(task["sdir"])
                 task["done"].set()
         _wake_session_maintenance()

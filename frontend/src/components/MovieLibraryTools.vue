@@ -26,8 +26,12 @@
             {{ scanRunning ? '扫描中…' : '扫描新文件' }}
           </JzButton>
           <JzButton v-if="scanRunning" @click="cancelScan" type="button">取消扫描</JzButton>
-          <span>{{ scanMsg }}</span>
+          <span role="status">{{ scanMsg }}</span>
           <JzButton v-if="scanStateText === '完成'" @click="toggleStep('pending')" type="button" icon="match">核对匹配结果</JzButton>
+        </div>
+        <div v-if="rootReview" class="bar">
+          <span>请核对「{{ tab.name }}」的路径 {{ tab.path }} 和挂载内容。确认后，下次扫描或手动清理可能移除缺失条目及其进度。</span>
+          <JzButton type="button" :disabled="rootSaving || scanBlocked" @click="acceptRoot">已核对挂载，使用当前目录</JzButton>
         </div>
         <div class="bar">
           <JzButton class="tool-action" @click="loadMissing()" :disabled="!!busy || missingLoading" type="button" icon="eye">{{ missingLoading ? '检查中…' : '检查失效条目' }}</JzButton>
@@ -171,7 +175,7 @@ function toggleStep(key) {
 
 // ① 扫描入库（本视频库；后台任务轮询，可取消）
 const busy = ref(null)
-const { running: scanRunning, blocked: scanBlocked, message: scanMsg, stateText: scanStateText, start: startScan, cancel: cancelScan } = useLibraryScan(() => props.tab, async () => { emit('changed'); await Promise.all([loadMissing(true), loadUnmatched(true)]); await organizeRef.value?.refresh(true); orgCount.value = organizeRef.value?.count() || 0 })
+const { running: scanRunning, blocked: scanBlocked, message: scanMsg, stateText: scanStateText, start: startScan, cancel: cancelScan, rootReview, rootSaving, acceptRoot, reportRootReview } = useLibraryScan(() => props.tab, async () => { emit('changed'); await Promise.all([loadMissing(true), loadUnmatched(true)]); await organizeRef.value?.refresh(true); orgCount.value = organizeRef.value?.count() || 0 })
 
 // ① 失效条目（单库）
 const missing = ref([])
@@ -188,15 +192,23 @@ function toggleMissing() {
 }
 async function loadMissing(silent) {
   if (missingLoading.value) return
+  const lid = props.tab.id
   missingLoading.value = true
   if (!silent) cleanMsg.value = ''
   try {
-    const d = await api('/api/files/missing?library=' + props.tab.id)
+    const d = await api('/api/files/missing?library=' + lid)
+    if (props.tab.id !== lid) return
+    reportRootReview(d.root_reviews?.[lid])
     missing.value = d.items || []
     checkedMissing.value = (d.items || []).map(m => m.id)
-    if (!silent) cleanMsg.value = d.total ? '' : '没有失效条目'
+    const unavailable = d.root_reviews?.[lid]?.reason || d.unavailable_libraries?.[lid]
+    if (unavailable) cleanMsg.value = '已跳过失效检查，保留库记录。' + unavailable
+    else if (!silent) cleanMsg.value = d.total ? '' : '没有失效条目'
   } catch (e) {
-    if (!silent) cleanMsg.value = '检查失败：' + e.message
+    if (props.tab.id !== lid) return
+    missing.value = []
+    checkedMissing.value = []
+    cleanMsg.value = '检查失败：' + e.message
   } finally {
     missingLoading.value = false
   }
@@ -204,13 +216,23 @@ async function loadMissing(silent) {
 async function doClean(ids) {
   const list = (ids || []).slice(0, 5000)
   if (!list.length) return
+  const lid = props.tab.id
   busy.value = 'clean'
   cleanMsg.value = ''
   try {
     const d = await api('/api/files/clean', {
       method: 'POST',
-      body: JSON.stringify({ ids: list, dry_run: false, library_id: props.tab.id })
+      body: JSON.stringify({ ids: list, dry_run: false, library_id: lid })
     })
+    if (props.tab.id !== lid) return
+    reportRootReview(d.root_reviews?.[lid])
+    const unavailable = d.root_reviews?.[lid]?.reason || d.unavailable_libraries?.[lid]
+    if (unavailable) {
+      missing.value = []
+      checkedMissing.value = []
+      cleanMsg.value = '已跳过清理，保留库记录。' + unavailable
+      return
+    }
     const removed = new Set((d.results || []).map(r => r.id))
     missing.value = missing.value.filter(m => !removed.has(m.id))
     checkedMissing.value = checkedMissing.value.filter(id => !removed.has(id))

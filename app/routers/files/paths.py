@@ -54,14 +54,14 @@ def _is_file(library_id, rel: str) -> bool:
         return True
 
 
-def _exists_map(library_id, rels) -> dict[str, bool]:
+def _exists_map(library_id, rels, *, backend=None, strict=False) -> dict[str, bool]:
     """批量文件存在性：远程按父目录分组，一次 backend.list 建集合（N 次 stat → D 次 list）。
     本地仍走 os.path.isfile（系统调用，便宜）。
     语义与 `_exists` 对齐：StorageNotFound → False；离线/其它存储错误保守 True（§19）。"""
     rels = {str(r) for r in (rels or ()) if r}
     if not rels:
         return {}
-    backend = _backend_for(library_id)
+    backend = backend if backend is not None else _backend_for(library_id)
     if backend is None:
         return {rel: True for rel in rels}
     local_root = backend.abs_path("")
@@ -72,7 +72,13 @@ def _exists_map(library_id, rels) -> dict[str, bool]:
     for d, items in by_dir.items():
         if local_root is not None:
             for rel in items:
-                out[rel] = os.path.isfile(backend.abs_path(rel) or "")
+                if strict:
+                    try:
+                        out[rel] = not backend.stat(rel).is_dir
+                    except storage.StorageNotFound:
+                        out[rel] = False
+                else:
+                    out[rel] = os.path.isfile(backend.abs_path(rel) or "")
             continue
         try:
             entries = backend.list(d)
@@ -81,6 +87,8 @@ def _exists_map(library_id, rels) -> dict[str, bool]:
                 out[rel] = False
             continue
         except storage.StorageError as e:
+            if strict:
+                raise
             logger.debug("exists batch list failed lib=%s dir=%s: %s", library_id, d, e)
             for rel in items:
                 out[rel] = True

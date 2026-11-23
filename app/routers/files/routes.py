@@ -1,7 +1,8 @@
 """routers.files.routes（自 app/routers/files.py 拆分，评审 B9/R09-Q1；经 files 门面使用）。"""
 import os
 from fastapi import APIRouter, HTTPException
-from ... import library_paths, store
+from ... import library_paths, library_roots, storage, store
+from ...library_mutex import library_mutation_lock
 from ...scanner import sync_nfos_for
 from ...log import get_logger
 logger = get_logger("files.routes")
@@ -34,7 +35,7 @@ def _scope_libs(library: str | None,
         except (TypeError, ValueError):
             raise HTTPException(422, "media_library must be int")
         return store.library_ids_for_media(mid) or [-1]
-    return store._split_ints(library)
+    return None if library is None else store._split_ints(library)
 
 
 def _organize(mode: str, from_prefix: str | None = None,
@@ -224,63 +225,71 @@ def _delete_rows(cands: list) -> dict:
             "failed": failed, "results": done}
 
 
+def _missing_rows(libs, only=None, *, delete=False):
+    """Use one verified root and catalogue snapshot per library, including the final delete."""
+    details = {"root_reviews": {}, "unavailable_libraries": {}}
+    candidates, deleted, failed = [], [], []
+    lids = [lib["id"] for lib in store.list_libraries()] if libs is None else libs
+    for lid in lids:
+        with library_mutation_lock(lid):
+            rows = [m for m in store.list_movies(grouped=False, limit=100000, library_ids=[lid])
+                    if only is None or m["id"] in only]
+            if not rows:
+                continue
+            try:
+                storage.clear_meta_cache(lid)
+                backend = storage.backend_for(lid)
+                original = library_roots.checked(backend)
+                exists = _exists_map(lid, (m["file_path"] for m in rows), backend=backend, strict=True)
+                library_roots.require_same(backend, original)
+                for m in rows:
+                    if exists.get(m["file_path"], True):
+                        continue
+                    if delete:
+                        try:
+                            current_file = getattr(backend, "stat_uncached", backend.stat)(m["file_path"])
+                        except storage.StorageNotFound:
+                            pass
+                        else:
+                            if not current_file.is_dir:
+                                continue
+                        library_roots.require_same(backend, original)
+                        result = _delete_rows([m])
+                        deleted.extend(result["results"])
+                        failed.extend(result["failed"])
+                    candidates.append({key: m.get(key) for key in
+                                       ("id", "title", "year", "file_path", "tmdb_id", "library_id")})
+            except library_roots.RootReview as exc:
+                details["root_reviews"][str(lid)] = exc.review
+            except storage.StorageError as exc:
+                details["unavailable_libraries"][str(lid)] = str(exc)
+    return candidates, deleted, failed, details
+
+
 @router.get("/missing")
 def missing(library: str | None = None, media_library: int | None = None):
-    """预览失效条目：库中有记录但文件已不存在的行（软件外删片/移动后产生）。
-    library/media_library 缺省=全库；返回项带 library_id 供按视频库分表。
-    显式“重新看盘”：先清元数据短 TTL 缓存（外部删除必须立即反映）。"""
-    from ... import storage
-    storage.clear_meta_cache()
-    libs = _scope_libs(library, media_library)
-    rows = [m for m in store.list_movies(grouped=False, limit=100000)
-            if not libs or int(m.get("library_id") or 0) in libs]
-    groups: dict[int, set] = {}
-    for m in rows:
-        lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
-        groups.setdefault(lid, set()).add(m["file_path"])
-    maps = {lid: _exists_map(lid, rels) for lid, rels in groups.items()}
-    out = []
-    for m in rows:
-        lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
-        if not maps[lid].get(m["file_path"], True):
-            out.append({"id": m["id"], "title": m.get("title", ""),
-                        "year": m.get("year"), "file_path": m["file_path"],
-                        "tmdb_id": m.get("tmdb_id"),
-                        "library_id": m.get("library_id")})
-    return {"total": len(out), "items": out}
+    """Preview confirmed missing files while retaining all records from unavailable libraries."""
+    items, _, _, details = _missing_rows(_scope_libs(library, media_library))
+    return {"total": len(items), "items": items, **details}
 
 
 @router.post("/clean")
 def clean(body: dict | None = None):
-    """清理失效条目：彻底删除DB行+演职员关联+FTS（海报与tmdb_cache保留供重扫复用）。
-    扫描已自动同步删除，本接口保留作核验/手动补删（默认 dry_run 预览）；
-    body.ids 不传则清理全部缺失行；建议先 GET /missing 预览勾选。
-    body.library_id/library 单库或多库；media_library_id 整个媒体库（缺省=全库）。"""
-    from ... import storage
-    storage.clear_meta_cache()   # 显式“重新看盘”（绝不能因缓存漏删/误删）
+    """Recheck selected missing files under their library lock before deleting their records."""
     body = body or {}
     dry_run = body.get("dry_run", True)
-    only_set = _only_ids(body)
     libs = _scope_libs(body.get("library_id", body.get("library")),
                        body.get("media_library_id", body.get("media_library")))
-    rows = [m for m in store.list_movies(grouped=False, limit=100000)
-            if (only_set is None or m["id"] in only_set)
-            and (not libs or int(m.get("library_id") or 0) in libs)]
-    groups: dict[int, set] = {}
-    for m in rows:
-        lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
-        groups.setdefault(lid, set()).add(m["file_path"])
-    maps = {lid: _exists_map(lid, rels) for lid, rels in groups.items()}
-    cands = [m for m in rows
-             if not maps[int(m.get("library_id")
-                             or library_paths.DEFAULT_LIBRARY_ID)].get(
-                                 m["file_path"], True)]
-    plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
-              "file_path": m["file_path"],
-              "tmdb_id": m.get("tmdb_id")} for m in cands]
+    only = None
+    if "ids" in body:
+        if not isinstance(body["ids"], list):
+            raise HTTPException(422, "ids must be a list")
+        only = _only_ids(body) or set()
+    candidates, deleted, failed, details = _missing_rows(libs, only, delete=not dry_run)
     if dry_run:
-        return {"dry_run": True, "total": len(plans), "plans": plans}
-    return _delete_rows(cands)
+        return {"dry_run": True, "total": len(candidates), "plans": candidates, **details}
+    return {"dry_run": False, "total": len(candidates), "deleted": len(deleted),
+            "failed": failed, "results": deleted, **details}
 
 
 def _restore_candidates(only: set | None, libs: set[int] | None = None) -> list[dict]:
@@ -365,7 +374,7 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
             sync_nfos_for(m["id"], dst)
         except Exception as e:
             logger.debug("restore nfos sync failed id=%s dst=%s: %s", m.get("id"), dst, e)
-        _cleanup_old_dir(old_dir)
+        _cleanup_old_dir(base["from"], lib_id)
         if os.path.normpath(old_dir) != os.path.normpath(os.path.dirname(dst)):
             _resync_old_dir(old_dir)
         return {**base, "status": "restored"}
@@ -414,7 +423,7 @@ def _restore_one_remote(m: dict, base: dict, backend, dry_run: bool) -> dict:
             sync_nfos_for(m["id"], backend=backend, rel=dst_rel)
         except Exception as e:
             logger.debug("restore nfos sync failed id=%s dst=%s: %s", m.get("id"), dst_rel, e)
-        _remote_cleanup_old_dir(backend, old_dir)
+        _remote_cleanup_old_dir(backend, src_rel)
         if os.path.normpath(old_dir) != os.path.normpath(os.path.dirname(dst_rel)):
             _remote_resync_old_dir(backend, old_dir, lib_id)
         return {**base, "status": "restored"}

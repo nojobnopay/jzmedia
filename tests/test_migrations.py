@@ -119,6 +119,38 @@ def test_fresh_db_is_at_current_version(monkeypatch):
         assert c.execute("PRAGMA user_version").fetchone()[0] == _base.SCHEMA_VERSION
 
 
+@pytest.mark.parametrize("healthy_fts", [True, False])
+def test_v39_catalogue_upgrade_only_reindexes_if_fts_is_incomplete(tmp_path, monkeypatch, healthy_fts):
+    from app.store import search
+    dbp = tmp_path / "v39.db"
+    monkeypatch.setattr(_base, "DB_PATH", str(dbp))
+    _base.init_db()
+    with sqlite3.connect(dbp) as c:
+        c.execute("INSERT INTO movies(id,file_path,title) VALUES(1,'film.mkv','Saved Film')")
+        if healthy_fts:
+            c.execute("INSERT INTO movies_fts(rowid,title) VALUES(1,'Saved Film')")
+        c.execute("ALTER TABLE organize_moves DROP COLUMN object_identity")
+        c.execute("INSERT INTO organize_moves(library_id,batch_id,from_path,to_path) VALUES(1,'old','a','b')")
+        c.execute("DROP TABLE library_scan_roots")
+        c.execute("PRAGMA user_version=39")
+    with monkeypatch.context() as patch:
+        rebuilt = []
+        resync = search.resync_fts
+
+        def track(mid):
+            rebuilt.append(mid)
+            resync(mid)
+
+        patch.setattr(search, "resync_fts", track)
+        _base.init_db()
+        assert rebuilt == ([] if healthy_fts else [1])
+    with sqlite3.connect(dbp) as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == _base.SCHEMA_VERSION
+        assert c.execute("SELECT object_identity FROM organize_moves WHERE batch_id='old'").fetchone()[0] == ""
+        assert c.execute("SELECT rowid FROM movies_fts WHERE movies_fts MATCH 'Saved'").fetchall() == [(1,)]
+        assert c.execute("SELECT count(*) FROM library_scan_roots").fetchone()[0] == 0
+
+
 def test_v21_tv_metadata_and_cache_pk(tmp_path, monkeypatch):
     """v21：TV 元数据列/季表 + tmdb_cache 复合主键（存量行归 movie 且数据保留）。"""
     dbp = tmp_path / "v20.db"

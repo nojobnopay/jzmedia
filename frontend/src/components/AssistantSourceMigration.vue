@@ -24,12 +24,15 @@
         <template v-if="snapshot">
           <dl><dt>当前接口</dt><dd>{{ snapshot.api_base_url }}</dd><dt>新接口</dt><dd>{{ nextUrl || '待填写' }}</dd></dl>
           <p v-if="unchanged" role="status">此来源已使用该接口。</p>
+          <OnlineCatalogueChoice v-if="nextUrl && !unchanged && !sameOperator" id="assistant-catalogue-change" v-model="catalogueChoice" :disabled="saving" />
+          <p v-else-if="nextUrl && !unchanged" class="hint">已识别为同一运营方模板的换址，将沿用已有收藏、进度和缓存。</p>
           <p v-if="pending" role="status">正在预览主机变更…</p>
           <p v-if="previewError" role="alert">{{ previewError }} <JzButton size="compact" @click="retry">重新预览</JzButton></p>
           <OnlineHostChanges v-if="report?.changes.length" v-model="selected" :changes="report.changes" :disabled="saving" />
           <p v-else-if="report" class="hint">此次只更新接口地址，允许列表没有待替换的主机。</p>
         </template>
         <p v-if="reviewError" role="alert">{{ reviewError }} <JzButton size="compact" @click="readSource">重新核对</JzButton></p>
+        <p v-if="receiptHint" role="alert">{{ receiptHint }}</p>
         <p v-if="access?.blocked" role="status">{{ access.blocked }}</p>
       </template>
       <p v-else>请先在“在线视频源”添加 MacCMS 来源。</p>
@@ -44,10 +47,11 @@
 <script setup>
 import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { api } from '../api.js'
-import { sourceMatchesTemplate, useOnlineHostMigration } from '../useOnlineHostMigration.js'
+import { catalogueReceiptHint, sourceMatchesTemplate, useOnlineHostMigration } from '../useOnlineHostMigration.js'
 import JzButton from './JzButton.vue'
 import AppIcon from './AppIcon.vue'
 import OnlineHostChanges from './OnlineHostChanges.vue'
+import OnlineCatalogueChoice from './OnlineCatalogueChoice.vue'
 
 const props = defineProps({ suggestion: { type: Object, required: true }, access: Object })
 const emit = defineEmits(['busy'])
@@ -59,13 +63,17 @@ let listRequest, sourceRequest, automaticSource = '', disposed = false
 const nextUrl = computed(() => templateId.value
   ? templates.value.find(item => item.id === templateId.value)?.api_base_url || '' : customUrl.value.trim())
 const unchanged = computed(() => nextUrl.value && nextUrl.value === snapshot.value?.api_base_url)
+const catalogueChoice = ref(''), receiptHint = ref('')
+const sameOperator = computed(() => snapshot.value && templates.value.some(template =>
+  sourceMatchesTemplate(snapshot.value, template) && sourceMatchesTemplate({ api_base_url: nextUrl.value }, template)))
+watch([sourceId, nextUrl, snapshot], () => { catalogueChoice.value = ''; receiptHint.value = '' }, { flush: 'sync' })
 const baseline = computed(() => nextUrl.value && !unchanged.value && !reviewError.value && !finished.value
   ? snapshot.value?.configuration_fingerprint || '' : '')
 const form = computed(() => ({ api_base_url: nextUrl.value, hosts: snapshot.value?.allowed_hosts.join('\n') || '' }))
 function conflict() { reviewError.value = '来源配置已变化，请重新核对当前接口和域名。' }
 const { report, selected, pending, error: previewError, retry } =
   useOnlineHostMigration({ api, sourceId, baseline, form, onConflict: conflict })
-const canApply = computed(() => !!report.value && !props.access?.blocked && !saving.value && !finished.value)
+const canApply = computed(() => !!report.value && (sameOperator.value || !!catalogueChoice.value) && !props.access?.blocked && !saving.value && !finished.value)
 
 function operatorFor(source) {
   return templates.value.find(item => sourceMatchesTemplate(source, item))
@@ -133,19 +141,26 @@ function cancel() {
 async function apply() {
   if (!canApply.value) return
   saving.value = true; props.access?.setBusy(true); emit('busy', true)
+  receiptHint.value = ''
+  const replacing = !sameOperator.value && catalogueChoice.value === 'replace'
   try {
-    const source = await api('/api/online/sources/' + sourceId.value, { method: 'PATCH', body: JSON.stringify({
+    const result = await api('/api/online/sources/' + sourceId.value + (replacing ? '/replace-catalogue' : ''), { method: replacing ? 'POST' : 'PATCH', body: JSON.stringify({
       api_base_url: nextUrl.value, host_migration: {
         expected_fingerprint: report.value.expected_fingerprint, selected_old_hosts: selected.value,
       },
     }) })
     if (disposed) return
-    if (source?.id !== sourceId.value || typeof source.api_base_url !== 'string' || !Array.isArray(source.allowed_hosts)) throw new Error()
-    finished.value = '已更新“' + source.name + '”的接口。可在在线视频源中测试目录。'
+    const source = replacing ? result?.source : result
+    if (!source || typeof source.api_base_url !== 'string' || !Array.isArray(source.allowed_hosts)
+      || (replacing ? result.previous?.id !== sourceId.value || source.id === sourceId.value : source.id !== sourceId.value)) throw new Error()
+    if (replacing) props.access?.saved(result.previous)
+    finished.value = replacing ? '已创建新片库来源，旧来源已停用。' : '已更新“' + source.name + '”的接口。可在在线视频源中测试目录。'
     props.access?.saved(source)
   } catch (failure) {
     if (disposed) return
+    const hint = replacing && catalogueReceiptHint(failure)
     if (failure.status === 409) conflict()
+    else if (hint) receiptHint.value = hint
     else reviewError.value = '保存结果尚未确认，请重新读取当前配置。'
   } finally {
     saving.value = false; props.access?.setBusy(false); emit('busy', false)

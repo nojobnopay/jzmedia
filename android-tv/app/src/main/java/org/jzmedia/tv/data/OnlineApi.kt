@@ -203,7 +203,7 @@ class OnlineApi(val api: JzApi) {
     suspend fun claim(sessionId: String, expectedRevision: Long, scopeToken: String): OnlineClaim {
         checkedOnlineSession(sessionId); checkedOnlineScope(scopeToken); require(expectedRevision >= 0)
         return read("POST", "/api/online/state/progress/claim", JSONObject().put("session_id", sessionId)
-            .put("expected_revision", expectedRevision), scopeToken) {
+            .put("expected_revision", expectedRevision), scopeToken, retryConnectionFailure = false) {
             OnlineClaim.fromJson(it).also { result -> sameScope(result.scopeToken, scopeToken) }
         }
     }
@@ -214,7 +214,7 @@ class OnlineApi(val api: JzApi) {
         require(duration == null || duration.isFinite() && duration > 0)
         val body = JSONObject().put("writer_id", writerId).put("writer_revision", writerRevision).put("seq", seq)
             .put("position", position).put("duration", duration ?: JSONObject.NULL).put("paused", paused).put("completed", completed)
-        return read("POST", "/api/online/state/progress", body, scopeToken) {
+        return read("POST", "/api/online/state/progress", body, scopeToken, retryConnectionFailure = false) {
             OnlineProgressResult.fromJson(it).also { result -> sameScope(result.scopeToken, scopeToken)
                 require(result.progress.writerRevision == writerRevision) }
         }

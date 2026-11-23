@@ -30,6 +30,13 @@ const output=path.join(root,'output/playwright/mobile-files-implementation')
 await mkdir(output,{recursive:true})
 const browser=await chromium.launch({headless:true}).catch(async error=>{await stopDemo();throw error}),context=await browser.newContext({viewport:{width:390,height:844},serviceWorkers:'block',hasTouch:true,reducedMotion:'reduce'})
 let batchRequest, batchCount=0
+let oldDeleteServer=false, deleteRevision=0
+const deleteConfirmations=[]
+const deletionPlans=['远山来信','最后一班夜航'].map((title,index)=>({
+ id:101+index,title,library_name:'演示电影库',feature_count:1,extra_count:1,total_size:50000,
+ files:[{rel:`电影/${title}/${title}.mkv`,kind:'feature',size:49000},
+        {rel:`字幕/${title}.zh.srt`,kind:'subtitle',size:1000}]
+}))
 const errors=[]
 await context.route('**/*', async route=>{
  const url=new URL(route.request().url())
@@ -37,7 +44,16 @@ await context.route('**/*', async route=>{
  if(url.pathname==='/api/fs/blob')return route.fulfill({status:200,contentType:'text/plain; charset=utf-8',body:'1\n00:00:00,000 --> 00:00:04,000\n手机布局预览样本'})
  if(url.pathname==='/api/tmdb/check')return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ok:false,elapsed_ms:1,message:'连接失败，请检查服务器代理设置和网络访问权限。'.repeat(70)})})
  if(url.pathname==='/api/movies/batch'){batchCount++;return new Promise(resolve=>{batchRequest=()=>{route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({detail:'模拟保存失败，请重试'})}).catch(()=>{}).finally(resolve)}})}
- if(url.pathname==='/api/movies/batch-delete')return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({total_movies:2,total_versions:2,total_files:4,total_bytes:100000,plans:[{id:101,title:'远山来信',feature_count:1,extra_count:1,total_size:50000},{id:102,title:'最后一班夜航',feature_count:1,extra_count:1,total_size:50000}]})})
+ if(url.pathname==='/api/movies/batch-delete'){
+  const body=route.request().postDataJSON()
+  if(body.dry_run===false){
+   deleteConfirmations.push(body)
+   return route.fulfill({status:409,json:{detail:'删除清单已变化，请重新预览，再确认删除'}})
+  }
+  const header=oldDeleteServer?{}:{preview_id:'preview-'+(++deleteRevision)}
+  const plans=oldDeleteServer?deletionPlans.map(({files,...plan})=>plan):deletionPlans
+  return route.fulfill({status:200,json:{total_movies:2,total_versions:2,total_files:4,total_bytes:100000,plans,...header}})
+ }
  return route.continue()
 })
 const page=await context.newPage();page.setDefaultTimeout(10000);page.on('pageerror',e=>errors.push(String(e)))
@@ -113,8 +129,25 @@ try{
   await page.getByRole('dialog').getByRole('button',{name:'取消',exact:true}).click()
   if(mobile){await page.locator('.batch-more summary').click();await page.getByRole('button',{name:'加入合集',exact:true}).click()}else await page.getByRole('button',{name:'合集',exact:true}).click()
   await page.getByRole('dialog',{name:/加入合集/}).waitFor();await snapshot('batch-collections-'+width);await page.keyboard.press('Escape')
-  if(mobile){await page.locator('.batch-more summary').click();await page.getByRole('button',{name:'删除选中影片',exact:true}).click()}else await page.getByRole('button',{name:'删除',exact:true}).click()
-  await page.getByRole('dialog',{name:/删除影片/}).waitFor();await snapshot('batch-delete-'+width);await page.keyboard.press('Escape')
+  const openDelete=async()=>{
+   if(mobile){await page.locator('.batch-more summary').click();await page.getByRole('button',{name:'删除选中影片',exact:true}).click()}else await page.getByRole('button',{name:'删除',exact:true}).click()
+   await page.getByRole('dialog',{name:/删除影片/}).waitFor()
+  }
+  const dialog=page.getByRole('dialog',{name:/删除影片/}),confirm=dialog.getByRole('button',{name:/确认删除/})
+  oldDeleteServer=true
+  await openDelete();await dialog.getByText(/服务端未提供完整/).waitFor()
+  assert.equal(await confirm.isDisabled(),true);await page.keyboard.press('Escape')
+  oldDeleteServer=false
+  await openDelete()
+  for(const plan of deletionPlans)for(const file of plan.files)await dialog.getByText(file.rel,{exact:false}).waitFor()
+  assert.equal(await confirm.isEnabled(),true);await snapshot('batch-delete-'+width)
+  const confirmedPreview='preview-'+deleteRevision
+  await confirm.click();await dialog.getByText(/删除失败：.*删除清单已变化/).waitFor()
+  assert.equal(deleteConfirmations.at(-1).preview_id,confirmedPreview)
+  assert.equal(await confirm.count(),0)
+  await dialog.getByRole('button',{name:'重新预览'}).click()
+  await confirm.waitFor();assert.notEqual('preview-'+deleteRevision,confirmedPreview)
+  await page.keyboard.press('Escape')
   assert.equal(await page.getByRole('dialog').count(),0);assert.equal(await toolbar.isVisible(),true)
   if(mobile){
    await page.setViewportSize({width,height:500});await page.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight))

@@ -29,8 +29,12 @@
             {{ scanRunning ? '扫描中…' : '扫描新文件' }}
           </JzButton>
           <JzButton v-if="scanRunning" @click="cancelScan" type="button">取消扫描</JzButton>
-          <span>{{ scanMsg }}</span>
+          <span role="status">{{ scanMsg }}</span>
           <JzButton v-if="scanStateText === '完成'" @click="toggleStep('match')" type="button" icon="match">核对匹配结果</JzButton>
+        </div>
+        <div v-if="rootReview" class="bar">
+          <span>请核对「{{ tab.name }}」的路径 {{ tab.path }} 和挂载内容。确认后，下次扫描或手动清理可能移除缺失条目及其进度。</span>
+          <JzButton type="button" :disabled="rootSaving || scanBlocked" @click="acceptRoot">已核对挂载，使用当前目录</JzButton>
         </div>
       </div>
     </div>
@@ -218,7 +222,7 @@ async function confirmAll() {
   }
 }
 
-const { running: scanRunning, blocked: scanBlocked, message: scanMsg, stateText: scanStateText, start: startScan, cancel: cancelScan } = useLibraryScan(() => props.tab, async () => { emit('changed'); await Promise.all([loadStats(), loadPending(true)]) }, { isCurrent: () => props.active })
+const { running: scanRunning, blocked: scanBlocked, message: scanMsg, stateText: scanStateText, start: startScan, cancel: cancelScan, rootReview, rootSaving, acceptRoot } = useLibraryScan(() => props.tab, async () => { emit('changed'); await Promise.all([loadStats(), loadPending(true)]) }, { isCurrent: () => props.active })
 
 // ③ 目录整理：预览/执行后刷新待处理与状态
 function onOrgStatus(s) {

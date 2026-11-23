@@ -43,6 +43,7 @@
             <JzButton v-if="nextEp" @click="goEpisode(nextEp)" type="button" icon="forward">下一集 {{ epNo(nextEp) }}</JzButton>
           </nav>
           <EmptyState v-if="loadError" state="error" title="分集刷新失败" :text="loadError" retry @retry="load" />
+          <p v-if="playbackNotice" class="page-feedback" role="status">{{ playbackNotice }}</p>
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
           <div v-if="!isChildren && ep.needs_review && !pickOpen" class="review-notice">
             <span>此集尚未匹配到集名和简介</span><JzButton @click="pickOpen = true" type="button" icon="match">匹配集号</JzButton>
@@ -78,7 +79,7 @@
   </EmptyState>
   <PlayerModal v-if="playing" :key="'episode:' + playing.id"
     :version-id="playing.id" :title="playing.label" kind="episode"
-    @close="playing = null" @watched="onWatched" @ended="onEnded" @version-change="playing = $event" />
+    @close="playing = null" @watched="onWatched" @ended="onEnded(ep?.show_title)" @version-change="playing = $event" />
 </template>
 
 <script setup>
@@ -91,7 +92,7 @@ import AppIcon from '../components/AppIcon.vue'
 import JzButton from '../components/JzButton.vue'
 
 import EmptyState from '../components/EmptyState.vue'
-import { followingPlayback } from '../episodePlayback.js'
+import { useEpisodeAutoplay } from '../episodePlayback.js'
 import { episodeDisplayTitle } from '../episodeTitles.js'
 import PlayerIcon from '../components/PlayerIcon.vue'
 
@@ -118,6 +119,7 @@ let candidateController = null
 let disposed = false
 const msg = ref('')
 const playing = ref(null)
+const { onEnded, notice: playbackNotice } = useEpisodeAutoplay(playing, () => [route.path, route.params.epId], api)
 const searching = ref(false)
 const matching = ref(false)
 const pickOpen = ref(false)
@@ -250,14 +252,6 @@ async function onWatched () {
       method: 'POST', body: JSON.stringify({ watched: true }) })
   } catch (e) { /* 忽略 */ }
   await load()
-}
-async function onEnded () {
-  const cur = playing.value
-  if (!cur || cur.kind && cur.kind !== 'episode') return
-  try {
-    const next = await followingPlayback(cur, ep.value.show_title)
-    if (playing.value === cur) playing.value = next
-  } catch (e) { msg.value = '自动连播失败：' + e.message }
 }
 
 onMounted(load)

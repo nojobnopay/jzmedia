@@ -954,6 +954,16 @@ def execute_tv_organize(plans: list[dict], should_stop=None, progress_cb=None,
         dir_map: list[dict] = []
         cache = _DirCache(backend)
         made_dirs: set[str] = set()
+        moved_identities = {}
+
+        def _move_and_identify(src, dst, obj):
+            copies = {}
+            moved_identities[dst] = backend.organize_move(src, dst, obj, copied=copies)
+            if copies:
+                store.rebind_copied_organize_identities(lib_id, copies)
+                for row in audit:
+                    if row.get("object_identity") in copies:
+                        row["object_identity"] = copies[row["object_identity"]]
 
         def _one_dir(from_rel: str, to_rel: str) -> str:
             if not backend.exists(from_rel):
@@ -963,12 +973,11 @@ def execute_tv_organize(plans: list[dict], should_stop=None, progress_cb=None,
             parent = os.path.dirname(to_rel)
             if parent:
                 backend.mkdir(parent, parents=True)
-            backend.rename(from_rel, to_rel)
+            _move_and_identify(from_rel, to_rel, "dir")
             return "done"
 
         def _move_file(from_rel: str, to_rel: str) -> str:
-            """单次 rename：源存在性交给 rename 自身（省一次 SMB stat）；
-            目标占用用目录快照本地判定，防覆盖。"""
+            """目录快照预筛已占用的目标，实际移动会核对源身份并独占目标名。"""
             d = os.path.dirname(to_rel)
             if d and d not in made_dirs:
                 backend.mkdir(d, parents=True)
@@ -977,7 +986,7 @@ def execute_tv_organize(plans: list[dict], should_stop=None, progress_cb=None,
             if base.casefold() in _lower(cache.entries(d)):
                 return "skipped"
             try:
-                backend.rename(from_rel, to_rel)
+                _move_and_identify(from_rel, to_rel, "file")
             except Exception as e:
                 if _is_not_found(e):
                     return "skipped"
@@ -999,7 +1008,7 @@ def execute_tv_organize(plans: list[dict], should_stop=None, progress_cb=None,
                     audit.append({"library_id": int(lib_id), "show_id": show_id,
                                   "kind": m.get("kind") or "dir", "obj": "dir",
                                   "action": m.get("action") or "rename",
-                                  "from_path": m["from"], "to_path": m["to"]})
+                                  "from_path": m["from"], "to_path": m["to"], "object_identity": moved_identities[m["to"]]})
                     mov["renamed"] += 1
                 else:
                     mov["skipped"] += 1
@@ -1023,7 +1032,7 @@ def execute_tv_organize(plans: list[dict], should_stop=None, progress_cb=None,
                     audit.append({"library_id": int(lib_id), "show_id": show_id,
                                   "kind": m.get("kind") or "dir", "obj": "dir",
                                   "action": m.get("action") or "wrapper",
-                                  "from_path": src, "to_path": dst})
+                                  "from_path": src, "to_path": dst, "object_identity": moved_identities[dst]})
                     mov["renamed"] += 1
                 else:
                     mov["skipped"] += 1
@@ -1045,7 +1054,7 @@ def execute_tv_organize(plans: list[dict], should_stop=None, progress_cb=None,
                     audit.append({"library_id": int(lib_id), "show_id": show_id,
                                   "kind": m.get("kind") or "file", "obj": "file",
                                   "action": m.get("action") or "move",
-                                  "from_path": src, "to_path": dst})
+                                  "from_path": src, "to_path": dst, "object_identity": moved_identities[dst]})
                     mov["moved"] += 1
                 else:
                     mov["skipped"] += 1
@@ -1065,8 +1074,8 @@ def execute_tv_organize(plans: list[dict], should_stop=None, progress_cb=None,
                 break
             try:
                 d2 = _project(d, dir_map)
-                if backend.exists(d2):
-                    backend.delete(d2)
+                if d2:
+                    backend.delete_empty_dir(d2)
                     cache.clear()
                     audit.append({"library_id": int(lib_id), "show_id": show_id,
                                   "kind": "rmdir", "obj": "dir", "action": "rmdir",
@@ -1098,7 +1107,7 @@ def execute_tv_organize(plans: list[dict], should_stop=None, progress_cb=None,
                     store.repath_extras_prefix(int(lib_id), rm["from"], rm["to"])
                     audit.append({"library_id": int(lib_id), "show_id": show_id,
                                   "kind": "dir", "obj": "dir", "action": "root",
-                                  "from_path": rm["from"], "to_path": rm["to"]})
+                                  "from_path": rm["from"], "to_path": rm["to"], "object_identity": moved_identities[rm["to"]]})
                     mov["renamed"] += 1
                     try:
                         store.record_organize_moves(
@@ -1139,6 +1148,17 @@ def _is_not_found(e: BaseException) -> bool:
 
 # ---- 撤销整理（v24 审计）：把 batch 内移动逐条反向搬回 ---------------------------------
 
+def _legacy_restore_matches(backend, move, path):
+    for row in store.legacy_restore_evidence(backend.library_id, move["show_id"], path, move["obj"], move["created_at"]):
+        try:
+            current = getattr(backend, "stat_uncached", backend.stat)(row["file_path"])
+        except Exception:
+            continue
+        if not current.is_dir and (current.size, int(current.mtime)) == (row["size"], int(row["mtime"])):
+            return True
+    return False
+
+
 def plan_restore(batch_id: str | None = None, library_ids=None, shows=None, kinds=None,
                  limit: int = 20000) -> dict:
     """预览「撤销整理」：按审计把移动反向搬回（不落盘）。
@@ -1147,7 +1167,7 @@ def plan_restore(batch_id: str | None = None, library_ids=None, shows=None, kind
     `kinds` 为 episode|extra|file|dir|rmdir 过滤。输出 {batch_id, plans[], counts,
     total, conflicts}；冲突（源缺失/原路径被占）只报告不执行。"""
     if not batch_id:
-        batches = store.list_organize_batches(limit=1)
+        batches = store.list_organize_batches(limit=1, library_ids=library_ids)
         batch_id = str(batches[0]["batch_id"]) if batches else ""
     moves = store.list_organize_moves(batch_id=batch_id, include_undone=False,
                                       limit=limit)
@@ -1162,84 +1182,65 @@ def plan_restore(batch_id: str | None = None, library_ids=None, shows=None, kind
         moves = [m for m in moves if int(m.get("show_id") or 0) in want_shows]
     # 反向时序还原：后发生的先还原（先撤文件、再撤目录，否则文件会随目录先搬走）
     moves.sort(key=lambda m: -int(m.get("id") or 0))
-    # 当前落盘路径重建：审计里的 to_path 是「当时」路径；之后发生的目录整理（root/wrapper…）
-    # 会改前缀。计划内的高 id 目录移动在还原时先被撤销 → 反向（to→from）；
-    # 计划外（本次不撤）的目录移动仍然生效 → 正向（from→to）。
-    plan_dir_ids = {int(m["id"]) for m in moves
-                    if str(m.get("obj") or "") == "dir" and str(m.get("kind") or "") != "rmdir"}
-    dir_fwd = sorted(
-        ({"id": int(m["id"]), "from": str(m.get("from_path") or ""),
-          "to": str(m.get("to_path") or "")} for m in moves
-         if str(m.get("obj") or "") == "dir" and str(m.get("kind") or "") != "rmdir"
-         and m.get("from_path") and m.get("to_path")),
-        key=lambda r: r["id"])
-
-    def _path_now(path: str, row_id: int) -> str:
-        """当前落盘位置：套用之后发生的全部目录移动（审计 to_path 是「当时」路径）。"""
-        for r in dir_fwd:
-            if r["id"] > row_id and (path == r["from"]
-                                     or path.startswith(r["from"] + "/")):
-                path = r["to"] + path[len(r["from"]):]
-        return path
-
-    def _path_at_restore_time(path_now: str, row_id: int) -> str:
-        """还原到该行时的位置：计划内的高 id 目录移动会先被撤销（反向）。"""
-        for r in dir_fwd:
-            if (r["id"] > row_id and r["id"] in plan_dir_ids
-                    and (path_now == r["to"] or path_now.startswith(r["to"] + "/"))):
-                path_now = r["from"] + path_now[len(r["to"]):]
-        return path_now
-
     groups: dict[tuple, list[dict]] = {}
     for m in moves:
         groups.setdefault((int(m.get("library_id") or 0),
                            int(m.get("show_id") or 0)), []).append(m)
     plans, counts = [], {}
+    from .. import storage
+    for lib_id in {group[0] for group in groups}:
+        storage.clear_meta_cache(lib_id)
     for (lib_id, show_id), rows in groups.items():
         backend = _backend(lib_id)
         show = store.get_show(show_id) or {}
         plan = {"library_id": lib_id, "show_id": show_id,
                 "title": show.get("title") or f"#{show_id}",
                 "moves": [], "conflicts": []}
+        timeline = store.subsequent_directory_moves(lib_id, min(m["id"] for m in rows))
+        reverse_dirs = []
         planned_targets: set[str] = set()
         for m in rows:
-            kind = str(m.get("kind") or "file")
+            kind, obj = m["kind"], m["obj"]
             counts[kind] = counts.get(kind, 0) + 1
-            dst = str(m.get("from_path") or "")
-            recorded = str(m.get("to_path") or "")
-            src_now = _path_now(recorded, int(m["id"]))
-            src = _path_at_restore_time(src_now, int(m["id"]))
-            obj = str(m.get("obj") or "file")
-            if kind == "rmdir":
-                if dst:
-                    plan["moves"].append({"kind": kind, "obj": "dir",
-                                          "action": "restore_rmdir", "from": "", "to": dst,
-                                          "move_id": int(m["id"]), "show_id": show_id,
-                                          "library_id": lib_id})
-                continue
-            if not src or not dst:
-                continue
-            entry = {"kind": kind, "obj": obj, "action": "restore", "from": src,
-                     "to": dst, "move_id": int(m["id"]), "show_id": show_id,
-                     "library_id": lib_id}
-            if src == dst:
-                # 已被更上层的目录还原带回原位（目录内文件没有逐条平移）
-                entry["action"] = "restore_covered"
-                plan["moves"].append(entry)
-                continue
-            if backend is None:
-                plan["conflicts"].append({**entry, "reason": "存储后端不可用"})
-                continue
+            later = [event for event in timeline if event["id"] > m["id"]]
+            # Project both sides through later physical moves, then through directory undos
+            # actually planned for this operation. An unselected root rename stays in effect.
+            dst_now = _project(m["from_path"], later)
+            dst = _project(dst_now, reverse_dirs)
+            src_now = _project(m["to_path"], later)
+            src = _project(src_now, reverse_dirs)
+            entry = {"kind": kind, "obj": obj, "action": "restore", "from": src, "to": dst,
+                     "move_id": m["id"], "show_id": show_id, "library_id": lib_id}
             try:
-                if not backend.exists(src_now):
-                    plan["conflicts"].append(
-                        {**entry, "reason": "源不存在（可能已还原或已被手动移动）"})
-                    continue
-                if dst in planned_targets or backend.exists(dst):
-                    plan["conflicts"].append({**entry, "reason": "原路径已被占用"})
-                    continue
-            except Exception as e:
-                plan["conflicts"].append({**entry, "reason": f"检查失败: {str(e)[:80]}"})
+                if backend is None:
+                    raise ValueError("存储后端不可用")
+                if kind == "rmdir":
+                    if dst_now and backend.exists(dst_now) and not backend.is_dir(dst_now):
+                        raise ValueError("原路径已被文件占用")
+                    entry["action"] = "restore_rmdir"
+                else:
+                    if not src_now or not backend.exists(src_now):
+                        raise ValueError("源不存在（可能已还原或已被手动移动）")
+                    cutoff = None if m["object_identity"] else m["created_at"]
+                    identity = backend.organize_identity(src_now, obj, recorded_at=cutoff)
+                    if identity == backend.UNVERIFIED_DIRECTORY:
+                        raise ValueError("存储未提供目录创建时间，请人工核对目录，分集文件可单独撤销")
+                    if not identity:
+                        raise ValueError("源类型已变化或无法核实身份")
+                    if m["object_identity"]:
+                        if identity != m["object_identity"]:
+                            raise ValueError("源已被替换或内容已变化")
+                    elif not _legacy_restore_matches(backend, m, src_now):
+                        raise ValueError("旧整理记录缺少可核实的归属或文件信息")
+                    entry["object_identity"] = identity
+                    if src == dst:
+                        entry["action"] = "restore_covered"
+                    elif dst in planned_targets or backend.exists(dst_now):
+                        raise ValueError("原路径已被占用")
+                    if obj == "dir" and src != dst:
+                        reverse_dirs.append({"from": src, "to": dst})
+            except Exception as exc:
+                plan["conflicts"].append({**entry, "reason": str(exc)})
                 continue
             planned_targets.add(dst)
             plan["moves"].append(entry)
@@ -1281,89 +1282,56 @@ def execute_restore(plans: list[dict], should_stop=None, progress_cb=None,
             out["failed"] += len(plan.get("moves") or [])
             out["errors"].append(f"lib {lib_id}: 存储后端不可用")
             continue
-        mov = {"restored": 0, "skipped": 0, "failed": 0, "errors": []}
-        audit: list[dict] = []
-        mapping: dict[str, str] = {}
-        undone_ids: list[int] = []
-        cache = _DirCache(backend)
-
-        def _flush_mapping() -> None:
-            """逐条精确回写 DB（目录还原前必须先冲掉，否则旧前缀对不上）。"""
-            if not mapping:
-                return
-            try:
-                store.move_tv_paths(lib_id, dict(mapping))
-                store.delete_scan_state_paths(lib_id, list(mapping.keys()))
-            except Exception as e:
-                logger.warning("tv restore db move failed show=%s: %s", show_id, e)
-                mov["errors"].append(f"db move: {str(e)[:160]}")
-            mapping.clear()
-
+        conflicts = plan.get("conflicts") or []
+        mov = {"restored": 0, "skipped": len(conflicts), "failed": 0,
+               "errors": [f"{entry['from'] or entry['to']}: {entry['reason']}" for entry in conflicts[:20]]}
+        reidentified = {}
         for m in plan.get("moves") or []:
             if should_stop and should_stop():
                 break
-            kind, src, dst = m["kind"], m["from"], m["to"]
-            if m.get("action") == "restore_covered":
-                # 目录还原已把它带回原位：只销账不搬
-                if m.get("move_id"):
-                    undone_ids.append(int(m["move_id"]))
-                mov["restored"] += 1
-                _tick()
-                continue
-            is_dir = str(m.get("obj") or "file") == "dir"
+            src, dst = m["from"], m["to"]
+            moved = False
+            created = False
+            original = m.get("object_identity") or ""
+            identity = reidentified.get(original, original)
+            copies = {}
             try:
-                if kind == "rmdir":
-                    if dst and not backend.exists(dst):
-                        backend.mkdir(dst, parents=True)
-                        mov["restored"] += 1
+                if m["kind"] == "rmdir":
+                    if backend.exists(dst):
+                        if not backend.is_dir(dst):
+                            raise ValueError("原路径已被文件占用")
                     else:
-                        mov["skipped"] += 1
-                    if m.get("move_id"):
-                        undone_ids.append(int(m["move_id"]))
-                    _tick()
-                    continue
-                if not backend.exists(src):
-                    mov["skipped"] += 1
-                    _tick()
-                    continue
-                if backend.exists(dst):
-                    mov["skipped"] += 1
-                    _tick()
-                    continue
-                if is_dir:
-                    _flush_mapping()
-                parent = os.path.dirname(dst)
-                if parent:
-                    backend.mkdir(parent, parents=True)
-                backend.rename(src, dst)
-                cache.clear()
-                if is_dir:
-                    # 目录内文件没有逐条审计 → 立即按前缀把 DB 行搬回旧根
-                    store.repath_tv_episodes_prefix(lib_id, src, dst)
-                    store.repath_extras_prefix(lib_id, src, dst)
-                    store.delete_scan_state_prefix(lib_id, src)
+                        backend.mkdir(dst, parents=True)
+                        created = True
+                elif m["action"] == "restore_covered":
+                    if (identity in ("", backend.UNVERIFIED_DIRECTORY)
+                            or backend.organize_identity(src, m["obj"]) != identity):
+                        raise ValueError("源文件或目录已变化，请重新预览")
                 else:
-                    mapping[src] = dst
-                undone_ids.append(int(m["move_id"]))
-                audit.append({"library_id": lib_id, "show_id": show_id, "kind": kind,
-                              "obj": str(m.get("obj") or "file"),
-                              "action": "restore", "from_path": src, "to_path": dst})
+                    identity = backend.organize_move(src, dst, m["obj"], expected=identity, copied=copies)
+                    moved = True
+                try:
+                    store.finish_organize_restore(batch_id, {**m, "object_identity": identity}, copied=copies)
+                except Exception:
+                    if moved:
+                        returned = {}
+                        restored_identity = backend.organize_move(dst, src, m["obj"], expected=identity, copied=returned)
+                        copies = {old: returned[new] for old, new in copies.items() if new in returned}
+                        store.rebind_copied_organize_identities(lib_id, copies)
+                        previous = reidentified.get(original, original)
+                        if restored_identity != previous:
+                            store.rebind_organize_identity(m["move_id"], previous, restored_identity)
+                    elif created:
+                        backend.delete_empty_dir(dst)
+                    raise
                 mov["restored"] += 1
             except Exception as e:
                 mov["failed"] += 1
-                mov["errors"].append(f"{src}: {str(e)[:160]}")
+                mov["errors"].append(f"{src or dst}: {str(e)[:160]}")
+            if copies:
+                reidentified = {old: copies.get(new, new) for old, new in reidentified.items()}
+                reidentified.update(copies)
             _tick()
-        _flush_mapping()
-        if undone_ids:
-            try:
-                store.mark_organize_undone(undone_ids)
-            except Exception as e:
-                logger.warning("tv restore mark undone failed show=%s: %s", show_id, e)
-        if audit:
-            try:
-                store.record_organize_moves(batch_id, audit, library_id=lib_id)
-            except Exception as e:
-                mov["errors"].append(f"audit: {str(e)[:160]}")
         # 注意：还原不再自动写 NFO/海报（避免生成"不属于本次移动"的新文件）；
         # 目录内原有 NFO/海报随目录 rename 一起还原，如需重写请跑「重建剧集 NFO/海报」。
         out["restored"] += mov["restored"]

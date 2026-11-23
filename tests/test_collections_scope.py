@@ -175,3 +175,47 @@ def test_similar_candidates_stay_in_library(media_root, second_library):
         store.delete_movie(a)
         store.delete_movie(b)
         store.delete_movie(c)
+
+
+@pytest.mark.parametrize("cleanup", ["delete", "scan", "library"])
+def test_member_survives_other_versions_and_other_media_libraries(two_video_media, second_library, cleanup):
+    media, vids = two_video_media
+    primary = vids["Movies"]["id"]
+    copy = _movie("original.mkv", primary, 880099)
+    alternate = _movie("alternate.mkv", vids["Unrated"]["id"], 880099)
+    other = _movie("other.mkv", second_library["id"], 880099)
+    local_set = store.create_collection("Local selection", media_library_id=media["id"])
+    other_set = store.create_collection("Separate selection", media_library_id=second_library["media_library_id"])
+    store.add_collection_members(local_set["id"], [copy])
+    store.add_collection_members(other_set["id"], [other])
+
+    if cleanup == "delete":
+        assert store.delete_movie(copy)
+    elif cleanup == "scan":
+        assert store.delete_movies_not_in([], primary) == 1
+    else:
+        assert store.delete_library(primary)["movies"] == 1
+    assert [m["id"] for m in store.get_collection(local_set["id"])["members"]] == [alternate]
+    assert store.delete_library(vids["Unrated"]["id"])["movies"] == 1
+    with store._conn() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM collection_members WHERE collection_id=?",
+                                  (local_set["id"],)).fetchone()[0] == 0
+    assert store.get_collection(local_set["id"])["member_count"] == 0
+    assert [m["id"] for m in store.get_collection(other_set["id"])["members"]] == [other]
+
+
+def test_prune_checks_only_versions_inside_collections_media_library(two_video_media, second_library):
+    media, _ = two_video_media
+    tid = 880100
+    movie = _movie("live.mkv", second_library["id"], tid)
+    separate = store.create_collection("Live collection", media_library_id=second_library["media_library_id"])
+    store.add_collection_members(separate["id"], [movie])
+    dangling = store.create_collection("Old collection", media_library_id=media["id"])
+    with store._conn() as c:
+        c.execute("INSERT INTO collection_members(collection_id, movie_tmdb_id, sort_order, added_at)"
+                  " VALUES(?, ?, 0, 0)", (dangling["id"], tid))
+        c.execute("UPDATE collections SET updated_at=100 WHERE id=?", (separate["id"],))
+    preview = store.prune_dangling_members(media_library_id=media["id"])
+    assert preview["empty_ids"] == [dangling["id"]]
+    assert store.prune_dangling_members(False, media["id"])["removed"] == 1
+    assert store.get_collection(separate["id"])["updated_at"] == 100

@@ -87,8 +87,10 @@ def test_movie_file_delete_remote(smb_lib):
     lib, root, _fake = smb_lib
     mid = _movie(lib)
     c = TestClient(app)
-    r = c.request("DELETE", f"/api/movies/{mid}/files",
-                  json={"name": "片 (2020).chs.srt", "dry_run": False})
+    url = f"/api/movies/{mid}/files"
+    plan = c.request("DELETE", url, json={"name": "片 (2020).chs.srt"}).json()
+    r = c.request("DELETE", url, json={"name": plan["plans"][0]["rel"],
+                                      "dry_run": False, "preview_id": plan["preview_id"]})
     assert r.status_code == 200, r.text
     assert r.json()["deleted"] == 1
     assert not (root / "电影" / "片 (2020)" / "片 (2020).chs.srt").exists()

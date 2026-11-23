@@ -3,7 +3,7 @@
 import hmac
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from fastapi.responses import JSONResponse
@@ -200,11 +200,25 @@ def update_source(source_id: str, body: models.OnlineSourcePatch):
         raise _invalid_config() from None
 
 
-@router.post("/sources/{source_id}/host-check", response_model=source_hosts.HostCheckReport)
+@router.post("/sources/{source_id}/replace-catalogue", response_model=models.CatalogueReplacement)
+def replace_catalogue(source_id: models.SourceId, body: models.CatalogueReplacementRequest):
+    try:
+        result, changed = online_store.replace_catalogue(source_id, body)
+    except online_store.OnlineNotFound:
+        raise _missing() from None
+    except (ValidationError, ValueError, TypeError):
+        raise _invalid_config() from None
+    if changed:
+        service.registry.revoke_source(source_id)
+    return result
+
+
+@router.post("/sources/{source_id}/host-check",
+             response_model=source_hosts.PosterHostCheckReport | source_hosts.HostCheckReport)
 async def check_source_hosts(request: Request, source_id: models.SourceId,
-                             body: source_hosts.HostCheckRequest):
+                             body: source_hosts.HostCheckRequest, x_online_host_report: str | None = Header(None)):
     from .online_catalog import _read
-    return await _read(request, source_hosts.check, source_id, body.external_id)
+    return await _read(request, source_hosts.check, source_id, body.external_id, x_online_host_report == "2")
 
 
 @router.post("/sources/{source_id}/allow-hosts", response_model=models.OnlineSource)

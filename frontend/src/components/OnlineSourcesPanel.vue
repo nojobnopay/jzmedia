@@ -40,6 +40,7 @@
             <JzField id="online-source-name" label="来源名称"><template #default="field"><input :id="field.id" v-model="form.name" maxlength="128" required :disabled="saving || profilesLocked" /></template></JzField>
             <JzField id="online-source-provider" label="提供方"><template #default="field"><select :id="field.id" v-model="form.provider" :disabled="saving || profilesLocked || !!editingId" @change="providerChanged"><option value="maccms">MacCMS JSON</option><option value="open_catalog">开放样例目录</option></select></template></JzField>
             <JzField id="online-source-api" class="wide" label="接口地址" :hint="form.provider === 'open_catalog' ? '固定开放目录，不需要填入播放链接。' : 'HTTP(S) JSON 接口，不含账号、密码或查询参数。'"><template #default="field"><input :id="field.id" v-model="form.api_base_url" type="url" maxlength="2048" required :disabled="saving || profilesLocked || form.provider === 'open_catalog'" :aria-describedby="field.describedby" placeholder="https://example.com/api.php/provide/vod/" /></template></JzField>
+            <OnlineCatalogueChoice v-if="addressChanged" id="online-catalogue-change" v-model="catalogueChoice" class="wide" :disabled="saving || profilesLocked" />
             <JzField id="online-source-hosts" class="wide" label="允许访问的主机" hint="每行一个精确域名或公网 IP，不填写协议、路径、端口或通配符。API 主机会自动包含。"><template #default="field"><textarea :id="field.id" v-model="form.hosts" rows="3" :disabled="saving || profilesLocked || form.provider === 'open_catalog'" :aria-describedby="field.describedby" placeholder="media.example.com" /></template></JzField>
             <JzField id="online-source-priority" label="来源优先级" hint="数值越小越靠前；不代表已验证可直连。"><template #default="field"><input :id="field.id" v-model.number="form.priority" type="number" min="0" max="1000" required :disabled="saving || profilesLocked" :aria-describedby="field.describedby" /></template></JzField>
             <label class="online-source-check" for="online-source-enabled"><input id="online-source-enabled" v-model="form.enabled" type="checkbox" :disabled="saving || profilesLocked" />启用此来源</label>
@@ -51,7 +52,7 @@
           <p v-else class="hint">开放样例用于验证播放能力。影片详情保留发布者、原项目和许可说明。</p>
           <p v-if="formError" class="online-source-feedback is-error" role="alert">{{ formError }}</p>
           <p v-if="sourceConflict" class="online-source-feedback is-error" role="alert">来源已被其他操作修改，请重新加载最新配置后再编辑。 <JzButton size="compact" :disabled="profilesLocked" @click="reloadSource">放弃草稿并重新加载</JzButton></p>
-          <SettingsFormActions :dirty="sourceDirty" :busy="saving" label="来源配置"><JzButton type="submit" variant="primary" :loading="saving" :disabled="profilesLocked || sourceConflict || migrationBlocked || !form.name.trim() || !form.api_base_url.trim()">保存来源</JzButton><JzButton :disabled="saving || profilesLocked" @click="requestCloseTask">取消</JzButton></SettingsFormActions>
+          <SettingsFormActions :dirty="sourceDirty" :busy="saving" label="来源配置"><JzButton type="submit" variant="primary" :loading="saving" :disabled="profilesLocked || sourceConflict || migrationBlocked || addressChanged && !catalogueChoice || !form.name.trim() || !form.api_base_url.trim()">保存来源</JzButton><JzButton :disabled="saving || profilesLocked" @click="requestCloseTask">取消</JzButton></SettingsFormActions>
         </form>
       </section>
       <OnlineDiscoveryPanel v-if="discoveryOpen || discoverySaving" :open="discoveryOpen" :proxy-profiles="proxyProfiles" :default-summary="defaultSummary"
@@ -117,7 +118,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api.js'
-import { safeHomepage, sourceHostDraft, useOnlineHostMigration } from '../useOnlineHostMigration.js'
+import { catalogueReceiptHint, safeHomepage, sourceHostDraft, useOnlineHostMigration } from '../useOnlineHostMigration.js'
 import { OPEN_CATALOG_BASE, choiceNetworkRule, networkRuleChoice, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
 import { SOURCE_NETWORK_PURPOSES, emptyOnlineSourceForm, resolveSourceNetworkChoice,
   networkChoiceSummary, proxyProfilePayload } from '../onlineSourceNetwork.js'
@@ -130,6 +131,7 @@ import SettingsFormActions from './SettingsFormActions.vue'
 import { useSettingsTaskNavigation } from '../useSettingsTaskNavigation.js'
 import Spinner from './Spinner.vue'
 import OnlineHostChanges from './OnlineHostChanges.vue'
+import OnlineCatalogueChoice from './OnlineCatalogueChoice.vue'
 import OnlineDiscoveryPanel from './OnlineDiscoveryPanel.vue'
 import OnlineProxyProfiles from './OnlineProxyProfiles.vue'
 import '../styles/online.css'
@@ -141,6 +143,9 @@ const loading = ref(true), loadError = ref(''), settings = ref({ enabled: false 
 const toggling = ref(false), saving = ref(false), networkSaving = ref(false), message = ref(''), messageError = ref(false)
 const editorOpen = ref(false), editingId = ref(''), form = ref(emptyForm()), formError = ref(''), savedForm = ref('')
 const baseline = ref(''), snapshotLoading = ref(false), snapshotError = ref(false), sourceConflict = ref(false)
+const originalAddress = ref(''), catalogueChoice = ref('')
+const addressChanged = computed(() => !!editingId.value && !!originalAddress.value && form.value.api_base_url.trim() !== originalAddress.value)
+watch(() => form.value.api_base_url.trim(), () => { catalogueChoice.value = '' }, { flush: 'sync' })
 let snapshotController = null
 function conflict() { sourceConflict.value = true; baseline.value = '' }
 const { report: migrationReport, selected: migrationSelected, pending: migrationPending, error: migrationError,
@@ -302,7 +307,7 @@ async function checkHosts() {
   hostChecking.value = true
   try {
     const report = await hostRequest('/api/online/sources/' + source.id + '/host-check', {
-      method: 'POST', body: JSON.stringify(externalId ? { external_id: externalId } : {}),
+      method: 'POST', headers: { 'X-Online-Host-Report': '2' }, body: JSON.stringify(externalId ? { external_id: externalId } : {}),
     })
     if (disposed || turn !== hostGeneration || hostSource.value?.id !== source.id
       || sourceSnapshot !== JSON.stringify(sources.value.find(item => item.id === source.id))) return
@@ -414,6 +419,7 @@ async function editSource(source = null) {
       hosts: latest.allowed_hosts.join('\n'), enabled: latest.enabled, priority: latest.priority,
       search_action: latest.provider_options?.search_action || 'list', detail_action: latest.provider_options?.detail_action || 'detail' }
     savedForm.value = JSON.stringify(form.value)
+    originalAddress.value = latest.api_base_url
     baseline.value = latest.configuration_fingerprint
   } catch {
     if (!current.signal.aborted) snapshotError.value = true
@@ -432,15 +438,17 @@ function providerChanged() {
 function cancelEditor() {
   snapshotController?.abort(); snapshotController = null
   baseline.value = ''; snapshotLoading.value = false; snapshotError.value = false; sourceConflict.value = false
+  originalAddress.value = ''; catalogueChoice.value = ''
   editorOpen.value = false; editingId.value = ''; templateId.value = ''; formError.value = ''; form.value = emptyForm(); savedForm.value = ''
 }
 async function saveSource() {
   if (!editorOpen.value || saving.value || profilesLocked.value || hostApplying.value || snapshotLoading.value
-    || snapshotError.value || sourceConflict.value || migrationBlocked.value) return
+    || snapshotError.value || sourceConflict.value || migrationBlocked.value || addressChanged.value && !catalogueChoice.value) return
   invalidateHostResult()
   sourceTestGeneration++
   saving.value = true; formError.value = ''
   const id = editingId.value
+  const replacing = addressChanged.value && catalogueChoice.value === 'replace'
   try {
     const values = { name: form.value.name.trim(), ...sourceHostDraft(form.value), enabled: form.value.enabled,
       priority: form.value.priority, provider_options: { search_action: form.value.search_action, detail_action: form.value.detail_action } }
@@ -448,13 +456,16 @@ async function saveSource() {
     if (id && migrationReport.value) values.host_migration = {
       expected_fingerprint: migrationReport.value.expected_fingerprint, selected_old_hosts: migrationSelected.value,
     }
-    const source = await request('/api/online/sources' + (id ? '/' + id : ''), { method: id ? 'PATCH' : 'POST', body: JSON.stringify(values) })
+    const path = '/api/online/sources' + (id ? '/' + id : '') + (replacing ? '/replace-catalogue' : '')
+    const result = await request(path, { method: id && !replacing ? 'PATCH' : 'POST', body: JSON.stringify(values) })
     if (disposed) return
-    reflectSourceUpdate(source)
-    cancelEditor(); feedback('来源已保存；尚未验证上游连通性。')
+    if (replacing) reflectSourceUpdate(result.previous)
+    reflectSourceUpdate(replacing ? result.source : result)
+    cancelEditor(); feedback(replacing ? '已创建新片库来源，旧来源已停用。' : '来源已保存；尚未验证上游连通性。')
   } catch (failure) {
     if (!disposed && failure?.status === 409) conflict()
-    else if (!disposed) formError.value = '保存失败，请检查名称、接口、允许主机和字段格式；若请求超时，请刷新后核对是否已经保存。'
+    else if (!disposed) formError.value = (replacing && catalogueReceiptHint(failure))
+      || '保存失败，请检查名称、接口、允许主机和字段格式；若请求超时，请刷新后核对是否已经保存。'
   }
   finally { if (!disposed) saving.value = false }
 }

@@ -137,8 +137,9 @@ def mutate_while_checking(change, fixture):
     elif change in ("replace", "replace_during_recheck"):
         (fixture.root / old).write_bytes(b"new source has a different complete revision")
     elif change == "delete":
-        result = fs.fs_delete({"library_id": lid, "paths": [old],
-                              "dry_run": False, "confirm": True})
+        body = {"library_id": lid, "paths": [old]}
+        preview = fs.fs_delete(body)
+        result = fs.fs_delete({**body, "dry_run": False, "confirm": True, "preview_id": preview["preview_id"]})
         assert result["deleted"] == 1
         assert store.get_playable("movie", fixture.first["id"]) is None
     elif change == "scan_add":

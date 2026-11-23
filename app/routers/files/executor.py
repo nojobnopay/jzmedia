@@ -1,6 +1,6 @@
 """routers.files.executor（自 app/routers/files.py 拆分，评审 B9/R09-Q1；经 files 门面使用）。"""
 import os
-from ... import library_paths
+from ... import library_paths, storage
 from ... import store
 from ...scanner import SUBTITLE_EXTS
 from ...scanner import extras_dir_name
@@ -49,37 +49,8 @@ def _sibling_followers(src_abs: str) -> list[str]:
     return out
 
 
-def _cleanup_old_dir(old_dir_abs: str) -> None:
-    """旧目录无正片残留时清掉 NFO 残留；空目录则删掉（共享大目录不会为空，无动作）。"""
-    try:
-        names = os.listdir(old_dir_abs)
-    except OSError as e:
-        logger.debug("list old dir failed dir=%s: %s", old_dir_abs, e)
-        return
-    has_feature = False
-    for n in names:
-        full = os.path.join(old_dir_abs, n)
-        if not os.path.isfile(full):
-            continue
-        _lib, rel = library_paths.locate(full)
-        if rel is None:
-            continue
-        if is_feature_video(rel, library_id=(_lib or {}).get("id")):
-            has_feature = True
-            break
-    if has_feature:
-        return
-    for n in names:
-        if n == "movie.nfo" or n.endswith(".nfo"):
-            try:
-                os.remove(os.path.join(old_dir_abs, n))
-            except OSError as e:
-                logger.debug("remove stale nfo failed dir=%s name=%s: %s", old_dir_abs, n, e)
-    try:
-        if not os.listdir(old_dir_abs):
-            os.rmdir(old_dir_abs)
-    except OSError as e:
-        logger.debug("rmdir old dir failed dir=%s: %s", old_dir_abs, e)
+def _cleanup_old_dir(old_rel: str, library_id) -> None:
+    _remote_cleanup_old_dir(storage.backend_for(library_id), old_rel)
 
 
 def _repath_followed_extra(lib_id, old_rel: str, new_rel: str, movie_id) -> None:
@@ -89,7 +60,7 @@ def _repath_followed_extra(lib_id, old_rel: str, new_rel: str, movie_id) -> None
         kind = extra_kind(old_rel) or "extra"
         store.repath_extra_by_basename(os.path.basename(old_rel), new_rel,
                                        int(movie_id), kind,
-                                       library_id=int(lib_id))
+                                       library_id=int(lib_id), old_path=old_rel)
     except Exception as e:
         logger.debug("repath followed extra failed %s -> %s: %s", old_rel, new_rel, e)
 
@@ -133,34 +104,31 @@ def _remote_sibling_followers(backend, rel_src: str) -> list[str]:
     return out
 
 
-def _remote_cleanup_old_dir(backend, rel_dir: str) -> None:
-    """远程旧目录清场：无正片残留时删 NFO 残留，目录为空则删目录。"""
-    if not rel_dir:
+def _remote_cleanup_old_dir(backend, old_rel: str) -> None:
+    """Clean only the moved feature's NFO and its demonstrably dedicated directory."""
+    directory = os.path.dirname(old_rel)
+    if not directory:
         return
+    stem = os.path.splitext(os.path.basename(old_rel))[0]
     try:
-        entries = backend.list(rel_dir)
-    except Exception as e:
-        logger.debug("list old dir failed dir=%s: %s", rel_dir, e)
-        return
-    for e in entries:
-        if e["is_dir"]:
-            continue
-        rel = f"{rel_dir}/{e['name']}"
-        if is_feature_video(rel, backend=backend):
-            return
-    for e in entries:
-        n = e["name"]
-        if n == "movie.nfo" or n.endswith(".nfo"):
-            try:
-                backend.delete(f"{rel_dir}/{n}")
-            except Exception as e:
-                logger.debug("remove stale nfo failed dir=%s name=%s: %s",
-                             rel_dir, n, e)
-    try:
-        if not backend.list(rel_dir):
-            backend.delete(rel_dir)
-    except Exception as e:
-        logger.debug("rmdir old dir failed dir=%s: %s", rel_dir, e)
+        entries = backend.list(directory)
+        stems = {os.path.splitext(e["name"])[0] for e in entries
+                 if not e["is_dir"] and is_feature_video(os.path.join(directory, e["name"]), backend=backend)}
+        owned = set()
+        if stem not in stems:
+            owned.add(stem + ".nfo")
+        if not stems and stem.casefold() == os.path.basename(directory).casefold():
+            owned.add("movie.nfo")
+        for entry in entries:
+            name = entry["name"]
+            if not entry["is_dir"] and name in owned:
+                rel = os.path.join(directory, name)
+                if backend.file_delete_identity(rel) is not None:
+                    backend.delete(rel, file_only=True)
+        if not backend.list(directory):
+            backend.delete_empty_dir(directory)
+    except storage.StorageError as e:
+        logger.debug("clean old directory failed dir=%s: %s", directory, e)
 
 
 def _remote_resync_old_dir(backend, rel_dir: str, lib_id) -> None:
@@ -394,10 +362,10 @@ def _move_one_remote(p: dict, backend) -> dict:
             except Exception as e:
                 logger.debug("follow sidecar failed %s -> %s: %s", f, fdst, e)
                 continue
-        _remote_cleanup_old_dir(backend, os.path.dirname(src))
+        _remote_cleanup_old_dir(backend, src)
         _ex = _remote_move_extras(p["id"], backend, os.path.dirname(dst))
         extras_moved = _ex.get("moved", 0)
-        _remote_cleanup_old_dir(backend, os.path.dirname(src))
+        _remote_cleanup_old_dir(backend, src)
         if (os.path.normpath(os.path.dirname(src))
                 != os.path.normpath(os.path.dirname(dst))):
             _remote_resync_old_dir(backend, os.path.dirname(src), lib_id)
@@ -654,12 +622,12 @@ def _move_one(p: dict) -> dict:
             except OSError as e:
                 logger.debug("follow sidecar failed %s -> %s: %s", f, fdst, e)
                 continue
-        _cleanup_old_dir(os.path.dirname(src))
+        _cleanup_old_dir(p["from"], lib_id)
         # 归属花絮跟随：搬进目标花絮子目录（kodi=extras/；plex=Trailers/Featurettes 等）
         _ex = move_attached_extras(p["id"], os.path.dirname(dst))
         extras_moved = _ex.get("moved", 0)
         # 旧目录收尾（花絮搬走后再清一次）：无正片则清 NFO，空目录删掉
-        _cleanup_old_dir(os.path.dirname(src))
+        _cleanup_old_dir(p["from"], lib_id)
         # 跨目录搬迁：旧目录还有正片残留则重收敛（多→单删多余同名 NFO）
         if os.path.normpath(os.path.dirname(src)) != os.path.normpath(os.path.dirname(dst)):
             _resync_old_dir(os.path.dirname(src))

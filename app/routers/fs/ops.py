@@ -13,12 +13,20 @@ __all__ = ['_exec_delete_one', '_move_db_follow', '_exec_move_one',
            '_exec_delete_one_remote', '_exec_move_one_remote']
 
 
+def _remove_empty_parent(rel, backend):
+    parent = os.path.dirname(rel)
+    if parent:
+        try:
+            backend.delete_empty_dir(parent)
+        except storage.StorageError:
+            pass
+
+
 def _exec_delete_one(plan: dict) -> dict:
-    """执行单文件删除（含 DB 联动与旧目录 NFO 收尾）。调用方已确认。"""
+    """删除选中的文件并更新对应的库记录。"""
     rel = plan["rel"]
     lid = int(plan.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
     abs_p = library_paths.resolve(lid, rel)
-    old_dir = os.path.dirname(abs_p)
     if not os.path.isfile(abs_p) and not os.path.lexists(abs_p):
         return {**plan, "status": "skipped_missing_src"}
     try:
@@ -40,9 +48,7 @@ def _exec_delete_one(plan: dict) -> dict:
                 pass
     except Exception as e:
         return {**plan, "status": f"error: {e}"}
-    if not _is_tv(lid):
-        _cleanup_old_dir(old_dir)
-        _resync_old_dir(old_dir)
+    _remove_empty_parent(rel, storage.backend_for(lid))
     return {**plan, "status": "deleted"}
 
 
@@ -144,9 +150,10 @@ def _exec_move_one(fr: str, to: str, library_id=None) -> dict:
             except Exception as e:
                 logger.warning("follow file failed %s -> %s: %s", frel_old, frel_new, e)
                 continue
-        # NFO 残留与旧目录收尾（正片才有意义，其余调用自吞无影响）
+        # 只有已入库的电影正片改名才有对应的 NFO。
+        movie_feature = info.get("kind") == "feature" and info.get("movie_id")
         try:
-            if info.get("movie_id"):
+            if movie_feature:
                 old_nfo = os.path.join(os.path.dirname(dst), old_stem + ".nfo")
                 new_nfo = os.path.join(os.path.dirname(dst), new_stem + ".nfo")
                 if (old_nfo != new_nfo and os.path.dirname(src) == os.path.dirname(dst)
@@ -157,10 +164,12 @@ def _exec_move_one(fr: str, to: str, library_id=None) -> dict:
                         pass
         except Exception:
             pass
-        if not _is_tv(lid):
-            _cleanup_old_dir(os.path.dirname(src))
+        if movie_feature and not _is_tv(lid) and os.path.dirname(fr):
+            _cleanup_old_dir(fr, lid)
             if os.path.normpath(os.path.dirname(src)) != os.path.normpath(os.path.dirname(dst)):
                 _resync_old_dir(os.path.dirname(src))
+        elif os.path.dirname(fr) != os.path.dirname(to):
+            _remove_empty_parent(fr, storage.backend_for(lid))
         return {**base, "status": "moved", "followed": followed,
                 "kind": info.get("kind") or "other"}
     except Exception as e:
@@ -168,27 +177,12 @@ def _exec_move_one(fr: str, to: str, library_id=None) -> dict:
 
 
 def _exec_delete_one_remote(plan: dict, backend) -> dict:
-    """远程直读库删除（文件/空目录，库内相对路径）；DB 联动与旧目录收尾同本地。"""
+    """删除远程库中选中的文件或空目录并更新库记录。"""
     rel = plan["rel"]
     lid = int(plan.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
     kind = plan.get("kind") or "other"
     try:
-        st = backend.stat(rel)
-    except storage.StorageNotFound:
-        return {**plan, "status": "skipped_missing_src"}
-    except storage.StorageError as e:
-        return {**plan, "status": f"error: {e}"}
-    if st.is_dir:
-        try:
-            if backend.list(rel):
-                return {**plan, "status": "dir_not_empty"}
-            backend.delete(rel)
-        except storage.StorageError as e:
-            return {**plan, "status": f"error: {e}"}
-        store.record_fs_change(lid, 'delete', rel)
-        return {**plan, "status": "deleted"}
-    try:
-        backend.delete(rel)
+        backend.delete(rel, file_only=True)
     except storage.StorageError as e:
         return {**plan, "status": f"error: {e}"}
     store.record_fs_change(lid, 'delete', rel)
@@ -205,10 +199,7 @@ def _exec_delete_one_remote(plan: dict, backend) -> dict:
                 logger.debug("delete extra row failed rel=%s: %s", rel, e)
     except Exception as e:
         return {**plan, "status": f"error: {e}"}
-    old_dir = os.path.dirname(rel)
-    if not _is_tv(lid):
-        _remote_cleanup_old_dir(backend, old_dir)
-        _remote_resync_old_dir(backend, old_dir, lid)
+    _remove_empty_parent(rel, backend)
     return {**plan, "status": "deleted"}
 
 
@@ -260,10 +251,12 @@ def _exec_move_one_remote(fr: str, to: str, library_id, backend) -> dict:
             except storage.StorageError as e:
                 logger.debug("follow sidecar failed %s -> %s: %s", f, fdst, e)
                 continue
-        if not _is_tv(lid):
-            _remote_cleanup_old_dir(backend, old_dir)
+        if info.get("kind") == "feature" and info.get("movie_id") and not _is_tv(lid) and old_dir:
+            _remote_cleanup_old_dir(backend, fr)
             if os.path.normpath(old_dir) != os.path.normpath(new_dir):
                 _remote_resync_old_dir(backend, old_dir, lid)
+        elif old_dir != new_dir:
+            _remove_empty_parent(fr, backend)
         return {**base, "status": "moved", "followed": followed,
                 "kind": info.get("kind") or "other"}
     except Exception as e:

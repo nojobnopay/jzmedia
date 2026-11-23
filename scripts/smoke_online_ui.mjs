@@ -287,14 +287,24 @@ async function checkPhoneFilters(page) {
   assert.equal(await year.inputValue(), '')
   assert.equal(reads().length, initial, 'Filtering the category list and cancelling a custom year does not fetch a catalogue page')
   const selected = await year.locator('option').nth(1).getAttribute('value')
+  const selectedSource = await page.locator('[data-online-source]').inputValue()
+  const selectedPage = response => {
+    const url = new URL(response.url())
+    return url.pathname === '/api/online/catalog/browse' && url.searchParams.get('source_id') === selectedSource
+      && url.searchParams.get('page') === '1' && url.searchParams.get('year') === selected
+  }
+  const filtered = page.waitForResponse(selectedPage)
   await year.selectOption(selected)
+  await (await filtered).finished()
   await dialog.waitFor({ state: 'hidden' })
   await settle(page)
   assert.equal(await trigger.locator('[data-online-selected-year]').textContent(), ' · ' + selected)
   assert.equal(reads().length, initial + 1)
   assert.equal(reads().at(-1).query.year, selected)
   assert.equal(await page.locator('#online-query').inputValue(), draft)
+  const refreshed = page.waitForResponse(selectedPage)
   await page.locator('[data-online-refresh]').click()
+  await (await refreshed).finished()
   await settle(page)
   assert.equal(reads().length, initial + 2, 'One refresh sends one catalogue request')
   assert.equal(reads().at(-1).query.year, selected)

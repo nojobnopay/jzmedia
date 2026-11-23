@@ -27,7 +27,8 @@ def _uncertain_part(path):
     return bool(markers and not re.search(r'-part\d+$', stem, re.I))
 
 
-def reconcile_snapshot(backend, before, entries, resolve, *, roots, skip_dirs, should_stop=None):
+def reconcile_snapshot(backend, before, entries, resolve, *, roots, skip_dirs, should_stop=None,
+                       validate_root=None):
     """Only one absent old file and one new exact episode may share an identity.
 
     Re-enumerate before committing: File Station does not participate in the
@@ -63,6 +64,11 @@ def reconcile_snapshot(backend, before, entries, resolve, *, roots, skip_dirs, s
         return sorted((e.rel, bool(e.is_dir), int(e.size) if not e.is_dir else 0,
                        float(e.mtime)) for e in items)
 
+    def offline(exc):
+        if getattr(exc, "review", None):
+            result["root_review"] = exc.review
+        return defer('视频库暂不可用，保留原记录，连接恢复后重新检查', code='library_offline')
+
     if stopped():
         return defer('检查已取消，保留原文件记录，稍后重新检查')
     if copying():
@@ -77,13 +83,15 @@ def reconcile_snapshot(backend, before, entries, resolve, *, roots, skip_dirs, s
     current = []
     try:
         storage.clear_meta_cache(backend.library_id)
+        if validate_root:
+            validate_root()
         for root in roots:
             backend.stat(root)
             current.extend(backend.iter_tree(root, skip_dirs=skip_dirs))
         if stopped() or signature(entries) != signature(current):
             return defer('目录内容在检查期间发生变化，保留原记录，请在复制完成后重试')
-    except storage.StorageOffline:
-        return defer('视频库暂不可用，保留原记录，连接恢复后重新检查', code='library_offline')
+    except storage.StorageOffline as exc:
+        return offline(exc)
     except storage.StorageError:
         return defer('目录暂不可用，保留原记录，连接恢复后重新检查')
     paths = {e.rel for e in entries if not e.is_dir}
@@ -167,9 +175,11 @@ def reconcile_snapshot(backend, before, entries, resolve, *, roots, skip_dirs, s
             return defer('检查已取消，保留原文件记录，稍后重新检查')
         if copying():
             return defer('该视频库仍在复制文件，保留原记录，请在复制任务结束后重试')
+        if validate_root:
+            validate_root()
         applied = store.reconcile_tv_paths(backend.library_id, replacements, removed, retained)
-    except storage.StorageOffline:
-        return defer('视频库暂不可用，保留原记录，连接恢复后重新检查', code='library_offline')
+    except storage.StorageOffline as exc:
+        return offline(exc)
     except (storage.StorageError, ValueError):
         return defer('文件或剧集归属发生变化，保留原记录，请重新检查')
     result.update(applied, replacements=replacements,

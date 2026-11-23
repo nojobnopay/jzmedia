@@ -200,9 +200,12 @@ def _media_of(c, media_library_id: int) -> dict:
 
 def _ensure_local_subdir(media: dict, subpath: str) -> None:
     """本地媒体库：按需创建视频库子目录（只读库缺失时给明确错误）。"""
-    if str(media.get("source") or "local") != "local" or not subpath:
+    if str(media.get("source") or "local") != "local":
         return
-    full = os.path.join(str(media.get("path") or ""), subpath)
+    root = str(media.get("path") or "")
+    if not os.path.isdir(root):
+        raise ValueError(f"媒体库根目录不可用: {root}")
+    full = os.path.join(root, subpath)
     if os.path.isdir(full):
         return
     if int(media.get("read_only") or 0):
@@ -264,7 +267,11 @@ def _insert_video(c, media: dict, name: str, kind: str, subpath: str,
         cur = c.execute(f"INSERT INTO libraries({cols}) VALUES({qs})", tuple(row.values()))
     except sqlite3.IntegrityError as e:
         raise ValueError(f"库名已存在: {name}") from e
-    return int(cur.lastrowid)
+    vid = int(cur.lastrowid)
+    if str(media.get("source") or "local") == "local":
+        from ..library_roots import register_local
+        register_local(c, vid, row["path"])
+    return vid
 
 
 def create_video_library(media_library_id: int, name: str = "", kind: str = "movie",
@@ -424,22 +431,24 @@ def _delete_ids(c, table: str, column: str, ids: list[int]) -> int:
 
 def _delete_video_rows(c, lid: int, name: str = "") -> dict:
     """删除视频库的全部从属记录（不含 libraries 行；供单删与媒体级联共用）。
-    v18：合集属媒体库级，不随单个视频库删除（成员读时按现存影片解析）。"""
+    同一媒体库的其他视频库仍有该片时保留合集成员。"""
     stats = {"library": name, "movies": 0, "extras": 0, "scan_state": 0,
              "tv_shows": 0, "tv_episodes": 0, "collections": 0}
-    ids = [int(r["id"]) for r in c.execute(
-        "SELECT id FROM movies WHERE library_id=?", (lid,))]
+    from .movies import _clear_deleted_members
+    c.execute("DELETE FROM library_scan_roots WHERE library_id=?", (lid,))
+    movies = c.execute("SELECT id, tmdb_id FROM movies WHERE library_id=?", (lid,)).fetchall()
+    ids = [row["id"] for row in movies]
     _delete_ids(c, "movies_fts", "rowid", ids)
     _delete_ids(c, "movie_person", "movie_id", ids)
-    if ids:
-        for i in range(0, len(ids), 500):
-            chunk = ids[i:i + 500]
-            ph = ",".join("?" for _ in chunk)
-            c.execute(f"DELETE FROM media_info WHERE kind='movie' AND item_id IN ({ph})",
-                      chunk)
-            c.execute(f"DELETE FROM playback_progress WHERE kind='movie'"
-                      f" AND item_id IN ({ph})", chunk)
-    stats["movies"] = _delete_ids(c, "movies", "id", ids)
+    for i in range(0, len(movies), 500):
+        chunk = movies[i:i + 500]
+        movie_ids = [row["id"] for row in chunk]
+        tmdb_ids = sorted({row["tmdb_id"] for row in chunk if row["tmdb_id"]})
+        ph = ",".join("?" for _ in movie_ids)
+        c.execute(f"DELETE FROM media_info WHERE kind='movie' AND item_id IN ({ph})", movie_ids)
+        c.execute(f"DELETE FROM playback_progress WHERE kind='movie' AND item_id IN ({ph})", movie_ids)
+        stats["movies"] += c.execute(f"DELETE FROM movies WHERE id IN ({ph})", movie_ids).rowcount
+        _clear_deleted_members(c, lid, movie_ids, tmdb_ids)
     stats["extras"] = int(c.execute(
         "DELETE FROM extras WHERE library_id=?", (lid,)).rowcount or 0)
     stats["scan_state"] = int(c.execute(

@@ -171,6 +171,7 @@ async function mockApi(route) {
     if (method === 'PATCH') {
       const { api_key: secret, clear_api_key: clear, ...config } = body
       Object.assign(settings, config)
+      if (settings.invalid_fields && config.timeout_seconds === 16) delete settings.invalid_fields
       if (secret) Object.assign(settings, { api_key_set: true, api_key_masked: '****' + secret.slice(-4), api_key_source: 'db' })
       if (clear) Object.assign(settings, { api_key_set: true, api_key_masked: '****nkey', api_key_source: 'env' })
     }
@@ -1248,8 +1249,18 @@ async function runSmoke() {
     assert.deepEqual(errors, [])
     return
   }
+  settings.invalid_fields = { timeout_seconds: '超时秒数须为整数' }
   await go('/settings?sec=sec-ai')
   const config = page.locator('.ai-settings')
+  await config.getByText('超时秒数须为整数', { exact: true }).waitFor()
+  assert.ok(await config.getByRole('button', { name: '测试已保存连接' }).isDisabled())
+  await config.getByLabel('单次超时（秒）').fill('16')
+  const repair = page.waitForRequest(req => new URL(req.url()).pathname === '/api/ai/settings' && req.method() === 'PATCH')
+  await config.getByRole('button', { name: '保存智能辅助配置' }).click()
+  assert.deepEqual((await repair).postDataJSON(), { timeout_seconds: 16 })
+  await config.getByText('智能辅助配置需要修正', { exact: true }).waitFor({ state: 'hidden' })
+  assert.equal(paid().length, 0)
+  await go('/settings?sec=sec-ai')
   await config.getByRole('button', { name: '配置与测试服务' }).click()
   await config.getByRole('button', { name: '保存智能辅助配置' }).waitFor()
   const desktopGroups = await page.locator('.desktop-categories > section').evaluateAll(groups => groups.map(group => {

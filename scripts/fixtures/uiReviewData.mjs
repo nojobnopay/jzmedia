@@ -122,7 +122,7 @@ export function createFixture() {
     if(key==='/api/jobs/tv-organize')return {job_id:'demo-organize'}
     if(key==='/api/jobs/tv-organize/demo-organize')return {state:'done',summary:{dry_run:true,plans:[tvPlan]},done:1,total:1}
     if(key==='/api/jobs/tv-organize-restore')return {job_id:'demo-restore'}
-    if(key==='/api/jobs/tv-organize-restore/demo-restore')return {state:'done',summary:{dry_run:true,batch_id:'demo-20261003-01',total:2,conflicts:0,plans:[{show_id:201,title:tvTitles[0],conflicts:[],moves:[{kind:'rename',from:tvPlan.groups[1].samples[0].to,to:tvPlan.groups[1].samples[0].from},{kind:'seasondir',from:'群岛之间/Season 01',to:'群岛之间/第一季'}]}]}}
+    if(key==='/api/jobs/tv-organize-restore/demo-restore')return {state:'done',summary:{dry_run:true,batch_id:'demo-20261003-01',preview_id:'demo-restore-preview',total:2,conflicts:0,plans:[{show_id:201,title:tvTitles[0],conflicts:[],moves:[{kind:'rename',from:tvPlan.groups[1].samples[0].to,to:tvPlan.groups[1].samples[0].from},{kind:'seasondir',from:'群岛之间/Season 01',to:'群岛之间/第一季'}]}]}}
     if(key==='/api/files/restore-candidates')return {items:state.scene==='restore-panel'?movies.slice(0,3).map(m=>({...m,original_file_path:'待整理/'+m.title+'.mkv'})):[]}
     if(key==='/api/files/organize'&&state.scene==='organize-preview')return {plans:movies.slice(0,3).map(m=>({id:m.id,title:m.title,year:m.year,library_id:1,kind:'file',from:'待整理/'+m.title+'.mkv',to:'待整理/'+m.title+' ('+m.year+')/'+m.title+'.mkv'})),conflicts:[]}
     if(key==='/api/files/unmatched'&&state.scene==='scan-review')return {items:[],unmatched:[],needs_review:[],suspect_title:[],orphan_extras:[]}

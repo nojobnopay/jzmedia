@@ -346,7 +346,20 @@ class SmbStorageBackend(StorageBackend):
             if hit is None:
                 raise StorageNotFound(f"目录不存在（缓存）: {path or '/'}")
             return hit
-        unc = self._unc(rel)
+        try:
+            out = self.list_uncached(rel)
+        except StorageNotFound:
+            self._meta.put(key, None, negative=True)
+            raise
+        self._meta.put(key, out)
+        if len(self._known_dirs) > 5000:
+            self._known_dirs = {""}
+        self._known_dirs.add(rel)
+        return out
+
+    def list_uncached(self, path: str = "") -> list[dict]:
+        """Read the actual directory when accepting a legacy catalogue location."""
+        unc = self._unc(path)
         out: list[dict] = []
         try:
             with smbclient.scandir(unc) as it:
@@ -358,14 +371,7 @@ class SmbStorageBackend(StorageBackend):
                                 "size": int(getattr(info, "end_of_file", 0) or 0),
                                 "mtime": _dt_epoch(getattr(info, "last_write_time", None))})
         except Exception as e:
-            err = map_smb_error(e, f"列目录 {path or '/'}")
-            if isinstance(err, StorageNotFound):
-                self._meta.put(key, None, negative=True)
-            raise err from e
-        self._meta.put(key, out)
-        if len(self._known_dirs) > 5000:
-            self._known_dirs = {""}
-        self._known_dirs.add(rel)
+            raise map_smb_error(e, f"列目录 {path or '/'}") from e
         return out
 
     def stat(self, path: str = "") -> StorageStat:
@@ -399,6 +405,20 @@ class SmbStorageBackend(StorageBackend):
         return StorageStat(size=int(st.st_size), mtime=float(st.st_mtime),
                            is_dir=_st.S_ISDIR(int(st.st_mode)))
 
+    def scan_root_info(self):
+        """Read the server's volume serial, file index and creation time in one request."""
+        try:
+            return smbclient.stat(self._unc(""))
+        except Exception as e:
+            raise map_smb_error(e, "/") from e
+
+    def open_scan_root(self):
+        """Pin the directory when a server provides a file index but no creation time."""
+        try:
+            return smbclient.open_file(self._unc(""), mode="rb", buffering=0, file_type="dir", share_access="rwd")
+        except Exception as e:
+            raise map_smb_error(e, "/") from e
+
     def read(self, path: str, offset: int = 0, length: int = -1) -> bytes:
         try:
             with smbclient.open_file(self._unc(path), mode="rb",
@@ -416,6 +436,18 @@ class SmbStorageBackend(StorageBackend):
             return smbclient.open_file(self._unc(rel), mode="rb", share_access="rwd")
         except Exception as e:
             raise map_smb_error(e, what) from e
+
+    def _organize_file_sample(self, path, info):
+        from ..fsutil import stream_sample
+        with self._open_fh(self.norm(path), path) as fh:
+            sample = stream_sample(fh, info.st_size)
+        try:
+            current = self._entry_lstat(path)
+        except StorageNotFound:
+            return None
+        if current is None or self._delete_identity(info) != self._delete_identity(current):
+            return None
+        return sample
 
     @contextmanager
     def open_read(self, path: str, *, revision: str | None = None) -> Iterator[BinaryIO]:
@@ -521,7 +553,7 @@ class SmbStorageBackend(StorageBackend):
         if ok:
             self._invalidate_meta(rel)
 
-    def rename(self, src: str, dst: str) -> None:
+    def rename(self, src: str, dst: str, *, overwrite: bool = True) -> None:
         self._require_writable()
         # 与本地语义对齐：目标父目录不存在时先建（SMB replace 不自动建，跨季移动会 404）
         parent = posixpath.dirname(self.norm(dst))
@@ -531,16 +563,33 @@ class SmbStorageBackend(StorageBackend):
             except Exception:      # 建目录失败不吞真错，让 rename 抛原始错误
                 pass
         try:
-            smbclient.replace(self._unc(src), self._unc(dst))
+            rename = smbclient.replace if overwrite else smbclient.rename
+            rename(self._unc(src), self._unc(dst))
         except Exception as e:
             raise map_smb_error(e, src) from e
         self._invalidate_meta(src, dst)
 
-    def delete(self, path: str, recursive: bool = False) -> None:
+    def _entry_lstat(self, path: str):
+        try:
+            return smbclient.stat(self._unc(path), follow_symlinks=False)
+        except Exception as e:
+            raise map_smb_error(e, path) from e
+
+    def delete_empty_dir(self, path: str) -> None:
+        self._require_writable()
+        if not self.norm(path):
+            return
+        try:
+            smbclient.rmdir(self._unc(path))
+        except Exception as e:
+            raise map_smb_error(e, path) from e
+        self._invalidate_meta(path, subtree=True)
+
+    def delete(self, path: str, recursive: bool = False, *, file_only: bool = False) -> None:
         self._require_writable()
         unc = self._unc(path)
         try:
-            if smbclient.path.isdir(unc):
+            if not file_only and smbclient.path.isdir(unc):
                 if recursive:
                     _smb_shutil().rmtree(unc)
                 else:

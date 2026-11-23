@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process'
 import { build } from '../frontend/node_modules/vite/dist/node/index.js'
 import vue from '../frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
-import { assertCastLayout, smokeTvHandoff } from './fixtures/tv_handoff_browser.mjs'
+import { assertCastLayout, smokeTvHandoff, waitForSelectedHlsAudio } from './fixtures/tv_handoff_browser.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
@@ -64,6 +64,17 @@ async function disableDlnaSubtitles(page, player) {
   await player.getByRole('region', { name: '字幕与音轨', exact: true })
     .getByLabel('字幕轨道', { exact: true }).selectOption('-1')
   await page.keyboard.press('Escape')
+}
+
+function waitForReceiverStart(picker) {
+  // The two-track fixture creates a complete AAC file before the SOAP Play and any resume Seek.
+  return picker.getByText('电视正在播放', { exact: true }).waitFor({ timeout: 60000 })
+}
+
+function waitForPhonePlayback(page) {
+  // Reconciliation may recreate the compatibility transcode before the browser can decode.
+  return page.waitForFunction(() => document.querySelector('video')?.readyState >= 2
+    && !document.querySelector('video').paused, null, { timeout: 45000 })
 }
 
 async function overlayControls(page, width, fullscreen = false) {
@@ -427,8 +438,7 @@ async function quickControls(page, width, screenshotPrefix = '') {
   if (width === 1440) {
     const audio = tracksPanel().getByLabel('音轨', { exact: true })
     await audio.selectOption('1')
-    await page.waitForFunction(() => window.__jzPlayerDebug?.().engine === 'hls'
-      && document.querySelector('video')?.readyState >= 2 && window.__jzPlayer?.hls()?.audioTrack === 1)
+    await waitForSelectedHlsAudio(page, 1)
     // Opening volume by click must switch away from an already open tracks panel.
     await volume().click()
     await volumePanel().waitFor()
@@ -451,7 +461,7 @@ async function quickControls(page, width, screenshotPrefix = '') {
     await tracks().click()
     await tracksPanel().waitFor()
     await tracksPanel().getByLabel('音轨', { exact: true }).selectOption('0')
-    await page.waitForFunction(() => window.__jzPlayer?.hls()?.audioTrack === 0)
+    await waitForSelectedHlsAudio(page, 0)
     assert.equal(await page.locator('video').evaluate(video => video.playbackRate), 1.5, 'Audio switching keeps the chosen speed')
     assert.equal(await page.locator('video').evaluate(video => video.volume === .37 && video.muted), true)
     console.log('PASS HLS element recovery preserves volume, mute and speed')
@@ -616,7 +626,7 @@ async function failedHandoff(page, player, picker, width) {
   assert.equal(await picker.getByRole('button', { name: '开始投屏', exact: true }).isDisabled(), true)
   finish()
   await picker.getByRole('alert').filter({ hasText: /模拟电视拒绝起播/ }).waitFor()
-  await page.waitForFunction(() => document.querySelector('video')?.readyState >= 2 && !document.querySelector('video').paused)
+  await waitForPhonePlayback(page)
   await page.unroute('**/api/cast/sessions', handler)
   await page.keyboard.press('Escape')
   await picker.waitFor({ state: 'hidden' })
@@ -643,7 +653,7 @@ async function uncertainHandoff(page, player, picker, width) {
   readable = true
   await retry.click()
   await retry.waitFor({ state: 'hidden' })
-  await page.waitForFunction(() => document.querySelector('video')?.readyState >= 2 && !document.querySelector('video').paused)
+  await waitForPhonePlayback(page)
   assert.equal(creates, 1, 'Checking an unknown result never repeats Play')
   await page.unroute('**/api/cast/sessions', create)
   await page.unroute('**/api/cast/current?**', read)
@@ -750,7 +760,7 @@ template:${JSON.stringify(template)}}).mount('#app');`)
       await picker().getByRole('radio').check()
       await page.screenshot({ path: path.join(output, `picker-${width}.png`) })
       await picker().getByRole('button', { name: '开始投屏', exact: true }).click()
-      await picker().getByText('电视正在播放', { exact: true }).waitFor()
+      await waitForReceiverStart(picker())
       await page.screenshot({ path: path.join(output, `controller-${width}.png`) })
       if (width === 390 && !source) await castTimeline(page, picker(), base, width, mode)
       await picker().getByRole('button', { name: '停止投屏', exact: true }).click()
@@ -795,7 +805,7 @@ template:${JSON.stringify(template)}}).mount('#app');`)
     await assertCastLayout(page, picker(), start)
     await page.screenshot({ path: path.join(output, `picker-${width}.png`) })
     await start.click()
-    await picker().getByText('电视正在播放', { exact: true }).waitFor()
+    await waitForReceiverStart(picker())
     console.log(`PASS ${width}px receiver start`)
     await page.screenshot({ path: path.join(output, `controller-${width}.png`) })
     await castTimeline(page, picker(), base, width, mode)
@@ -865,7 +875,7 @@ template:${JSON.stringify(template)}}).mount('#app');`)
     await player().getByRole('button', { name: '投屏', exact: true }).click()
     await picker().getByRole('radio').check()
     await picker().getByRole('button', { name: '开始投屏', exact: true }).click()
-    await picker().getByText('电视正在播放', { exact: true }).waitFor()
+    await waitForReceiverStart(picker())
     const current = await (await fetch(`${base}/api/cast/current?version_id=${fixture.episode_id}&kind=episode`)).json()
     assert.equal(current.session.kind, 'episode')
     await picker().getByRole('button', { name: '停止投屏', exact: true }).click()
@@ -953,6 +963,7 @@ template:${JSON.stringify(template)}}).mount('#app');`)
     try { await page.screenshot({ path: path.join(output, `failure-${index}.png`) }) } catch { /* Keep the original failure. */ }
   }
   let receiverFixture = null, currentFixture = null, episodeFixture = null
+  const players = await Promise.all(pages.map(page => page.evaluate(() => window.__jzPlayerDebug?.()).catch(() => null)))
   if (pages[0]) {
     try {
       const origin = new URL(pages[0].url()).origin
@@ -964,7 +975,7 @@ template:${JSON.stringify(template)}}).mount('#app');`)
     } catch { /* Keep the original assertion if the isolated server already stopped. */ }
   }
   await writeFile(path.join(output, 'failure.json'), JSON.stringify({ error: String(error), stack: error.stack, receiverFixture, currentFixture, episodeFixture,
-    backendOutput: backendOutput.slice(-12000) }, null, 2) + '\n')
+    players, backendOutput: backendOutput.slice(-12000) }, null, 2) + '\n')
   throw error
 } finally {
   await browser?.close()

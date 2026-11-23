@@ -34,6 +34,7 @@ test('automatic inspection only reads metadata; cancelling never grants any host
   const { ui, calls, closes } = await mount(t)
   assert.equal(calls.length, 1)
   assert.ok(calls[0].path.endsWith('/host-check'))
+  assert.deepEqual(calls[0].headers, { 'X-Online-Host-Report': '2' })
   assert.equal(calls[0].silentViewing, true)
   assert.deepEqual(calls[0].body, { external_id: 'show-1' })
   assert.equal(ui.find(node => node.props['data-online-host-candidate'] !== undefined).props.value, 'cdn.example')

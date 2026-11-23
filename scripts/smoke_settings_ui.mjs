@@ -1751,12 +1751,19 @@ async function checkScanCleanup(browser, base) {
         latest.done = 3
         const counts = latest.outcome.counts || {}
         latest.summary = { counts, by_library: { [latest.library_id]: counts },
-          ...(latest.outcome.organize ? { tv_ingest: ingestion() } : {}) }
+          ...(latest.outcome.organize ? { tv_ingest: ingestion() } : {}),
+          ...(latest.outcome.rootReview ? { root_reviews: { [latest.library_id]: latest.outcome.rootReview } } : {}) }
         if (latest.state === 'failed') latest.error = '模拟扫描未完整结束'
       }
       const value = latest ? { job_id: latest.job_id, library_id: latest.library_id, state: latest.state,
         done: latest.done, total: latest.total, summary: latest.summary, error: latest.error } : { state: 'idle' }
       return route.fulfill({ json: value })
+    }
+    if (url.pathname.endsWith('/accept-scan-root')) {
+      const review = latest.outcome.rootReview
+      assert.equal(url.pathname, '/api/libraries/' + review.library_id + '/accept-scan-root')
+      assert.deepEqual(request.postDataJSON(), { token: review.token })
+      return route.fulfill({ json: { accepted: true, library_id: review.library_id } })
     }
     if (url.pathname === '/api/tv/ingestion-reviews/decision') return route.fulfill({ json: { ok: true } })
     if (url.pathname === cleanupPath) {
@@ -1791,7 +1798,7 @@ async function checkScanCleanup(browser, base) {
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
     await page.getByRole('button', { name: '扫描新文件', exact: true }).click()
     const terminal = next.state === 'failed' ? /^扫描失败：/ : next.state === 'cancelled' ? /^已取消/
-      : next.counts?.library_offline ? /^库离线，已跳过扫描/ : /^扫描完成：/
+      : next.rootReview ? /^扫描已暂停，请核对/ : next.counts?.library_offline ? /^库离线，已跳过扫描/ : /^扫描完成：/
     await page.getByText(terminal).first().waitFor()
   }
   async function openCheck(expected = 2) {
@@ -1822,6 +1829,18 @@ async function checkScanCleanup(browser, base) {
     }
     assert.equal(cleanCalls.length, 0, 'scan completion never starts a cache traversal implicitly')
     checks.push('settled scan scope: unchanged, failed, cancelled and offline do not invent maintenance work')
+    for (const id of [1, 2]) {
+      await openLibrary(id)
+      await scan({ state: 'done', counts: { library_offline: 1 },
+        rootReview: { library_id: id, token: 'fixture-root-' + id, reason: '目录已经更换' } })
+      const accept = page.getByRole('button', { name: '已核对挂载，使用当前目录' })
+      const previous = sequence
+      await accept.click()
+      await page.getByText('已确认当前目录。可重新扫描或检查失效条目。').waitFor()
+      await accept.waitFor({ state: 'hidden' })
+      assert.equal(sequence, previous, 'accepting a changed root does not immediately scan or delete records')
+    }
+    checks.push('movie and TV libraries require an explicit selection of the reviewed directory')
 
     await openLibrary(2)
     await scan({ state: 'done', counts: { tv_ok: 2, replaced_episode: 1, changed_episode: 1, removed_episode: 1 }, organize: true })

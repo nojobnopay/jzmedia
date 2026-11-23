@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 import re
 import threading
@@ -24,6 +26,7 @@ def _scan_summary(results: list) -> dict:
     counts: dict = {}
     by_library: dict = {}
     errors: list = []
+    root_reviews = {}
     for r in results:
         st = str(r.get("status") or "")
         try:
@@ -34,6 +37,8 @@ def _scan_summary(results: list) -> dict:
             n = 1
         counts[st] = counts.get(st, 0) + n
         lid = r.get("library_id")
+        if lid is not None and r.get("root_review"):
+            root_reviews[str(lid)] = r["root_review"]
         if lid is not None:
             try:
                 bucket = by_library.setdefault(int(lid), {})
@@ -44,7 +49,7 @@ def _scan_summary(results: list) -> dict:
         if st.startswith("error"):
             errors.append({"file": r.get("file", ""), "status": st[:200]})
     return {"counts": counts, "by_library": by_library,
-            "errors": errors[:100], "results": results[:200]}
+            "errors": errors[:100], "results": results[:200], "root_reviews": root_reviews}
 
 
 def _lib_filter(library_id=None, media_library_id=None) -> set[int] | None:
@@ -624,9 +629,9 @@ def _start_tv_organize(body):
 
 
 @router.get("/tv-organize/history")
-def tv_organize_history(limit: int = 30):
+def tv_organize_history(limit: int = 30, library_id: int | None = None):
     """整理批次历史（v24 审计）：时间、条数、已撤销数；用于「撤销整理」选择。"""
-    batches = store.list_organize_batches(limit=max(1, min(int(limit or 30), 200)))
+    batches = store.list_organize_batches(limit=limit, library_ids=[library_id] if library_id is not None else None)
     return {"batches": batches}
 
 
@@ -653,7 +658,7 @@ _TV_RESTORE_JOBS = JobRegistry(prefix="tvundo")
 @_coordinated_tv_worker("_TV_RESTORE_JOBS", mutation=True)
 def _tv_restore_worker(jid: str, batch_id=None, library_id=None,
                        media_library_id=None, shows=None, kinds=None,
-                       dry_run: bool = True) -> None:
+                       dry_run: bool = True, preview_id: str | None = None) -> None:
     def _stop() -> bool:
         job = _TV_RESTORE_JOBS.get(jid)
         return job is None or job.get("state") != "running"
@@ -670,14 +675,20 @@ def _tv_restore_worker(jid: str, batch_id=None, library_id=None,
             batch_id=batch_id,
             library_ids=(sorted(lib_ids) if lib_ids is not None else None),
             shows=shows, kinds=kinds)
+        # Include the complete list, even when the job summary only displays the first 200 shows.
+        manifest = [plan["batch_id"], [(p["library_id"], p["show_id"], p["moves"]) for p in plan["plans"]]]
+        fingerprint = hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
         if dry_run:
             _TV_RESTORE_JOBS.update(
                 jid, state="done", done=len(plan["plans"]), total=len(plan["plans"]),
-                summary={"dry_run": True, "batch_id": plan["batch_id"],
+                summary={"dry_run": True, "batch_id": plan["batch_id"], "preview_id": fingerprint,
                          "counts": plan["counts"], "total": plan["total"],
                          "conflicts": plan["conflicts"],
                          "plans": plan["plans"][:200]})
             return
+
+        if preview_id is not None and preview_id != fingerprint:
+            raise ValueError("撤销清单已变化，请重新预览并核对")
 
         def _cb(done, total):
             _TV_RESTORE_JOBS.update(jid, done=int(done), total=int(total))
@@ -695,7 +706,8 @@ def _tv_restore_worker(jid: str, batch_id=None, library_id=None,
 
 
 class TvRestoreBody(BaseModel):
-    batch_id: str | None = None        # 缺省=最近一次整理批次
+    batch_id: str | None = None        # 缺省=所选视频库最近一次整理批次
+    preview_id: str | None = None
     library_id: int | None = None
     media_library_id: int | None = None
     shows: list[int] | None = None     # 只还原这些剧（show_id）
@@ -715,12 +727,12 @@ def tv_organize_restore_start(body: TvRestoreBody | None = None):
                                   library_id=body.library_id,
                                   media_library_id=body.media_library_id,
                                   shows=body.shows, kinds=body.kinds,
-                                  dry_run=body.dry_run, worker_finished=False)
+                                  dry_run=body.dry_run, preview_id=body.preview_id, worker_finished=False)
     jid = job["job_id"]
     threading.Thread(target=_tv_restore_worker,
                      args=(jid, body.batch_id, body.library_id,
                            body.media_library_id, body.shows, body.kinds,
-                           body.dry_run),
+                           body.dry_run, body.preview_id),
                      daemon=True).start()
     return {"job_id": jid, "resumed": False, "dry_run": body.dry_run}
 

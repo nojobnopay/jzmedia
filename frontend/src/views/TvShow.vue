@@ -45,6 +45,7 @@
             :loading="collectionLoading" :checking="collectionChecking" :error="collectionError" :notice="collectionNotice"
             :scope-label="show.media_name" @check="checkCollection" @retry="reloadCollection" />
           <EmptyState v-if="loadError" state="error" title="剧集刷新失败" :text="loadError" retry @retry="load()" />
+          <p v-if="playbackNotice" class="page-feedback" role="status">{{ playbackNotice }}</p>
           <div v-if="msg || ingestMessage" class="page-feedback page-feedback-actions" role="status">
             <span>{{ msg || ingestMessage }}</span>
             <JzButton v-if="matchConflict && msg === matchConflict && !isChildren" :disabled="busy"
@@ -141,7 +142,7 @@
     @close="bindingsOpen = false" @changed="onBindingChanged" />
   <PlayerModal v-if="playing" :key="playing.kind + ':' + playing.id"
     :version-id="playing.id" :title="playing.label" :kind="playing.kind"
-    @close="playing = null" @watched="onWatched" @ended="onEnded" @version-change="playing = $event" />
+    @close="playing = null" @watched="onWatched" @ended="onEnded(show?.title)" @version-change="playing = $event" />
 </template>
 
 <script setup>
@@ -158,7 +159,7 @@ import JzButton from '../components/JzButton.vue'
 import EmptyState from '../components/EmptyState.vue'
 import AiMatchSuggestions from '../components/AiMatchSuggestions.vue'
 import { isAiExternalCandidate } from '../aiMatch.js'
-import { followingPlayback } from '../episodePlayback.js'
+import { useEpisodeAutoplay } from '../episodePlayback.js'
 import { episodeDisplayTitle } from '../episodeTitles.js'
 import { currentMediaId, loadLibs, switchMedia } from '../libraries.js'
 import { browseReturn } from '../browseHistory.js'
@@ -232,6 +233,7 @@ function matchViewingContext() {
   return [viewing.mode, viewing.enabled, viewing.management_unlocked, viewing.generation, viewing.revision].join('|')
 }
 const playing = ref(null)
+const { onEnded, notice: playbackNotice } = useEpisodeAutoplay(playing, () => [route.path, route.params.id], api)
 const busy = ref(false)
 const matchOpen = ref(false)
 const renameOpen = ref(false)
@@ -587,15 +589,6 @@ async function onWatched () {
   await markWatched(cur.id, true, context)
   if (!currentShow(context)) return
   await load('0', context)
-}
-async function onEnded () {
-  const context = showContext()
-  const cur = playing.value
-  if (!cur || cur.kind && cur.kind !== 'episode') return
-  try {
-    const next = await followingPlayback(cur, show.value.title)
-    if (currentShow(context) && playing.value === cur) playing.value = next
-  } catch (e) { if (currentShow(context)) msg.value = '自动连播失败：' + e.message }
 }
 
 function refreshIngestedShow() {

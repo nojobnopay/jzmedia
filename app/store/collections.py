@@ -278,10 +278,12 @@ def prune_dangling_members(dry_run: bool = True,
                            media_library_id: int | None = None) -> dict:
     """清理指向已删影片的合集成员（删片前未同步的老数据，如美国派系列残留）。
 
-    悬挂判定：tmdb 键在 movies 中已无该 tmdb_id，或 id 键在 movies 中已无该行。
+    悬挂判定：所属媒体库内已无匹配 TMDB ID 或影片行的版本。
     只删成员行、不自动删合集（空合集由用户手动删除，返回 empty_ids 供提示）。
     media_library_id 限定所属媒体库时只处理该库合集。"""
     with _lock, _conn() as c:
+        if not dry_run:
+            c.execute("BEGIN IMMEDIATE")
         params: list = []
         scope = ""
         if media_library_id is not None:
@@ -289,24 +291,16 @@ def prune_dangling_members(dry_run: bool = True,
             params.append(int(media_library_id))
         mems = c.execute(
             "SELECT cm.rowid AS rid, cm.collection_id AS cid, col.name AS cname,"
-            " cm.movie_tmdb_id AS tid, cm.movie_id AS mid"
+            " cm.movie_tmdb_id AS tid, cm.movie_id AS mid,"
+            " CASE WHEN cm.movie_tmdb_id IS NOT NULL THEN EXISTS ("
+            "   SELECT 1 FROM main.movies m JOIN libraries l ON l.id=m.library_id"
+            "   WHERE m.tmdb_id=cm.movie_tmdb_id AND l.media_library_id=col.media_library_id)"
+            " ELSE EXISTS (SELECT 1 FROM main.movies m JOIN libraries l ON l.id=m.library_id"
+            "   WHERE m.id=cm.movie_id AND l.media_library_id=col.media_library_id) END AS live"
             " FROM collection_members cm"
             " JOIN collections col ON col.id=cm.collection_id" + scope,
             tuple(params)).fetchall()
-        live_tmdb = {int(r["tmdb_id"]) for r in
-                     c.execute("SELECT tmdb_id FROM movies WHERE tmdb_id IS NOT NULL").fetchall()
-                     if r["tmdb_id"]}
-        live_ids = {int(r["id"]) for r in
-                    c.execute("SELECT id FROM movies").fetchall()}
-        dangling = []
-        for m in mems:
-            tid, mid = m["tid"], m["mid"]
-            if tid:
-                if int(tid) not in live_tmdb:
-                    dangling.append(m)
-            elif mid:
-                if int(mid) not in live_ids:
-                    dangling.append(m)
+        dangling = [m for m in mems if not m["live"]]
         per_coll_total: dict = {}
         for m in mems:
             per_coll_total[int(m["cid"])] = per_coll_total.get(int(m["cid"]), 0) + 1
@@ -330,14 +324,9 @@ def prune_dangling_members(dry_run: bool = True,
                 cur = c.execute(
                     f"DELETE FROM collection_members WHERE rowid IN ({ph})", chunk)
                 removed += int(cur.rowcount or 0)
-            c.execute("UPDATE collections SET updated_at=? WHERE id IN "
-                      "(SELECT DISTINCT collection_id FROM collection_members)",
-                      (int(time.time()),))
-            # 已删光成员的合集也刷新 updated_at，保证列表排序反映清理
-            if empty_ids:
-                eph = ",".join("?" for _ in empty_ids)
-                c.execute(f"UPDATE collections SET updated_at=? WHERE id IN ({eph})",
-                          (int(time.time()), *empty_ids))
+            now = int(time.time())
+            c.executemany("UPDATE main.collections SET updated_at=? WHERE id=?",
+                          [(now, cid) for cid in per_coll_dead])
         return {"dry_run": False, "total": len(dangling), "removed": removed,
                 "empty_ids": empty_ids}
 

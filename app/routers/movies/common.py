@@ -1,10 +1,10 @@
 """routers.movies.common（自 app/routers/movies.py 拆分，评审 B9/R05-Q1；经 movies 门面使用）。"""
 import os
 from fastapi import HTTPException
-from ... import storage, store
+from ... import library_roots, storage, store
 from ...log import get_logger
 logger = get_logger("movies.common")
-__all__ = ['FilterList', '_PAGE_MAX', '_page', '_stream_upload',
+__all__ = ['FilterList', '_PAGE_MAX', '_page',
            '_stream_upload_backend', '_INLINE_EXTS', '_library_scope']
 
 FilterList = list[str] | None
@@ -41,65 +41,27 @@ def _page(limit: int, offset: int) -> tuple[int, int]:
     return lim, off
 
 
-def _stream_upload(file, dst: str) -> int:
-    """流式落盘（1MB 分块，先写 .part 再原子替换）。并发同名上传用 O_EXCL 占位：
-    第二个请求在占位阶段即 409，绝不覆盖（评审 B5a-5/R05-D2）。返回落盘字节数。"""
-    part = dst + ".part"
-    try:
-        fd = os.open(dst, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.close(fd)
-    except FileExistsError:
-        raise HTTPException(409, f"already exists: {os.path.basename(dst)!r}")
-    except OSError as e:
-        raise HTTPException(500, f"create target failed: {e}")
-    size = 0
-    replaced = False
-    try:
-        with open(part, "wb") as out:
-            while True:
-                chunk = file.file.read(1024 * 1024)
-                if not chunk:
-                    break
-                out.write(chunk)
-                size += len(chunk)
-        os.replace(part, dst)
-        replaced = True
-    except Exception as e:
-        try:
-            if os.path.exists(part):
-                os.remove(part)
-        except OSError:
-            pass
-        if not replaced:
-            try:
-                os.remove(dst)      # 清掉本次创建的占位
-            except OSError:
-                pass
-        raise HTTPException(500, f"upload failed: {e}")
-    return size
-
-
 def _stream_upload_backend(file, backend, rel: str) -> int:
-    """远程流式上传，原子提交时拒绝覆盖，即使同名文件并发出现。"""
+    """流式上传，原子提交时拒绝覆盖，即使同名文件并发出现。"""
     rel = backend.norm(rel)
-    try:
-        if backend.exists(rel):
-            raise HTTPException(409, f"already exists: {os.path.basename(rel)!r}")
-    except storage.StorageError as e:
-        raise HTTPException(503, f"check target failed: {e}")
     size = 0
     try:
-        with backend.open_write(rel, overwrite=False) as out:
-            while True:
-                chunk = file.file.read(1024 * 1024)
-                if not chunk:
-                    break
-                out.write(chunk)
-                size += len(chunk)
+        with library_roots.upload_root(backend) as verify_root:
+            if backend.exists(rel):
+                raise HTTPException(409, f"already exists: {os.path.basename(rel)!r}")
+            with backend.open_write(rel, overwrite=False) as out:
+                while chunk := file.file.read(1024 * 1024):
+                    out.write(chunk)
+                    size += len(chunk)
+                verify_root()
     except storage.StorageExists:
-        raise HTTPException(409, f"already exists: {os.path.basename(rel)!r}")
+        raise HTTPException(409, f"already exists: {os.path.basename(rel)!r}") from None
+    except library_roots.RootReview as e:
+        raise HTTPException(409, f"{e} 请在视频库的扫描工具中核对挂载。") from e
+    except storage.StorageOffline as e:
+        raise HTTPException(503, str(e)) from e
     except storage.StorageError as e:
-        raise HTTPException(500, f"upload failed: {e}")
+        raise HTTPException(500, f"upload failed: {e}") from e
     return size
 
 

@@ -1,4 +1,4 @@
-"""B7-FAIL 组：失败语义/一致性修复（先删库后删盘、去重 FTS、ff_index 缺失、系列查重、
+"""B7-FAIL 组：失败语义/一致性修复（删盘失败保留记录、去重 FTS、ff_index 缺失、系列查重、
 assert 控制流、成员插入日志）。"""
 import pathlib
 
@@ -28,14 +28,15 @@ def _row(rel, title="T", year=2020, tmdb_id=None):
     return mid
 
 
-# ---------- R05-B3：batch-delete 先库后盘 ----------
+# ---------- batch-delete 文件失败后保留该版本记录 ----------
 
-def test_batch_delete_db_first_and_reports_failures(media_root, monkeypatch):
+def test_batch_delete_preserves_failed_file_record(media_root, monkeypatch):
     rel = "b7del/movie.mkv"
     _touch(media_root, rel)
     mid = _row(rel)
 
-    # 模拟盘删失败：os.remove 抛 OSError → 库行仍应已删除，失败被上报
+    preview = client.post("/api/movies/batch-delete", json={"ids": [mid]}).json()
+    # 模拟盘删失败：库行与观看信息保留，失败逐文件上报。
     import os as _os
     real_remove = _os.remove
 
@@ -46,13 +47,13 @@ def test_batch_delete_db_first_and_reports_failures(media_root, monkeypatch):
 
     monkeypatch.setattr(movies_router.os, "remove", _boom)
     r = client.post("/api/movies/batch-delete",
-                    json={"ids": [mid], "dry_run": False, "confirm": True})
+                    json={"ids": [mid], "dry_run": False, "confirm": True, "preview_id": preview["preview_id"]})
     assert r.status_code == 200
     res = (r.json().get("results") or [])[0]
     assert res["status"] == "deleted_with_errors"
     assert res["failed_files"] and "permission denied" in res["failed_files"][0]["error"]
-    assert store.get_movie(mid) is None          # 库行已清（不会挂死行）
-    assert (media_root / rel).is_file()          # 盘上文件因失败保留（重扫可认领）
+    assert store.get_movie(mid) is not None
+    assert (media_root / rel).is_file()
 
 
 # ---------- R13-D6：探测缺 ff_index 的烧录请求 422 ----------

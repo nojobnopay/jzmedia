@@ -5,6 +5,7 @@
 当前沿用剧集跳过语义。
 """
 import os
+from .. import library_roots
 from .. import library_paths
 from .. import storage
 from .. import store
@@ -66,7 +67,7 @@ def attribute_extra(abs_path: str, library_id=None) -> dict:
     return attribute_extra_file(storage.backend_for(lib_id), rel)
 
 
-def attribute_extra_file(backend, rel: str) -> dict:
+def attribute_extra_file(backend, rel: str, *, tree_files=None) -> dict:
     """花絮归属：解析标题/年份 → 库内标题/原标题匹配（年份±1，种类词前后缀剥掉再试一轮）
     → extras 表幂等记录。历史 orphan 在正片后入库/匹配修好后重扫自动补归属
     （已有归属的不碰，手工认领优先）。
@@ -80,6 +81,8 @@ def attribute_extra_file(backend, rel: str) -> dict:
     if kind == "sample":
         # 样片片段：只认不收（永不归属、不入库、不搬迁）
         return {"file": rel, "status": ST_SKIPPED_SAMPLE}
+    if tree_files is None:
+        library_roots.checked(backend)
     parsed = parse_filename(base)
     title = normalize_title(parsed.get("title") or "")
     # 花絮文件名常带原标题（如 Making of おもひでぽろぽろ）：归一后直比；
@@ -107,7 +110,8 @@ def attribute_extra_file(backend, rel: str) -> dict:
             mid = hit["id"]
             break
     # 已入库（搬迁改路径）先按 basename 认领，避免删建抖动
-    claimed = store.repath_extra_by_basename(base, rel, mid, kind, library_id=lib_id)
+    claimed = store.repath_extra_by_basename(base, rel, mid, kind, library_id=lib_id,
+                                             backend=backend, tree_files=tree_files)
     if claimed is None:
         store.upsert_extra(rel, mid, kind, library_id=lib_id)
     elif mid and not claimed.get("movie_id"):
@@ -143,7 +147,7 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None,
 
 def scan_file(backend, rel: str, force: bool = False,
               tmdb_hint: int | None = None, local_index: dict | None = None,
-              entry=None) -> dict:
+              entry=None, *, tree_files=None) -> dict:
     """单文件入库（backend+库内相对路径；本地/远程直读统一）。
     force=True（手动重试）跳过增量跳过与缓存短路，重新刮削。
     tmdb_hint（复制文件时来自源行）：缓存命中则直绑该 tmdb_id，避免重搜与误配。
@@ -156,7 +160,9 @@ def scan_file(backend, rel: str, force: bool = False,
     if is_sidecar(rel, backend=backend):
         if is_sample(os.path.basename(rel)):
             return {"file": rel, "status": "skipped_sample"}
-        return attribute_extra_file(backend, rel)
+        return attribute_extra_file(backend, rel, tree_files=tree_files)
+    if entry is None:
+        library_roots.checked(backend)
     cached = store.get_by_path(rel, library_id=lib_id)
     if cached and not force:
         if cached.get("tmdb_id"):
@@ -555,6 +561,10 @@ def _scan_tv_file(backend, rel: str, entry=None, show_root=None,
     rel = backend.norm(rel)
     base = os.path.basename(rel)
     from ..tv_binding_rules import bound_numbers
+    # A standalone import can be the first sight of a new share. The bulk
+    # scanner already checked the directory before collecting its entries.
+    if entry is None:
+        library_roots.checked(backend)
     rule = store.tv_binding_for(lib_id, rel)
     if rule:
         target_show_id = int(rule['show_id'])
@@ -686,6 +696,7 @@ def scan_tv_show(show_id: int, force: bool = False, should_stop=None) -> dict:
                         'message': '无法确定本剧独占目录，已保留原记录，请扫描所属视频库并核对归属'}]}}
     backend = storage.backend_for(lib_id)
     storage.clear_meta_cache(lib_id)
+    root_identity = library_roots.checked(backend)
     entries = []
     for root in roots:
         entries.extend(backend.iter_tree(root, skip_dirs=scan_skip_dirs()))
@@ -698,7 +709,8 @@ def scan_tv_show(show_id: int, force: bool = False, should_stop=None) -> dict:
         reconciliation = reconcile_snapshot(backend, episodes, entries,
             lambda entry: _tv_snapshot_identity(backend, entry, show_root=show_dir,
                 episode_hint=hints.get(entry.rel), target_show_id=sid),
-            roots=roots, skip_dirs=scan_skip_dirs(), should_stop=should_stop)
+            roots=roots, skip_dirs=scan_skip_dirs(), should_stop=should_stop,
+            validate_root=lambda: library_roots.require_same(backend, root_identity))
         if not reconciliation['incomplete']:
             for entry in vids:
                 if should_stop and should_stop():
@@ -783,7 +795,7 @@ def _scan_all(progress_cb=None, should_stop=None, library_id=None,
         return []
     skip_dirs = scan_skip_dirs()
     out: list[dict] = []
-    plans: list[tuple[dict, object, list]] = []
+    plans = []
     grand = 0
     for lib in libs:
         lib_id = _lib_id(lib.get("id"))
@@ -800,8 +812,14 @@ def _scan_all(progress_cb=None, should_stop=None, library_id=None,
                 'SELECT * FROM tv_episodes WHERE library_id=?', (lib_id,))]
         storage.clear_meta_cache(lib_id)   # 扫描必须看到磁盘当前状态（不吃 TTL 缓存）
         try:
-            backend.stat("")
+            root_identity = library_roots.checked(backend)
             entries = list(backend.iter_tree("", skip_dirs=skip_dirs))
+            if root_identity is not None:
+                library_roots.require_same(backend, root_identity)
+        except library_roots.RootReview as e:
+            out.append({"file": "", "library_id": lib_id, "status": ST_LIBRARY_OFFLINE,
+                        "error": str(e), "root_review": e.review})
+            continue
         except storage.StorageOffline as e:
             logger.warning("扫描跳过离线库 lib=%s: %s", lib_id, e)
             out.append({"file": "", "library_id": lib_id,
@@ -817,7 +835,8 @@ def _scan_all(progress_cb=None, should_stop=None, library_id=None,
         # TV：子剧目录（七龙珠.Z）+ 无编号特典顺序号，一次遍历内预计算
         ctx = (tv_plan(entries, vids)
                if str(lib.get("kind") or "movie") == "tv" else None)
-        plans.append((lib, backend, vids, tree_files, ctx, change_revision, entries, before_episodes))
+        plans.append((lib, backend, vids, tree_files, ctx, change_revision,
+                      entries, before_episodes, root_identity))
         grand += len(vids)
     if progress_cb:
         try:
@@ -836,7 +855,8 @@ def _scan_all(progress_cb=None, should_stop=None, library_id=None,
         logger.debug("list extras failed: %s", e)
         all_extras = []
     done = 0
-    for lib, backend, vids, tree_files, ctx, change_revision, entries, before_episodes in plans:
+    for (lib, backend, vids, tree_files, ctx, change_revision, entries,
+         before_episodes, root_identity) in plans:
         lib_id = _lib_id(lib.get("id"))
         is_tv = str(lib.get("kind") or "movie") == "tv"
         reconciliation = None
@@ -855,7 +875,8 @@ def _scan_all(progress_cb=None, should_stop=None, library_id=None,
                                 'status': 'error: files changed during scan; scan again'})
                     continue
                 reconciliation = reconcile_snapshot(backend, before_episodes, entries, identity,
-                    roots=[''], skip_dirs=skip_dirs, should_stop=should_stop)
+                    roots=[''], skip_dirs=skip_dirs, should_stop=should_stop,
+                    validate_root=lambda: library_roots.require_same(backend, root_identity))
             retained_paths = reconciliation.pop('retained_paths')
             reconciliation.pop('replacements')
             for field, status in [('replaced', 'replaced_episode'), ('removed', 'removed_episode'),
@@ -869,6 +890,7 @@ def _scan_all(progress_cb=None, should_stop=None, library_id=None,
                 offline = any(issue.get('code') == 'library_offline'
                               for issue in reconciliation['issues'])
                 out.append({'file': '', 'library_id': lib_id,
+                            **({'root_review': reconciliation['root_review']} if reconciliation.get('root_review') else {}),
                             'status': ST_LIBRARY_OFFLINE if offline
                             else 'error: TV files changing or unavailable; check again'})
                 done += len(vids)
@@ -890,7 +912,7 @@ def _scan_all(progress_cb=None, should_stop=None, library_id=None,
                                      force=force)
                 else:
                     r = scan_file(backend, e.rel, force=force,
-                                  local_index=local_index, entry=e)
+                                  local_index=local_index, entry=e, tree_files=tree_files)
                 r["library_id"] = lib_id
                 out.append(r)
                 if is_tv and r.get('source_changed') and e.rel in before_paths:
@@ -916,9 +938,10 @@ def _scan_all(progress_cb=None, should_stop=None, library_id=None,
         with library_mutation_lock(lib_id):
             try:
                 storage.clear_meta_cache(lib_id)
-                backend.stat("")
+                library_roots.require_same(backend, root_identity)
             except storage.StorageError as ex:
                 out.append({"file": "", "library_id": lib_id,
+                            **({"root_review": ex.review} if isinstance(ex, library_roots.RootReview) else {}),
                             "status": ST_LIBRARY_OFFLINE if isinstance(ex, storage.StorageOffline)
                             else f"error: library unavailable: {ex}"})
                 continue

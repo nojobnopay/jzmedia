@@ -15,7 +15,7 @@
         源文件缺失或原路径被占用时会跳过并提示。
       </p>
       <div class="bar">
-        <select v-model="batchId">
+        <select v-model="batchId" :disabled="!!busy2">
           <option value="">（最近一次批次）</option>
           <option v-for="b in batches" :key="b.batch_id" :value="b.batch_id">
             {{ fmtBatch(b) }}
@@ -24,21 +24,21 @@
       </div>
       <div class="chips">
         <JzButton v-for="k in KIND_OPTS" :key="k.value" type="button" class="chip toggle"
-          :class="{ on: kinds[k.value] }" :aria-pressed="!!kinds[k.value]" @click="kinds[k.value] = !kinds[k.value]">{{ k.label }}</JzButton>
-        <JzButton type="button" class="mini" @click="toggleAllKinds" size="compact">{{ allKinds ? '全不选' : '全选' }}</JzButton>
+          :class="{ on: kinds[k.value] }" :disabled="!!busy2" :aria-pressed="!!kinds[k.value]" @click="kinds[k.value] = !kinds[k.value]">{{ k.label }}</JzButton>
+        <JzButton type="button" class="mini" :disabled="!!busy2" @click="toggleAllKinds" size="compact">{{ allKinds ? '全不选' : '全选' }}</JzButton>
       </div>
       <div class="bar">
         <JzButton @click="restore(true)" :disabled="!!busy2 || !selectedKinds.length" type="button" icon="eye">
           {{ busy2 === 'plan' ? '预览中…' : '预览撤销' }}
         </JzButton>
-        <JzButton icon="undo" @click="restore(false)" :disabled="!!busy2 || !selectedKinds.length"
+        <JzButton icon="undo" @click="restore(false)" :disabled="!!busy2 || !preview"
           :class="{ danger: armUndo }" :variant="armUndo ? 'danger' : 'secondary'" type="button">
           {{ busy2 === 'exec' ? `撤销中 ${done2}/${total2}…` : (armUndo ? '确认执行撤销' : '执行撤销') }}
         </JzButton>
         <JzButton v-if="busy2" @click="cancelRestore" type="button">取消</JzButton>
         <span class="dim">{{ restoreMsg }}</span>
       </div>
-      <p v-if="armUndo" class="hint warn-text">将按记录把上述文件反向搬回原路径（不改文件名）。再点一次执行。</p>
+      <p v-if="armUndo" class="hint warn-text">将按预览把该批次的文件和目录还原到原路径。再点一次执行。</p>
       <table v-if="restorePlans.length" class="org-table">
         <thead>
           <tr><th>剧</th><th>还原</th><th>冲突</th></tr>
@@ -51,6 +51,9 @@
           </tr>
         </tbody>
       </table>
+      <ul v-if="restoreIssues.length" class="hint warn-text" aria-label="撤销未完成的项目">
+        <li v-for="(issue, i) in restoreIssues" :key="i">{{ issue }}</li>
+      </ul>
     </details>
   </section>
 </template>
@@ -96,9 +99,12 @@ const allKinds = computed(() => KIND_OPTS.every((k) => kinds.value[k.value]))
 const busy2 = ref(null)
 const restoreMsg = ref('')
 const restorePlans = ref([])
+const restoreIssues = ref([])
 const done2 = ref(0)
 const total2 = ref(0)
 const armUndo = ref(false)
+const preview = ref(null)
+let restoreGeneration = 0
 let job2 = ''
 let timer2 = null
 
@@ -118,55 +124,70 @@ function fmtBatch(b) {
 
 async function loadHistory() {
   try {
-    const d = await api('/api/jobs/tv-organize/history?limit=30')
-    batches.value = d.batches || []
+    const id = props.library.id
+    const d = await api('/api/jobs/tv-organize/history?limit=30&library_id=' + id)
+    if (!disposed && props.library.id === id) batches.value = d.batches || []
   } catch (e) { /* 忽略 */ }
 }
 
 async function restore(dryRun) {
-  if (!selectedKinds.value.length) return
+  if (busy2.value || !selectedKinds.value.length || (!dryRun && !preview.value)) return
   if (!dryRun && !armUndo.value) {
     armUndo.value = true
     restoreMsg.value = ''
     return
   }
+  const generation = ++restoreGeneration
+  const reviewed = preview.value
+  preview.value = null
   armUndo.value = false
   busy2.value = dryRun ? 'plan' : 'exec'
   restoreMsg.value = ''
   restorePlans.value = []
+  restoreIssues.value = []
   done2.value = 0
   total2.value = 0
   try {
     const d = await api('/api/jobs/tv-organize-restore', {
       method: 'POST',
       body: JSON.stringify({
-        batch_id: batchId.value || null,
+        batch_id: dryRun ? batchId.value || null : reviewed.batch_id,
+        ...(dryRun ? {} : { preview_id: reviewed.preview_id }),
         library_id: props.library.id,
         kinds: selectedKinds.value,
         dry_run: dryRun,
       }),
     })
+    if (disposed || generation !== restoreGeneration) return
     job2 = d.job_id
     clearInterval(timer2)
     timer2 = setInterval(pollRestore, 1200)
   } catch (e) {
+    if (disposed || generation !== restoreGeneration) return
     restoreMsg.value = '启动失败：' + e.message
     busy2.value = null
   }
 }
 
 async function pollRestore() {
+  const generation = restoreGeneration
   try {
     const j = await api('/api/jobs/tv-organize-restore/' + job2)
+    if (disposed || generation !== restoreGeneration || !busy2.value) return
     done2.value = j.done || 0
     total2.value = j.total || 0
     if (j.state === 'done') {
       clearInterval(timer2); timer2 = null; busy2.value = null
       const s = j.summary || {}
       restorePlans.value = s.plans || []
+      restoreIssues.value = s.dry_run
+        ? restorePlans.value.flatMap(p => (p.conflicts || []).map(m => `${m.from || m.to}：${m.reason}`))
+        : s.errors || []
       if (s.dry_run) {
+        if (s.total > 0 && s.batch_id && s.preview_id) preview.value = { batch_id: s.batch_id, preview_id: s.preview_id }
         restoreMsg.value = `批次 ${s.batch_id || '（最近）'}：可还原 ${s.total || 0} 条，`
           + `冲突 ${s.conflicts || 0}`
+          + (s.total > 0 && !s.preview_id ? '。服务端缺少撤销预览凭据，请更新服务后重试。' : '')
       } else {
         restoreMsg.value = `完成：还原 ${s.restored || 0}，跳过 ${s.skipped || 0}`
           + (s.failed ? `，失败 ${s.failed}` : '')
@@ -185,6 +206,20 @@ async function cancelRestore() {
   try { await api(`/api/jobs/tv-organize-restore/${job2}/cancel`, { method: 'POST' }) } catch (e) { /* 忽略 */ }
 }
 
+
+watch([() => props.library.id, () => props.active, batchId, selectedKinds], () => {
+  restoreGeneration++
+  clearInterval(timer2)
+  timer2 = null
+  job2 = ''
+  busy2.value = null
+  preview.value = null
+  armUndo.value = false
+  restoreMsg.value = ''
+  restorePlans.value = []
+  restoreIssues.value = []
+}, { flush: 'sync' })
+watch(() => props.library.id, () => { batchId.value = ''; batches.value = [] }, { flush: 'sync' })
 
 onMounted(() => { reload(); window.addEventListener('jzmedia:content-changed', reload) })
 watch([() => props.active, () => props.library.id, includeIgnored], reload)

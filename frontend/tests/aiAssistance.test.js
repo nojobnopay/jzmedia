@@ -207,6 +207,27 @@ test('protected TV directory binding shows server guidance instead of a generic 
   assert.match(ui.text(), /换绑请使用“归属与季号”/)
   assert.doesNotMatch(ui.text(), /仅索引线索/)
 })
+test('the settings page repairs a bad environment field without saving unrelated values or testing a provider', async t => {
+  const calls = []
+  const state = savedAiSettings({ enabled: false, timeout_seconds: 12, daily_limit: 231,
+    invalid_fields: { timeout_seconds: '超时秒数须为整数' } })
+  const ui = await mount(t, 'AiSettingsPanel', {}, async (path, options) => {
+    calls.push({ path, ...options })
+    if (options.method === 'PATCH') return savedAiSettings({ enabled: false, timeout_seconds: 15, daily_limit: 231 })
+    return state
+  })
+  await flush()
+  assert.deepEqual(calls[0].headers, { 'X-AI-Settings-Repair': '1' })
+  assert.match(ui.text(), /超时秒数须为整数/)
+  assert.equal(ui.button('保存智能辅助配置').props.disabled, false)
+  assert.equal(ui.button('测试已保存连接').props.disabled, true)
+  ui.nodes().find(node => node.props?.id === 'ai-timeout' && node.type === 'input').props['onUpdate:modelValue'](15)
+  await flush(); await ui.button('保存智能辅助配置').props.onClick(); await flush()
+  assert.deepEqual(calls.map(call => call.method), ['GET', 'PATCH'])
+  assert.deepEqual(JSON.parse(calls[1].body), { timeout_seconds: 15 })
+  assert.doesNotMatch(ui.text(), /需要修正|须为整数/)
+})
+
 test('settings persist key only on save, independently test saved config, and explicitly clear with env fallback', async t => {
   const requests = []
   let saved = { enabled: false, provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-flash',

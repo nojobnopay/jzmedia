@@ -13,6 +13,9 @@ from app.store import online
 from test_online_catalog import environment as environment
 
 
+POSTER_REPORT = {"X-Online-Host-Report": "2"}
+
+
 def endpoint(environment, action="host-check"):
     return f"/api/online/sources/{environment.source['id']}/{action}"
 
@@ -22,7 +25,7 @@ def inspected(environment):
         "第1集$https://NEW.EXAMPLE/ep-1.m3u8?signature=server-only-private"
         "#第2集$https://new.example/ep-2.m3u8?signature=server-only-private#",
         vod_pic="https://images.example/poster.jpg?secret=server-only-private")
-    response = environment.client.post(endpoint(environment), json={"external_id": "show-1"})
+    response = environment.client.post(endpoint(environment), json={"external_id": "show-1"}, headers=POSTER_REPORT)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -47,7 +50,7 @@ def test_inspection_reads_one_detail_and_returns_only_missing_exact_hosts(enviro
 def test_settings_host_check_selects_a_programme_with_a_blocked_poster(environment):
     environment.movie["vod_pic"] = "https://cdn.example/allowed.png"
     environment.show["vod_pic"] = "https://poster.example/missing.jpg?private=1"
-    report = environment.client.post(endpoint(environment), json={}).json()
+    report = environment.client.post(endpoint(environment), json={}, headers=POSTER_REPORT).json()
     assert report["external_id"] == "show-1" and report["title"] == "合成剧集"
     assert report["missing_hosts"] == report["missing_poster_hosts"] == ["poster.example"]
     assert environment.requests == [{"ac": "detail", "pg": "1"}]
@@ -62,11 +65,36 @@ def test_settings_host_check_matches_lightweight_list_to_details(environment, mo
         environment.requests.append(params)
         return {"code": 1, "list": [row if "pg" in params else detail]}
     monkeypatch.setattr(maccms, "fetch", fetch)
-    report = environment.client.post(endpoint(environment), json={}).json()
+    report = environment.client.post(endpoint(environment), json={}, headers=POSTER_REPORT).json()
     assert report["missing_poster_hosts"] == ["detail.example", "list.example"]
     assert environment.requests == [{"ac": "detail", "pg": "1"}, {"ac": "detail", "ids": "movie-1"}]
     detail["vod_id"] = "different"
     assert environment.client.post(endpoint(environment), json={}).status_code == 404
+
+
+def test_search_thumbnail_host_report_preserves_legacy_shape_and_scope(environment, monkeypatch):
+    source = environment.source
+    entry = {**environment.movie, "vod_pic": "https://thumb.example/poster.jpg"}
+    detail = {**entry, "vod_pic": "https://cover.example/movie.jpg"}
+    other = {**environment.show, "vod_pic": "https://other.example/cover.jpg"}
+    def fetch(_source, params):
+        if "wd" in params:
+            return {"list": [entry, other]}
+        return {"list": [detail]}
+    monkeypatch.setattr(maccms, "fetch", fetch)
+    client = environment.client
+    listing = client.get("/api/online/catalog/search", params={"source_id": source["id"], "q": "合成"})
+    assert listing.json()["items"][0]["poster_host_blocked"]
+    body = {"external_id": entry["vod_id"]}
+    legacy = client.post(endpoint(environment), json=body).json()
+    assert set(legacy) == {"source_id", "external_id", "missing_hosts", "allowed_hosts",
+                           "rejected_count", "configuration_fingerprint"}
+    assert legacy["missing_hosts"] == ["cover.example"]
+    report = client.post(endpoint(environment), json=body, headers=POSTER_REPORT).json()
+    assert report["missing_poster_hosts"] == report["missing_hosts"] == ["cover.example", "thumb.example"]
+    online.update_online_source(source["id"], {"priority": 5})
+    report = client.post(endpoint(environment), json=body, headers=POSTER_REPORT).json()
+    assert report["missing_poster_hosts"] == ["cover.example"]
 
 
 def test_settings_empty_catalogue_reports_no_programme(environment, monkeypatch):

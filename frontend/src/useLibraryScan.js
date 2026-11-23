@@ -10,6 +10,7 @@ let timer = null
 let pending = null
 let reviewedScan = ''
 const scanReviewScopes = new Map()
+const acceptedRoots = reactive(new Map())
 export function scanApplies(job, library) {
   if (!job?.job_id || !library) return false
   if (job.library_id != null) return Number(job.library_id) === Number(library.id)
@@ -23,6 +24,9 @@ export function scanSummary(job, library) {
   if (job.state !== 'done') return ''
   const sum = job.summary || {}
   const c = sum.by_library?.[library.id] || sum.counts || {}
+  const review = sum.root_reviews?.[library.id]
+  if (review) return acceptedRoots.get(library.id) === review.token
+    ? '已确认当前目录。可重新扫描或检查失效条目。' : '扫描已暂停，请核对当前媒体目录。已有条目和播放进度已保留。'
   if (c.library_offline) return '库离线，已跳过扫描'
   const parts = [`新增/更新 ${(c.ok || 0) + (c.ok_needs_review || 0) + (c.tv_ok || 0)}`,
     `未匹配 ${(c.no_match || 0) + (c.skipped_tv_unknown || 0)}`]
@@ -66,11 +70,43 @@ function schedule() {
   if (subscribers) timer = setTimeout(async () => { await refresh(); schedule() }, 1500)
 }
 export function useLibraryScan(library, onDone = () => {}, { isCurrent = () => true } = {}) {
+  const root = reactive({ reported: null, feedback: '', saving: false })
+  const rootReview = computed(() => {
+    const id = library()?.id
+    const job = shared.job
+    const review = root.reported?.library_id === id ? root.reported
+      : scanApplies(job, library()) ? job.summary?.root_reviews?.[id] : null
+    return review && acceptedRoots.get(id) !== review.token ? review : null
+  })
+  watch(() => library()?.id, () => {
+    root.reported = null
+    root.feedback = ''
+  }, { flush: 'sync' })
+  function reportRootReview(review) {
+    root.reported = review || null
+  }
+  async function acceptRoot() {
+    const review = rootReview.value
+    if (!review?.token || root.saving) return
+    root.saving = true
+    root.feedback = ''
+    try {
+      await api(`/api/libraries/${review.library_id}/accept-scan-root`, {
+        method: 'POST', body: JSON.stringify({ token: review.token }),
+      })
+      acceptedRoots.set(review.library_id, review.token)
+      if (library()?.id !== review.library_id) return
+      root.reported = null
+      root.feedback = '已确认当前目录。可重新扫描或检查失效条目。'
+    } catch (e) {
+      if (library()?.id === review.library_id) root.feedback = '确认失败，请重新检查目录。' + e.message
+    } finally { root.saving = false }
+  }
   const running = computed(() => scanApplies(shared.job, library()) && shared.job.state === 'running')
   const blocked = computed(() => shared.starting || shared.job?.state === 'running')
-  const message = computed(() => shared.error || scanSummary(shared.job, library()) ||
+  const message = computed(() => root.feedback || shared.error || scanSummary(shared.job, library()) ||
     (shared.job?.state === 'running' ? '另一个范围的扫描正在进行，请等待完成。' : ''))
-  const stateText = computed(() => running.value ? '扫描中…' : scanApplies(shared.job, library())
+  const stateText = computed(() => running.value ? '扫描中…' : rootReview.value ? '待核对目录' : scanApplies(shared.job, library())
     ? ({ done: '完成', failed: '失败', cancelled: '已取消' }[shared.job.state] || '随时可用') : '随时可用')
   let observed = ''
   let disposed = false
@@ -86,6 +122,7 @@ export function useLibraryScan(library, onDone = () => {}, { isCurrent = () => t
   async function start() {
     const lib = library()
     if (!lib || lib.enabled === false || lib.enabled === 0 || blocked.value) return false
+    root.feedback = ''
     shared.starting = true
     shared.error = ''
     const validContext = tvIngestFlow.captureContext()
@@ -107,5 +144,5 @@ export function useLibraryScan(library, onDone = () => {}, { isCurrent = () => t
   }
   onMounted(() => { subscribers++; scanCleanupFollowups.reload(); refresh().then(schedule) })
   onUnmounted(() => { disposed = true; subscribers--; if (!subscribers) clearTimeout(timer) })
-  return { running, blocked, message, stateText, start, cancel }
+  return { running, blocked, message, stateText, start, cancel, rootReview, acceptRoot, reportRootReview, rootSaving: computed(() => root.saving) }
 }

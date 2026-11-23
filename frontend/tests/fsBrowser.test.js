@@ -129,7 +129,7 @@ test('context actions capture their explicit target without changing checked fil
   const { state } = fixture(t, async (url, options) => {
     const body = JSON.parse(options.body)
     requests.push({ url, body })
-    return { plans: body.paths.map(rel => ({ rel, kind: 'subtitle' })) }
+    return { preview_id: 'context-subtitle', plans: body.paths.map(rel => ({ rel, kind: 'subtitle' })) }
   })
   state.files.value = ['checked.srt', 'context.srt'].map(rel => ({ rel, name: rel, kind: 'subtitle' }))
   state.writable.value = true
@@ -234,7 +234,7 @@ test('feature deletion requires a visible preview before confirm and excludes no
     if (url.startsWith('/api/fs/list')) return listing()
     const body = JSON.parse(options.body)
     requests.push(body)
-    return body.dry_run ? { plans: [
+    return body.dry_run ? { preview_id: 'checked-files', plans: [
       { rel: 'e.mkv', kind: 'feature', episode_id: 22, requires_confirm: true },
       { rel: 'a.srt', kind: 'subtitle', requires_confirm: false },
       { rel: 'folder', kind: 'dir', status: 'dir_not_empty' },
@@ -247,7 +247,7 @@ test('feature deletion requires a visible preview before confirm and excludes no
   assert.equal(requests[0].dry_run, true)
   assert.equal(state.prompt.value.type, 'delete')
   await state.confirmDelete()
-  assert.deepEqual(requests[1], { library_id: 7, paths: ['e.mkv', 'a.srt'], dry_run: false, confirm: true })
+  assert.deepEqual(requests[1], { library_id: 7, paths: ['e.mkv', 'a.srt', 'folder'], preview_id: 'checked-files', dry_run: false, confirm: true })
   assert.deepEqual(events.at(-1), ['changed', { library_id: 7, operation: 'delete', count: 2 }])
 })
 
@@ -587,4 +587,21 @@ test('background completion cannot clear a failed destination; queued refresh wa
   assert.equal(state.path.value, '目标目录')
   assert.equal(state.loadError.value, '')
   assert.deepEqual(requestedPaths, ['原目录', '目标目录', '目标目录', '目标目录', ''])
+})
+
+test('a missing preview token or changed file requires a fresh confirmation', async t => {
+  let key = ''
+  const { state } = fixture(t, async (_url, options) => {
+    if (JSON.parse(options.body).dry_run) return { plans: [{ rel: 'a.srt', kind: 'subtitle' }], preview_id: key }
+    throw Object.assign(new Error('文件已变化，请重新预览'), { status: 409 })
+  })
+  state.writable.value = true
+  await state.beginDelete(['a.srt'])
+  assert.equal(state.prompt.value, null)
+  assert.match(state.message.value, /凭据/)
+  key = 'subtitle-v1'
+  await state.beginDelete(['a.srt'])
+  await state.confirmDelete()
+  assert.equal(state.prompt.value, null)
+  assert.match(state.message.value, /重新预览/)
 })

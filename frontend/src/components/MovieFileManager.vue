@@ -124,36 +124,46 @@ function openPlayer(file) {
   previewFile.value = { ...file, url: blobUrl(file.rel || file.name) }
 }
 function closePlayer() { previewFile.value = null }
-watch(() => props.movieId, closePlayer, { flush: 'sync' })
 
 const delArm = ref({})
 const delMsg = ref('')
+watch(() => props.movieId, () => {
+  closePlayer()
+  delArm.value = {}
+  delMsg.value = ''
+}, { flush: 'sync' })
 
 async function doFileDelete(f) {
   const name = f.rel || f.name
+  const movieId = props.movieId
   delMsg.value = ''
   try {
-    const d = await api('/api/movies/' + props.movieId + '/files', {
+    const d = await api('/api/movies/' + movieId + '/files', {
       method: 'DELETE',
       body: JSON.stringify({ name, dry_run: true })
     })
-    const p = (d.plans || [])[0] || {}
+    if (props.movieId !== movieId) return
+    const p = d.plans?.[0]
+    if (!d.preview_id || !p?.rel || p.status) throw new Error('文件不可删除，请刷新后重新预览')
     // 两步确认对所有文件统一（评审 B6/R05-D4）：非正片单击即删太容易误触
-    delArm.value = { ...delArm.value, [name]: p }
+    delArm.value = { ...delArm.value, [name]: { ...p, movieId, preview_id: d.preview_id } }
     delMsg.value = p.requires_confirm
       ? `警告：将删除正片 ${f.name}，海报墙同步移除。再点「确认删除正片」执行`
       : `将删除 ${f.name}，再点「确认删除」执行`
   } catch (e) {
-    delMsg.value = '删除失败：' + e.message
+    if (props.movieId === movieId) delMsg.value = '删除失败：' + e.message
   }
 }
 async function doFileDeleteConfirm(f) {
   const name = f.rel || f.name
+  const plan = delArm.value[name]
+  if (!plan || plan.movieId !== props.movieId) return
   try {
-    const d = await api('/api/movies/' + props.movieId + '/files', {
+    const d = await api('/api/movies/' + plan.movieId + '/files', {
       method: 'DELETE',
-      body: JSON.stringify({ name, dry_run: false, confirm: true })
+      body: JSON.stringify({ name: plan.rel, preview_id: plan.preview_id, dry_run: false, confirm: true })
     })
+    if (plan.movieId !== props.movieId) return
     const r = (d.results || [])[0] || {}
     delMsg.value = r.status === 'deleted' ? '已删除，库已同步清理' : ('删除：' + (r.status || '失败'))
     const cp = { ...delArm.value }
@@ -162,6 +172,8 @@ async function doFileDeleteConfirm(f) {
     closePlayer()
     emit('changed')
   } catch (e) {
+    if (plan.movieId !== props.movieId) return
+    if (e.status === 409) delete delArm.value[name]
     delMsg.value = '删除失败：' + e.message
   }
 }

@@ -73,7 +73,11 @@
             <JzButton v-if="detail.item.kind === 'tv' && selectedLine" icon="download" :disabled="starting || nextLoading || !enabled" data-online-cache-create @click="openCacheDialog">缓存剧集</JzButton>
           </div>
           </header>
-          <p v-if="detailCached" class="online-scope" data-online-cache-detail-note>本地缓存 · 资料与集序来自保存时的快照；未缓存的集数会在联网播放前请你确认。<JzButton variant="ghost" icon="refresh" @click="refreshDetailCache">刷新缓存状态</JzButton></p>
+          <p v-if="detailCached" class="online-scope" data-online-cache-detail-note>本地缓存 · 资料与集序来自保存时的快照。
+            <JzButton variant="ghost" :disabled="!enabled || starting || nextLoading" data-online-live-episodes @click="openNetworkEpisodes()">联网查看分集</JzButton>
+            <JzButton variant="ghost" icon="refresh" @click="refreshDetailCache">刷新缓存状态</JzButton>
+            <span v-if="cacheRefreshError" role="status">{{ cacheRefreshError }}</span>
+          </p>
           <p v-if="cacheContext && !enabled" class="online-scope" role="status">在线点播已关闭，可删除缓存；重新启用后观看。</p>
           <p v-if="lastEntry" class="online-last-watched" data-online-last-watched>
             <span>{{ itemState.last_progress.completed ? '上次已看完' : '上次观看' }}：{{ lastLine?.label }}<span v-if="detail.item.kind === 'tv'"> · {{ lastEntry.label }}</span><span v-if="!itemState.last_progress.completed"> · {{ fmt(itemState.last_progress.position) }}</span></span>
@@ -202,6 +206,7 @@ const itemStateLoading = ref(false), detailRoot = ref(null), detailTitle = ref(n
 const browseTools = ref(null), libraryRoot = ref(null)
 const pageView = ref(pageViewFor(route.query.view)), cacheView = ref(null)
 const detailCached = ref(false), detailCacheEntries = ref([]), cacheItemId = ref(''), cacheDialog = ref(false), networkPrompt = ref(null), networkError = ref('')
+const cacheRefreshError = ref('')
 const continueRows = ref([]), continueLoading = ref(true), continueError = ref('')
 const librarySection = ref(recordTab(route.query.tab)), libraryRows = ref([]), libraryOffset = ref(0), libraryTotal = ref(0), libraryScope = ref('')
 const libraryLoading = ref(true), libraryError = ref(''), mutationBusy = ref(new Set())
@@ -405,6 +410,7 @@ async function showCache(navigate = true, navigationTicket = null) {
 }
 function applyCacheSnapshot(value) {
   cacheStatus(value.enabled !== false)
+  cacheRefreshError.value = ''
   detailCacheEntries.value = value.entries
   detail.value = { ...value.detail, lines: value.detail.lines.map(line => ({ ...line,
     entries: line.entries.map(entry => onlineCachedEntry(value.entries, entry.identity)?.state === 'ready' ? { ...entry, supported: true, reason: '' } : entry) })) }
@@ -439,26 +445,50 @@ function retryDetail() { if (pageView.value === 'cache' && cacheItemId.value) vo
 async function refreshDetailCache() {
   const id = detail.value?.item.id, turn = generation
   if (!id) return
-  try { const value = await cacheDetailClient.detail(id); if (current(turn) && detail.value?.item.id === id) { detailCacheEntries.value = value?.entries || []; if (value) cacheStatus(value.enabled !== false) } }
-  catch { if (current(turn) && detail.value?.item.id === id) detailCacheEntries.value = [] }
+  try {
+    const value = await cacheDetailClient.detail(id)
+    if (!value || !current(turn) || detail.value?.item.id !== id) return
+    detailCacheEntries.value = value.entries
+    cacheRefreshError.value = ''
+    cacheStatus(value.enabled !== false)
+  } catch (error) {
+    if (!current(turn) || detail.value?.item.id !== id) return
+    if (error.status === 404) detailCacheEntries.value = []
+    if (detailCached.value) cacheRefreshError.value = error.status === 404
+      ? '此节目的缓存已删除。' : '暂时无法刷新缓存状态，仍显示上次读取的结果。'
+  }
 }
 async function openCacheDialog() { const turn = generation, line = lineId.value; await refreshDetailCache(); if (current(turn) && enabled.value && line === lineId.value && detail.value && selectedLine.value) cacheDialog.value = true }
 function cacheStatus(value) { enabled.value = value; if (!value) { cacheDialog.value = false; networkPrompt.value = null } }
 function cacheCreated() { cacheDialog.value = false; stateNotice.value = '已加入后台缓存队列，关闭网页后会继续。可在“本地缓存”查看进度。'; void refreshDetailCache() }
-async function playFromNetwork() {
-  const wanted = networkPrompt.value, turn = generation
-  if (!wanted || starting.value || !detail.value || !enabled.value) return
-  starting.value = true; networkError.value = ''
+function playFromNetwork() {
+  if (networkPrompt.value) return openNetworkEpisodes(networkPrompt.value)
+}
+async function openNetworkEpisodes(wanted = null) {
+  const turn = generation, item = detail.value?.item
+  if (!item || !detailCached.value || !safeMode.value || starting.value || !enabled.value) return
+  const intent = ++playIntent
+  starting.value = true; networkError.value = ''; stateNotice.value = ''
   try {
-    const value = await client.detail(wanted.identity.source_id, lastDetailId.value)
-    if (!current(turn) || networkPrompt.value !== wanted || !value) return
-    const entry = findEntry(value, wanted.identity)
-    if (!entry) { networkError.value = '当前来源已无法播放此集，请选择其他线路。'; return }
+    const value = await client.detail(item.source_id, lastDetailId.value)
+    if (!current(turn) || intent !== playIntent || !enabled.value || networkPrompt.value !== wanted || !value) return
+    if (value.item.id !== item.id || value.item.source_id !== item.source_id) throw new Error('unexpected catalogue item')
+    const entry = wanted && findEntry(value, wanted.identity)
+    if (wanted && !entry) { networkError.value = '当前来源已无法播放此集，请选择其他线路。'; return }
     applyCatalogueDetail(value); detailCached.value = false; networkPrompt.value = null
-    lineId.value = wanted.identity.line_id; starting.value = false
-    await play(entry)
-  } catch (problem) { if (current(turn)) networkError.value = onlineCatalogError(problem) }
-  finally { if (current(turn)) starting.value = false }
+    if (entry) {
+      lineId.value = entry.identity.line_id; starting.value = false
+      await play(entry)
+    } else if (!value.lines.some(line => line.id === lineId.value)) {
+      lineId.value = value.lines.find(line => line.entries.some(option => option.supported))?.id || value.lines[0]?.id || ''
+    }
+  } catch (problem) {
+    if (current(turn) && intent === playIntent && networkPrompt.value === wanted) {
+      if (wanted) networkError.value = onlineCatalogError(problem)
+      else stateNotice.value = '联网读取分集失败，仍显示缓存分集。' + onlineCatalogError(problem)
+    }
+  }
+  finally { if (current(turn) && intent === playIntent) starting.value = false }
 }
 async function syncRoute() {
   const query = { ...route.query }, key = routeKey(query)

@@ -113,7 +113,7 @@ def _release_stopped_task(task, public):
         if common._tasks.get(task['key']) is task:
             common._clear_session_meta(str(public))
             if not task['owners']:
-                common._tasks.pop(task['key'])
+                common._retire_task(task)
     common._wake_session_maintenance()
 
 

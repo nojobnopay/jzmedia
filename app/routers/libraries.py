@@ -9,7 +9,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import library_paths, mounts, storage, store
+from .. import library_paths, library_roots, mounts, storage, store
 from ..log import get_logger
 from .media_libraries import (_check_smb_direct, SmbDiagBody, diag_media_library,
                               diag_smb as diag_smb_media, driver_hint,
@@ -117,6 +117,23 @@ class LibraryUpdate(BaseModel):
     organize_target: str | None = None
     inbox_dir: str | None = None
     metadata_providers: str | None = None
+
+
+class AcceptScanRoot(BaseModel):
+    model_config = {"extra": "forbid"}
+    token: str
+
+
+@router.post("/{library_id}/accept-scan-root")
+def accept_scan_root(library_id: int, body: AcceptScanRoot):
+    if not store.get_library(library_id):
+        raise HTTPException(404, "视频库不存在")
+    try:
+        if not library_roots.accept(storage.backend_for(library_id), body.token):
+            raise HTTPException(409, "库根目录或核对记录已变化，请重新扫描并核对")
+    except storage.StorageError as exc:
+        raise HTTPException(503, "视频库暂不可用，请检查连接") from exc
+    return {"library_id": library_id, "accepted": True}
 
 
 @router.patch("/{library_id}")

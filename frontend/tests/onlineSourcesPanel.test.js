@@ -24,11 +24,13 @@ async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail 
   let draft
   const api = async (path, options = {}) => {
     const body = options.body && JSON.parse(options.body)
-    requests.push({ path, method: options.method || 'GET', body, signal: options.signal, timeout: options.timeout })
+    requests.push({ path, method: options.method || 'GET', body, signal: options.signal, timeout: options.timeout, headers: options.headers })
     if (path === '/api/online/settings') return { enabled: onlineEnabled }
     if (discoveryApi && path.startsWith('/api/online/discovery')) return discoveryApi(path, body)
     if (path === '/api/online/sources') return options.method === 'POST' ? { ...body, id: SOURCE } : { items: sourceList }
     if (path.endsWith('/host-migration-preview')) return previewMigration ? previewMigration(body) : { expected_fingerprint: PREVIEW, changes: [] }
+    if (path.endsWith('/replace-catalogue')) return { previous: { ...source, name: source.name + '（旧片库）', enabled: false },
+      source: { ...source, ...body, id: 'src_' + 'f'.repeat(32) } }
     if (path === '/api/online/sources/' + SOURCE) {
       if (options.method === 'PATCH') return patchSource ? patchSource(body) : { ...source, ...body }
       return readSource ? readSource(source) : { ...source, configuration_fingerprint: BASELINE }
@@ -104,6 +106,7 @@ test('editing previews a debounced host migration and saves the draft and select
   await click(ui, '编辑 演示来源')
   await field(ui, 'online-source-api', 'https://n.example/')
   await field(ui, 'online-source-api', 'https://new.example/')
+  await field(ui, 'online-catalogue-change', 'mirror')
   await submit(ui, 'data-online-source-form')
   assert.equal(button(ui, '保存来源').props.disabled, true)
   assert.equal(requests.some(call => call.method === 'PATCH'), false)
@@ -123,6 +126,26 @@ test('editing previews a debounced host migration and saves the draft and select
   assert.deepEqual(patch.body.host_migration, { expected_fingerprint: PREVIEW, selected_old_hosts: ['old-cdn.example'] })
   assert.deepEqual(patch.body.allowed_hosts, ['api.example', 'old-cdn.example', 'keep.example', 'custom.example'])
   assert.equal(patch.body.api_base_url, 'https://new.example/')
+})
+
+test('changing to a different catalogue requires a choice for the current URL and retains both sources', async t => {
+  const { ui, requests } = await mount(t)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  await click(ui, '编辑 演示来源')
+  await field(ui, 'online-source-api', 'https://different.example/')
+  await field(ui, 'online-catalogue-change', 'replace')
+  await field(ui, 'online-source-api', 'https://confirmed.example/')
+  t.mock.timers.tick(250); await flush()
+  assert.equal(button(ui, '保存来源').props.disabled, true)
+  await submit(ui, 'data-online-source-form')
+  assert.equal(requests.some(row => row.path.endsWith('/replace-catalogue')), false)
+  await field(ui, 'online-catalogue-change', 'replace')
+  await submit(ui, 'data-online-source-form')
+  const saved = requests.find(row => row.path.endsWith('/replace-catalogue'))
+  assert.equal(saved.method, 'POST')
+  assert.equal(saved.body.api_base_url, 'https://confirmed.example/')
+  assert.equal(saved.body.host_migration.expected_fingerprint, PREVIEW)
+  assert.ok(button(ui, '编辑 演示来源（旧片库）')); assert.ok(button(ui, '编辑 演示来源'))
 })
 
 test('closing drafts aborts both snapshot and preview requests and ignores late replies', async t => {
@@ -177,6 +200,7 @@ for (const failureAt of ['preview', 'save']) {
     await click(ui, '编辑 演示来源')
     await field(ui, 'online-source-name', '我的草稿')
     await field(ui, 'online-source-api', 'https://new.example/')
+    await field(ui, 'online-catalogue-change', 'mirror')
     t.mock.timers.tick(250); await flush()
     if (failureAt === 'save') {
       await submit(ui, 'data-online-source-form')
@@ -281,7 +305,9 @@ test('a detail deep link opens an explicit host review and atomically appends on
   assert.ok(element(ui, 'online-host-item'))
   assert.equal(requests.some(call => call.path.endsWith('/host-check')), false, 'a link never silently reads the upstream')
   await submit(ui, 'data-online-host-form')
-  assert.deepEqual(requests.find(call => call.path.endsWith('/host-check')).body, { external_id: 'movie-7' })
+  const check = requests.find(call => call.path.endsWith('/host-check'))
+  assert.deepEqual(check.body, { external_id: 'movie-7' })
+  assert.deepEqual(check.headers, { 'X-Online-Host-Report': '2' })
   assert.equal(ui.text().includes('cdn.extra.example'), true)
   assert.equal(ui.text().includes('images.extra.example'), true)
   assert.equal(requests.some(call => call.path.endsWith('/allow-hosts')), false, 'inspection never silently trusts new hosts')

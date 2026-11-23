@@ -349,6 +349,46 @@ def test_unrelated_track_cannot_overwrite_progress_or_be_stopped(casting):
     assert store.get_progress(casting.vid)["position"] == 88
 
 
+def test_paused_dlna_polls_and_stop_preserve_newer_bookmark_and_real_rewind(casting):
+    session = casting.manager.get(start(casting)["id"])
+    casting.manager._poll(session)
+    casting.receiver.state, casting.receiver.position = "PAUSED_PLAYBACK", 180
+    casting.manager._poll(session)
+    assert store.get_progress(casting.vid)["position"] == 180
+    store.save_progress(casting.vid, 450, 600)
+    casting.manager._poll(session)
+    assert store.get_progress(casting.vid)["position"] == 450
+    assert session.last_position == 180
+    casting.manager.control(session.id, "seek", 105)
+    casting.manager._poll(session)
+    assert store.get_progress(casting.vid)["position"] == 105
+    store.save_progress(casting.vid, 460, 600)
+    casting.manager.control(session.id, "stop")
+    assert store.get_progress(casting.vid)["position"] == 460
+
+
+def test_dlna_retries_position_after_a_failed_save(casting, monkeypatch):
+    session = casting.manager.get(start(casting)["id"])
+    casting.manager._poll(session)
+    casting.receiver.state, casting.receiver.position = "PAUSED_PLAYBACK", 260
+    save = store.save_progress
+    calls = []
+
+    def fail_once(*args):
+        calls.append(args[1])
+        if len(calls) == 1:
+            raise OSError("store temporarily unavailable")
+        return save(*args)
+
+    monkeypatch.setattr(store, "save_progress", fail_once)
+    with pytest.raises(OSError):
+        casting.manager._poll(session)
+    casting.manager._poll(session)
+    casting.manager._poll(session)
+    assert calls == [260, 260]
+    assert store.get_progress(casting.vid)["position"] == 260
+
+
 def test_unknown_position_and_end_reset_do_not_forge_progress(casting):
     result = start(casting)
     session = casting.manager.get(result["id"])

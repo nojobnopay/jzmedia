@@ -24,3 +24,12 @@ test('automatic playback carries the complete file range and derived title acros
   }))
   assert.equal(fallback.label, '剧 S01E05-E06 · 旧服务端正式集名')
 })
+
+test('a next episode marked missing by the scanner stops autoplay even without an exists field', async () => {
+  let notice = ''
+  const next = await followingPlayback({ kind: 'episode', id: 1 }, '剧', async () => ({
+    next: { id: 2, season: 1, episode: 2, missing: 1 },
+  }), label => { notice = label })
+  assert.equal(next, null)
+  assert.match(notice, /S01E02/)
+})

@@ -42,3 +42,10 @@ test('scan metadata file results use the same counts once and keep file review d
  assert.match(text,/识别替换 1 集 · 清理失效记录 2 条 · 待确认 3 项/)
  assert.doesNotMatch(text,/识别替换 2 集|识别替换 10 集|已补全 9 集|资料待补全/)
 })
+
+test('only the affected library gets the changed-root recovery message', () => {
+ const job={job_id:'scan',state:'done',summary:{by_library:{3:{library_offline:1},4:{library_offline:1}},
+   root_reviews:{3:{library_id:3,token:'reviewed'}}}}
+ assert.match(scanSummary(job,{id:3}),/核对当前媒体目录/)
+ assert.match(scanSummary(job,{id:4}),/库离线/)
+})

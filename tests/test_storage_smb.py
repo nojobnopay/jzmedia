@@ -53,6 +53,22 @@ def test_list_stat_read(share, fake):
     assert b.abs_path("b.txt") is None
 
 
+@pytest.mark.parametrize("missing_error", [False, True])
+def test_organize_sample_rejects_disappearing_file(share, fake, monkeypatch, missing_error):
+    from app.storage import StorageNotFound
+    backend = smb.SmbStorageBackend(_lib(share))
+    path = "电影/a.mkv"
+    before = backend._entry_lstat(path)
+
+    def missing(_path):
+        if missing_error:
+            raise StorageNotFound(_path)
+        return None
+
+    monkeypatch.setattr(backend, "_entry_lstat", missing)
+    assert backend._organize_file_sample(path, before) is None
+
+
 def test_subpath_and_windows_paths(share, fake):
     (share / "Movies").mkdir()
     (share / "Movies" / "x.mkv").write_bytes(b"x")

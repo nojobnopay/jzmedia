@@ -287,6 +287,8 @@ docker compose -f docker-compose.yml -f compose.nvidia.yml up -d --no-build --pu
 
 失败请求与连接测试计入每日限额，本地缓存命中不计。
 
+环境变量的格式或组合无效时，可在网页“设置 → 智能辅助”核对提示并保存修正。修复时只覆盖需要更正的字段及你另外修改的字段，其他有效环境值仍会随服务器配置生效。[在网页修正智能辅助配置](../user-guide/settings.md#智能辅助)
+
 切换服务商要同步地址、模型和对应 Key；环境变量不会按服务商自动补齐预设。OpenCode Go 的应用配置固定使用 `https://opencode.ai/zen/go/v1`，界面示例为 `glm-5.3-flash`，项目尚未验证真实影视用途与模型效果。自定义服务地址在容器中必须可达，容器的 `localhost` 指容器自身。AI 客户端不继承 TMDB 或系统代理，数据库中的 Key 不以脱敏回显代表加密存储。
 
 ## 元数据与落盘

@@ -6,6 +6,7 @@
 - 重扫只更新季/集/路径/区间，**不覆盖已刮削的标题/简介等元数据**（空值才补）。
 """
 import os
+from contextlib import nullcontext
 import re
 import sqlite3
 import time
@@ -26,6 +27,8 @@ __all__ = ['upsert_show', 'upsert_episode', 'upsert_season', 'list_shows', 'get_
            'repath_tv_episodes_prefix', 'episode_version',
            'has_other_show_under_prefix',
            'record_organize_moves', 'list_organize_moves', 'list_organize_batches',
+           'subsequent_directory_moves', 'legacy_restore_evidence', 'finish_organize_restore',
+           'rebind_organize_identity', 'rebind_copied_organize_identities',
            'mark_organize_undone', 'delete_scan_state_paths', 'delete_scan_state_prefix',
            'pair_moved_tv_paths', 'backfill_legacy_organize_moves',
            'get_tv_facets', 'suggest_tv_shows', 'suggest_tv_people',
@@ -307,25 +310,40 @@ def episode_version(file_path) -> int:
     return v if v >= 1 else 1
 
 
+def _last_episode(row: dict) -> int:
+    return max(int(row["episode"]), int(row.get("episode_end") or 0))
+
+
 def episode_neighbors(episode_id: int) -> tuple[dict | None, dict | None]:
-    """Version-isolated, non-overlapping neighbors across seasons and page boundaries."""
+    """Neighbors stay in the same version and advance beyond the current file's coverage."""
     ep = get_episode(episode_id)
     if not ep:
         return None, None
     ver = episode_version(ep.get("file_path"))
     start = (int(ep["season"]), int(ep["episode"]))
-    end = (start[0], max(start[1], int(ep.get("episode_end") or 0)))
-    previous, following = None, None
-    for row in list_episodes(int(ep["show_id"])):
-        if episode_version(row.get("file_path")) != ver:
-            continue
-        row_start = (int(row["season"]), int(row["episode"]))
-        row_end = (row_start[0], max(row_start[1], int(row.get("episode_end") or 0)))
-        if row_end < start and (previous is None or row_end > (int(previous["season"]), max(int(previous["episode"]), int(previous.get("episode_end") or 0)))):
-            previous = row
-        elif row_start > end and following is None:
-            following = row
-    return previous, following
+    rows = [row for row in list_episodes(int(ep["show_id"]))
+            if episode_version(row.get("file_path")) == ver]
+
+    def end(row):
+        return int(row["season"]), _last_episode(row)
+
+    previous = max((row for row in rows if end(row) < start), key=end, default=None)
+    return previous, _following_in_version(ep, rows)
+
+
+def _following_in_version(current: dict, rows: list[dict]) -> dict | None:
+    season = int(current["season"])
+    last = _last_episode(current)
+
+    def order(row):
+        sn, first = int(row["season"]), int(row["episode"])
+        # For the same next episode a playable compilation beats a missing single.
+        # When both exist, start at that episode without replaying a shared prefix.
+        return (sn, max(first, last + 1) if sn == season else first, bool(row.get("missing")),
+                sn == season and first <= last)
+
+    candidates = (row for row in rows if (int(row["season"]), _last_episode(row)) > (season, last))
+    return min(candidates, key=order, default=None)
 
 
 def episode_after(episode_id: int) -> dict | None:
@@ -334,29 +352,41 @@ def episode_after(episode_id: int) -> dict | None:
 
 def _next_unwatched(rows: list[dict]) -> dict | None:
     rows = [row for row in rows if not row.get('missing')]
+
     def finished(e):
         return bool(e.get("watched")) or is_playback_complete(e.get("_pos"), e.get("_dur"))
 
     def start(e):
         return int(e["season"]), int(e["episode"])
 
-    def end(e):
-        return int(e["season"]), max(int(e["episode"]), int(e.get("episode_end") or 0))
+    viewed = [e for e in rows if finished(e)]
+    # Merge watched ranges so separate completed files can cover one compilation.
+    covered = {}
 
-    partial = [e for e in rows if not finished(e) and float(e.get("_pos") or 0) >= 15]
+    def edition(e):
+        return int(e["season"]), episode_version(e.get("file_path"))
+
+    for e in sorted(viewed, key=start):
+        ranges = covered.setdefault(edition(e), [])
+        first, last = int(e["episode"]), _last_episode(e)
+        if ranges and first <= ranges[-1][1] + 1:
+            ranges[-1] = (ranges[-1][0], max(last, ranges[-1][1]))
+        else:
+            ranges.append((first, last))
+    def fully_covered(e):
+        first, last = int(e["episode"]), _last_episode(e)
+        return any(lo <= first and last <= hi for lo, hi in covered.get(edition(e), ()))
+
+    remaining = [e for e in rows if not finished(e) and not fully_covered(e)]
+    partial = [e for e in remaining if float(e.get("_pos") or 0) >= 15]
     if partial:
         return max(partial, key=lambda e: int(e.get("_played") or 0))
-    viewed = [e for e in rows if finished(e)]
-    # A watched multi-episode file already covers its same-version overlapping rows.
-    remaining = [e for e in rows if not finished(e) and not any(
-        episode_version(e.get("file_path")) == episode_version(v.get("file_path"))
-        and start(e) <= end(v) and end(e) >= start(v) for v in viewed)]
     if viewed:
         anchor = viewed[-1]
         ver = episode_version(anchor.get("file_path"))
-        for e in remaining:
-            if episode_version(e.get("file_path")) == ver and start(e) > end(anchor):
-                return e
+        following = _following_in_version(anchor, [e for e in remaining if episode_version(e.get("file_path")) == ver])
+        if following is not None:
+            return following
     return remaining[0] if remaining else None
 
 
@@ -1106,42 +1136,32 @@ def show_season_stats(show_id: int) -> list[dict]:
     with _lock, _conn() as c:
         rows = [dict(r) for r in c.execute(
             "SELECT e.season AS season, e.episode AS episode,"
-            " e.file_path AS file_path, e.watched AS watched, e.episode_end AS episode_end,"
-            " p.position AS _pos, p.duration AS _dur"
+            " e.file_path, e.watched, e.episode_end, e.missing,"
+            " p.position AS _pos, p.duration AS _dur, p.updated_at AS _played"
             " FROM tv_episodes e LEFT JOIN playback_progress p"
             " ON p.kind='episode' AND p.item_id=e.id"
-            " WHERE e.show_id=?", (int(show_id),))]
+            " WHERE e.show_id=? ORDER BY e.season, e.episode, e.id", (int(show_id),))]
     by_season: dict[int, list[dict]] = {}
     for r in rows:
         by_season.setdefault(int(r.get("season") or 0), []).append(r)
 
-    def _finished(r: dict) -> bool:
-        if int(r.get("watched") or 0):
-            return True
-        return is_playback_complete(r.get("_pos"), r.get("_dur"))
-
     out = []
     for sn in sorted(by_season):
-        eps = sorted(by_season[sn],
-                     key=lambda r: (int(r.get("episode") or 0), str(r.get("file_path") or "")))
+        eps = by_season[sn]
         keys, vers = set(), set()
         watched = 0
-        has_partial = False
-        next_ep = None
+        next_item = _next_unwatched(eps)
         for r in eps:
             start_ep = int(r.get("episode") or 0)
             keys.update(range(start_ep, max(start_ep, int(r.get("episode_end") or 0)) + 1))
             vers.add(episode_version(r.get("file_path")))
             if int(r.get("watched") or 0):
                 watched += 1
-            if not _finished(r) and float(r.get("_pos") or 0) >= 15:
-                has_partial = True
-            if next_ep is None and not _finished(r):
-                next_ep = int(r.get("episode") or 0)
         out.append({"season": sn, "total": len(eps), "watched": watched,
                     "distinct": len(keys), "versions": len(vers),
                     "done": len(eps) > 0 and watched == len(eps),
-                    "has_partial": has_partial, "next_episode": next_ep})
+                    "has_partial": bool(next_item and float(next_item.get("_pos") or 0) >= 15),
+                    "next_episode": int(next_item["episode"]) if next_item else None})
     return out
 
 
@@ -1409,7 +1429,7 @@ def _move_scan_state(c, lib_id: int, old: str, new: str) -> None:
         logger.debug("scan_state move failed %s -> %s: %s", old, new, e)
 
 
-def move_tv_paths(library_id, mapping: dict) -> int:
+def move_tv_paths(library_id, mapping: dict, *, connection=None) -> int:
     """整理工具：批量把集/花絮行路径 old→new（一次事务；id 不变，断点/已看不丢）。
 
     链式/置换改名（A→B、B→C）下逐条 UPDATE 会互相撞 `(library_id, file_path)`
@@ -1419,7 +1439,7 @@ def move_tv_paths(library_id, mapping: dict) -> int:
     lib_id = int(library_id or DEFAULT_LIBRARY_ID)
     now = int(time.time())
     n = 0
-    with _lock, _conn() as c:
+    with _lock, (nullcontext(connection) if connection is not None else _conn()) as c:
         pairs: list[tuple[str, int, str, str]] = []      # (table, id, old, new)
         for old, new in mapping.items():
             for t in ("tv_episodes", "extras"):
@@ -1438,7 +1458,7 @@ def move_tv_paths(library_id, mapping: dict) -> int:
     return n
 
 
-def repath_tv_episodes_prefix(library_id, old_dir: str, new_dir: str) -> int:
+def repath_tv_episodes_prefix(library_id, old_dir: str, new_dir: str, *, connection=None) -> int:
     """目录整体改名后批量改集行路径（前缀替换；原路径审计字段 TV 侧无）。"""
     old = os.path.normpath((old_dir or "").strip().strip("/"))
     new = os.path.normpath((new_dir or "").strip().strip("/"))
@@ -1446,7 +1466,7 @@ def repath_tv_episodes_prefix(library_id, old_dir: str, new_dir: str) -> int:
         return 0
     like = old.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/%"
     lib_id = int(library_id)
-    with _lock, _conn() as c:
+    with _lock, (nullcontext(connection) if connection is not None else _conn()) as c:
         from .tv_bindings import repath_tv_bindings
         repath_tv_bindings(c, lib_id, old, new)
         rows = [str(r["file_path"]) for r in c.execute(
@@ -1464,24 +1484,24 @@ def repath_tv_episodes_prefix(library_id, old_dir: str, new_dir: str) -> int:
 # ---- 整理审计（v24）：每次目录整理逐条留痕，支撑「整理历史 / 撤销整理」 ----
 # 约定：`from_path → to_path` 就是文件/目录实际移动的方向；撤销 = 反向搬回。
 
-def record_organize_moves(batch_id: str, moves, library_id=None) -> int:
+def record_organize_moves(batch_id: str, moves, library_id=None, *, connection=None) -> int:
     """写入一批整理审计（moves: [{show_id,kind,action,from_path,to_path,library_id}]）。"""
     rows = list(moves or [])
     if not rows:
         return 0
     now = int(time.time())
     n = 0
-    with _lock, _conn() as c:
+    with _lock, (nullcontext(connection) if connection is not None else _conn()) as c:
         for m in rows:
             c.execute(
                 "INSERT INTO organize_moves (library_id, show_id, batch_id, kind,"
-                " obj, action, from_path, to_path, created_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?)",
+                " obj, action, from_path, to_path, object_identity, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (int(m.get("library_id") or library_id or DEFAULT_LIBRARY_ID),
                  int(m.get("show_id") or 0), str(batch_id),
                  str(m.get("kind") or "file"), str(m.get("obj") or "file"),
                  str(m.get("action") or ""),
-                 str(m["from_path"]), str(m["to_path"]), now))
+                 str(m["from_path"]), str(m["to_path"]), str(m.get("object_identity") or ""), now))
             n += 1
     return n
 
@@ -1504,16 +1524,89 @@ def list_organize_moves(batch_id=None, library_id=None, include_undone=False,
         return [dict(r) for r in c.execute(q, args)]
 
 
-def list_organize_batches(limit: int = 50) -> list[dict]:
+def finish_organize_restore(batch_id, move, *, copied=None):
+    """Commit catalogue paths, original audit state and redo evidence together."""
+    from .extras import repath_extras_prefix
+    lid, src, dst = move["library_id"], move["from"], move["to"]
+    with _lock, _conn() as c:
+        changed = c.execute(
+            "UPDATE organize_moves SET undone_at=? WHERE id=? AND library_id=? AND COALESCE(undone_at,0)=0",
+            (int(time.time()), move["move_id"], lid)).rowcount
+        if changed != 1:
+            raise ValueError("该整理记录已被撤销")
+        rebind_copied_organize_identities(lid, copied, connection=c)
+        if move["action"] != "restore":
+            return
+        if move["obj"] == "dir":
+            repath_tv_episodes_prefix(lid, src, dst, connection=c)
+            repath_extras_prefix(lid, src, dst, connection=c)
+        else:
+            move_tv_paths(lid, {src: dst}, connection=c)
+        record_organize_moves(batch_id, [{**move, "action": "restore", "from_path": src, "to_path": dst}],
+                              library_id=lid, connection=c)
+
+
+def rebind_organize_identity(move_id, before, after):
+    """A cross-volume rollback restored the same data with a new physical identity."""
+    with _lock, _conn() as c:
+        c.execute("UPDATE organize_moves SET object_identity=? WHERE id=? AND object_identity IN ('',?)"
+                  " AND COALESCE(undone_at,0)=0", (after, move_id, before))
+
+
+def rebind_copied_organize_identities(library_id, copies, *, connection=None):
+    """Follow verified physical copies of pending files and directories to their new volume."""
+    if not copies:
+        return
+    with _lock, (nullcontext(connection) if connection is not None else _conn()) as c:
+        rows = c.execute("SELECT id, object_identity FROM organize_moves WHERE library_id=?"
+                         " AND COALESCE(undone_at,0)=0 AND object_identity!=''", (library_id,))
+        changes = [(copies[r["object_identity"]], r["id"]) for r in rows if r["object_identity"] in copies]
+        c.executemany("UPDATE organize_moves SET object_identity=? WHERE id=?", changes)
+
+
+def subsequent_directory_moves(library_id: int, after_id: int) -> list[dict]:
+    """Physical directory renames, including later undo/redo events outside the selected batch."""
+    with _lock, _conn() as c:
+        return [dict(r) for r in c.execute(
+            'SELECT id, from_path AS "from", to_path AS "to" FROM organize_moves'
+            " WHERE library_id=? AND id>? AND obj='dir' AND kind!='rmdir' AND to_path!='' ORDER BY id",
+            (library_id, after_id))]
+
+
+def legacy_restore_evidence(library_id, show_id, path, obj, recorded_at):
+    """Old audit records need catalogue ownership plus a recorded size and timestamp."""
+    scope = "substr(file_path,1,length(?))=?" if obj == "dir" else "file_path=?"
+    paths = (path + "/", path + "/") if obj == "dir" else (path,)
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "WITH owners AS (SELECT file_path,show_id FROM main.tv_episodes WHERE library_id=? AND " + scope
+            + " UNION ALL SELECT file_path,show_id FROM main.extras WHERE library_id=? AND " + scope
+            + ") SELECT owners.*, s.size, s.mtime FROM owners LEFT JOIN scan_state s"
+            " ON s.library_id=? AND s.file_path=owners.file_path AND s.updated_at<=?",
+            (library_id, *paths, library_id, *paths, library_id, recorded_at))
+        result = []
+        for row in rows:
+            if row["show_id"] != show_id:
+                return []
+            if row["size"] is not None and row["mtime"] is not None:
+                result.append(dict(row))
+        return result
+
+
+def list_organize_batches(limit: int = 50, *, library_ids=None) -> list[dict]:
+    ids = list(library_ids or [])
+    if library_ids is not None and not ids:
+        return []
+    scope = " WHERE library_id IN (" + ",".join("?" for _ in ids) + ")" if ids else ""
     with _lock, _conn() as c:
         rows = c.execute(
             "SELECT batch_id, COUNT(*) AS total,"
             " SUM(CASE WHEN COALESCE(undone_at,0)>0 THEN 1 ELSE 0 END) AS undone,"
             " COUNT(DISTINCT library_id) AS libraries,"
             " MIN(created_at) AS created_at, MAX(created_at) AS updated_at"
-            " FROM organize_moves GROUP BY batch_id"
-            " ORDER BY updated_at DESC, batch_id DESC LIMIT ?",
-            (max(1, min(int(limit), 200)),)).fetchall()
+            f" FROM organize_moves{scope} GROUP BY batch_id"
+            " ORDER BY updated_at DESC, MAX(id) DESC LIMIT ?",
+            (*ids, max(1, min(int(limit), 200)))).fetchall()
     return [dict(r) for r in rows]
 
 

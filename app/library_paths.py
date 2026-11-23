@@ -208,20 +208,3 @@ def require_writable(library_id) -> None:
         lib = get_library(library_id) or default_library()
         raise LibraryReadOnlyError(
             f"库「{lib.get('name') or library_id}」为只读，写操作被拒")
-
-
-def ensure_roots() -> None:
-    """为本地视频库创建生效根（媒体根 + subpath；远程挂载点由 mounts 管理）。失败只告警。"""
-    for lib in list_libraries(only_enabled=True):
-        if str(lib.get("source") or "local") != "local":
-            continue
-        if int(lib.get("read_only") or 0):
-            continue
-        path = str(lib.get("path") or "")
-        if not path:
-            continue
-        try:
-            os.makedirs(path, exist_ok=True)
-        except OSError as e:
-            logger.warning("create library root failed id=%s path=%s: %s",
-                           lib.get("id"), path, e)

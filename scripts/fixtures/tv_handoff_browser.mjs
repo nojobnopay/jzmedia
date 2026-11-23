@@ -33,6 +33,16 @@ async function showReceiverOptions(picker, legacyLayout = false) {
   if (!await details.evaluate(element => element.open)) await details.locator('summary').click()
 }
 
+export async function waitForSelectedHlsAudio(page, index) {
+  await page.waitForFunction(selected => {
+    const info = window.__jzPlayerDebug?.()
+    if (info?.engine !== 'hls' || !(document.querySelector('video')?.readyState >= 2)) return false
+    // TS muxes a single server-selected track. Only fMP4 exposes renditions to hls.js.
+    return info.output?.seg === 'ts' ? info.output.audio_idx === selected
+      : window.__jzPlayer?.hls()?.audioTrack === selected
+  }, index, { timeout: 30000 })
+}
+
 export async function smokeTvHandoff({ browser, base, fixture, output, legacyLayout = false }) {
   for (const width of [1440, 390, 375, 320]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width <= 390, reducedMotion: 'reduce' })
@@ -84,11 +94,16 @@ export async function smokeTvHandoff({ browser, base, fixture, output, legacyLay
     await tracks.click()
     const trackPanel = player.getByRole('region', { name: '字幕与音轨', exact: true })
     await trackPanel.getByLabel('音轨', { exact: true }).selectOption('1')
-    await page.waitForFunction(() => document.querySelector('video')?.readyState >= 2)
+    await waitForSelectedHlsAudio(page, 1)
     await trackPanel.getByLabel('字幕轨道', { exact: true }).selectOption('0')
     await page.keyboard.press('Escape')
-    await page.locator('video').evaluate(video => { video.pause(); video.currentTime = 23 })
-    await page.waitForFunction(() => document.querySelector('video')?.currentTime >= 23 && !document.querySelector('video').seeking)
+    await page.locator('video').evaluate(video => video.pause())
+    // The player's range uses source seconds. On a remuxed clip, element.currentTime does not.
+    await player.getByRole('slider', { name: '播放进度', exact: true }).evaluate(input => {
+      input.value = 23
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
     await player.getByRole('button', { name: '投屏', exact: true }).click()
     await picker.getByRole('radio').waitFor()
     assert.equal(await picker.getByRole('button', { name: '开始投屏', exact: true }).isDisabled(), true)

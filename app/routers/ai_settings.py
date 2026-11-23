@@ -1,6 +1,7 @@
 """AI settings are opt-in; upstream auth errors must not become application auth prompts."""
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+from fastapi import APIRouter, Header, HTTPException
 
 from ..ai import client, settings
 
@@ -8,9 +9,9 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 
 @router.get("/settings")
-def get_settings():
+def get_settings(x_ai_settings_repair: Annotated[str | None, Header()] = None):
     try:
-        return settings.public_settings()
+        return settings.public_settings(repair=x_ai_settings_repair == "1")
     except ValueError:
         raise HTTPException(400, "智能辅助配置无效，请检查 AI 环境变量或重新保存设置") from None
 

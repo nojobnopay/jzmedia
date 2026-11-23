@@ -86,7 +86,9 @@ def test_tv_delete_removes_catalogue_and_progress(tv_files):
     scanner.scan_all(library_id=lid)
     ep = store.get_episode_by_path(rel, lid)
     store.save_progress(ep['id'], 200, 1000, kind='episode')
-    result = routes.fs_delete({'library_id': lid, 'paths': [rel], 'dry_run': False, 'confirm': True})
+    body = {'library_id': lid, 'paths': [rel]}
+    preview = routes.fs_delete(body)
+    result = routes.fs_delete({**body, 'dry_run': False, 'confirm': True, 'preview_id': preview['preview_id']})
     assert result['deleted'] == 1
     assert not (root / rel).exists()
     assert store.get_episode_by_path(rel, lid) is None
@@ -103,7 +105,8 @@ def test_preview_failed_operations_do_not_mark_changes(tv_files):
     routes.fs_rename({'library_id': lid, 'from': 'a.txt', 'name': 'b.txt'})
     result = routes.fs_rename({'library_id': lid, 'from': 'a.txt', 'name': 'b.txt', 'dry_run': False})
     assert result['moved'] == 0
-    routes.fs_delete({'library_id': lid, 'paths': ['missing.txt'], 'dry_run': False})
+    body = {'library_id': lid, 'paths': ['missing.txt']}
+    routes.fs_delete({**body, 'dry_run': False, 'preview_id': routes.fs_delete(body)['preview_id']})
     assert not routes.fs_changes(lid)['pending']
     routes.fs_mkdir({'library_id': lid, 'name': 'new'})
     assert routes.fs_changes(lid)['actions'] == {'mkdir': 1}
@@ -162,7 +165,9 @@ def test_partial_db_failure_still_records_physical_change(tv_files, monkeypatch)
     touch(root, rel)
     scanner.scan_all(library_id=lid)
     monkeypatch.setattr(store, 'delete_episode_by_path', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('db unavailable')))
-    result = routes.fs_delete({'library_id': lid, 'paths': [rel], 'dry_run': False, 'confirm': True})
+    body = {'library_id': lid, 'paths': [rel]}
+    preview = routes.fs_delete(body)
+    result = routes.fs_delete({**body, 'dry_run': False, 'confirm': True, 'preview_id': preview['preview_id']})
     assert result['results'][0]['status'].startswith('error:')
     assert not (root / rel).exists()
     assert routes.fs_changes(lid)['pending']

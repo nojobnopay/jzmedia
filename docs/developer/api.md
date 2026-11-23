@@ -77,13 +77,14 @@
 | `POST /api/online/discovery/refresh` | 管理员提交 `{}` 使用服务默认出口，也可传 `directory_route` 选择 `{"mode":"direct"}` 或 `{"mode":"proxy","profile_id":"…"}`。临时规则只用于抓取公共名单。返回列表和 `directory_status`（已更新、缓存或内置候选），档案失效返回 409 |
 | `POST /api/online/discovery/{candidate_id}/probe` | 提交 `{}` 按来源网络配置取样。可用 `probe_route` 对单个来源临时换出口，用 `extended:true` 延长取样。已有源可提交本轮 `probe_token` 与 `hosts` 复测所列 `missing_hosts`。并发已满时 429 携带 `Retry-After` |
 | `POST /api/online/discovery/{candidate_id}/enable` | 提交本轮 `probe_token` 和可选的 `poster_hosts`，原子保存核对过的主机。确认采用实测出口时一并提交 `apply_route:true`。空目录没有启用凭据，重复提交同一确认可复用原结果，来源或网络修订变化时返回 409 |
-| `POST /api/online/sources/{source_id}/host-check` | 管理员提交 `{}` 检查来源首页样本，或提交 `{external_id}` 检查指定节目。返回节目编号、标题、缺失主机和海报主机子集，供用户确认 |
+| `POST /api/online/sources/{source_id}/host-check` | 管理员提交 `{}` 检查来源首页样本，或提交 `{external_id}` 检查指定节目。默认返回兼容电视的主机报告。网页发送扩展请求头后可按节目名称和海报域名确认 |
 | `POST /api/online/sources/{source_id}/allow-hosts` | 提交 `{hosts,expected_fingerprint}`，在同一事务检查完整来源指纹并只追加主机；冲突返回 409，变更后撤销该来源旧会话 |
 | `POST /api/online/sources/{source_id}/host-migration-preview` | 按草稿接口地址、允许主机和本地已核对的公告预览主机替换，返回待确认的变更与草稿指纹 |
 | `GET /api/online/sources` | 返回 `{items:[...]}`，按优先级、创建时间和 ID 排序 |
 | `POST /api/online/sources` | 创建来源并返回 `201`；返回持久随机 ID |
 | `GET /api/online/sources/{source_id}` | 读取单个来源及其当前 `configuration_fingerprint`，不存在返回 `404` |
 | `PATCH /api/online/sources/{source_id}` | 原子更新已提供的字段，可一并确认主机迁移；可用 `enabled:false` 停用并保留身份 |
+| `POST /api/online/sources/{source_id}/replace-catalogue` | 显式切换到另一套节目目录。原子创建独立来源并停用原来源，返回 `{previous,source}` |
 
 探测默认最多试三个样片，单个样片最多 4 秒、整个来源最多 12 秒。`{"extended":true}` 将这两项上限分别延长至 8 秒和 20 秒，连接与读取继续使用网络档案中更短的超时。响应包含 `measured`、`catalog_only`、`empty` 或 `failed` 状态，以及实读的 `sample_bytes`、可空的 `sample_kbps` 和 `realtime_ratio`。有序的 `attempts` 记录各次取样的 `stage` 和 `reason`。
 
@@ -93,7 +94,9 @@
 
 确认时 PATCH 提交与预览相同的 `api_base_url` 和 `allowed_hosts`，另传 `host_migration:{expected_fingerprint,selected_old_hosts}`。此指纹取自**预览响应**；数组可为空，新 API 主机始终加入。只替换勾选的旧主机，来源 ID 与网络规则保留。配置已变更或预览草稿失配返回 `409`，应重新预览；非法主机或候选之外的选择返回 `422`，来源不存在返回 `404`。普通 PATCH 若仅修改接口地址，移除原 API 主机并加入新的主机；若显式提交 `allowed_hosts`，按该列表保存并包含当前 API 主机。整源移除尚无 DELETE 接口。
 
-主机检查与追加还需先通过 `/api/viewing/session` 取得设备身份，并遵循管理授权与已配置的写令牌。网页和电视复用这两个管理接口。`host-check` 通过来源的 API 出口读取目录，遵循目录期限、取消和并发限制。提交 `{external_id}` 读取指定节目详情。提交 `{}` 时读取首页，优先选取海报使用未获准主机的节目，其次选首页首项，必要时再读取所选节目的详情。空首页返回 `404 online_host_check_empty`。候选来自节目的播放线路、分集及海报，仅检查地址格式和主机规则，不探测候选域名、HLS 子资源或重定向。量子官方 `liangzi` 线路的已识别网页地址也可作为主机候选，检查不会读取该网页。返回 `source_id`、`external_id`、`title`、`missing_hosts`、`missing_poster_hosts`、`allowed_hosts`、`rejected_count` 和 64 位小写十六进制 `configuration_fingerprint`。`missing_poster_hosts` 是 `missing_hosts` 中用于海报的主机，网页可以只请求确认此子集。`allow-hosts` 接收 1–128 个精确主机与该指纹，在同一写事务核对完整来源状态，仅追加用户选择的主机，不覆盖并发编辑；已有主机的无变化追加不撤销会话。指纹过期返回 `409 online_source_changed`，需要重新检查。发生变更时撤销当前来源已有播放会话，配置影响使用该来源的所有设备。
+更换片库时向 `replace-catalogue` 提交新的 `api_base_url` 和预览确认的 `host_migration`，可附来源 PATCH 支持的其他配置字段。接口验证预览指纹及所选主机，以新 ID 创建来源、复制网络规则、停用旧来源并在旧名称末尾加“（旧片库）”。原地址和缺少确认均返回 422。响应丢失时可原样重发最近一次请求，返回相同的两个来源。任一来源的配置随后有修改，或使用已消费的预览提交不同草稿时返回 409。旧来源保留原地址、条目、收藏、进度和缓存，原有活动会话在首次换库时撤销。新来源使用独立节目和分集 ID。
+
+主机检查与追加还需先通过 `/api/viewing/session` 取得设备身份，并遵循管理授权与已配置的写令牌。网页和电视复用这两个管理接口。`host-check` 通过来源的 API 出口读取目录，遵循目录期限、取消和并发限制。提交 `{external_id}` 读取指定节目详情。提交 `{}` 时读取首页，优先选取海报使用未获准主机的节目，其次选首页首项，必要时再读取所选节目的详情。空首页返回 `404 online_host_check_empty`。候选来自节目的播放线路、分集及海报，仅检查地址格式和主机规则，不探测候选域名、HLS 子资源或重定向。量子官方 `liangzi` 线路的已识别网页地址也可作为主机候选，检查不会读取该网页。默认报告返回 `source_id`、`external_id`、`missing_hosts`、`allowed_hosts`、`rejected_count` 和 64 位小写十六进制 `configuration_fingerprint`。请求头 `X-Online-Host-Report: 2` 额外返回 `title` 和 `missing_poster_hosts`。后者包含服务端在此来源配置下从该节目列表或详情中读到的待允许海报域名，也是 `missing_hosts` 的子集。`allow-hosts` 接收 1–128 个精确主机与该指纹，在同一写事务核对完整来源状态，仅追加用户选择的主机，不覆盖并发编辑；已有主机的无变化追加不撤销会话。指纹过期返回 `409 online_source_changed`，需要重新检查。发生变更时撤销当前来源已有播放会话，配置影响使用该来源的所有设备。
 
 创建来源必须提供 `name`、`provider`、`api_base_url`，提供方支持 `maccms` 与固定开放样例 `open_catalog`。可选 `allowed_hosts` 为精确主机名列表，自动包含 API 主机，不支持通配符；`enabled` 默认 `false`，`priority` 为 0–1000 的整数、默认 100，数值越小越优先。地址只接受无内嵌账号密码、查询参数或片段的 HTTP(S) 基础地址；保存时只检查结构和字面地址，不发 DNS 或网络请求。实际读取执行[公网目标与头部策略](playback.md#在线远程读取)，保存成功不代表来源已经可播放。
 
@@ -246,7 +249,7 @@ MacCMS 的前台浏览、搜索和详情 GET 的主请求，在网络连接／�
 
 claim 不接收任意播放身份，而是核对 `session_id` 的设备归属。客户端先读精确选中状态，用其 `writer_revision`（没有则 0）作为 `expected_revision`。成功返回 `{identity,writer_id,writer_revision,expires_at,progress,generation,scope_token}`；GET 不返回 `writer_id`。申请资格不会改变已有播放位置或最近观看时间，未真正写入过的 claim 响应 `progress:null`；单项读取可能返回 `updated_at:0` 的资格行，仅供下一次比较 revision，不能当作已观看记录。
 
-进度请求严格为 `{writer_id,writer_revision,seq,position,duration,paused,completed}`：`seq` 从正整数开始递增，位置为有限非负秒数，时长为正秒数或 `null`。相同序号与相同内容幂等，旧序号、旧 writer 或不同内容重用同一序号返回 `409 online_progress_writer_conflict`；发生冲突不自动重新读取和抢占 writer。writer 的 2 小时空闲期限只由完整校验通过的新序号保存延长，重复幂等包不续期，过期或被替代后不能靠迟到包恢复。用户向后 seek 可以减少位置。`completed:true` 仅描述真实 ended，要求有效时长及接近实际终点的位置，不接受归零的完播包；新一轮重播需新会话与新资格。
+进度请求严格为 `{writer_id,writer_revision,seq,position,duration,paused,completed}`：`seq` 从正整数开始递增，位置为有限非负秒数，时长为正秒数或 `null`。相同序号与相同内容幂等，旧序号、旧 writer 或不同内容重用同一序号返回 `409 online_progress_writer_conflict`；发生冲突不自动重新读取和抢占 writer。writer 的 2 小时空闲期限只由完整校验通过的新序号保存延长，重复幂等包不续期，过期或被替代后不能靠迟到包恢复。网页和电视遇到临时网络错误时会重试同一请求，保留原申请版本或进度序号和完整内容。暂时无法保存时，后续进度仍可提交。用户向后 seek 可以减少位置。`completed:true` 仅描述真实 ended，要求有效时长及接近实际终点的位置，不接受归零的完播包；新一轮重播需新会话与新资格。
 
 来源或总开关关闭后，已有记录可读、可取消收藏、可清历史，未过期且权限仍有效的已有 writer 可提交最终快照；新收藏与新 claim 要求总开关开启，且来源启用或该条目有完整本地缓存。每设备与模式最多 500 个收藏、1000 条完整身份进度，达到相应上限返回 `429 online_favorite_limit` 或 `online_progress_limit`。普通／隐私模式和不同设备彼此隔离，不承诺跨设备账户同步。
 
@@ -407,6 +410,10 @@ claim 不接收任意播放身份，而是核对 `session_id` 的设备归属。
 `active_jobs` 包括收到取消请求但 `worker_finished:false` 的复制任务；客户端不能仅凭 `state:cancelled` 判断后台写入已经结束。同库仍在复制时启动扫描返回 409。成功完整扫描只清除开始时的变更水位；失败、取消、离线或扫描过程中新增的变更仍待核对。扫描结果 `summary.fs_changes` 提供已清除数量及剩余摘要。
 
 电影与分集的改名/移动保留原记录 ID 和播放断点；删除立即同步记录。`rename/move` 预览中的 `followers` 列出同茎关联文件及冲突。`GET /api/fs/list` 的 `limit/offset/has_more/total_files` 需要完整处理，不能只显示默认第一页。
+
+电影墙调用 `POST /api/movies/batch-delete`，提交 `{ids,dry_run:true}` 取得 `plans[].files` 和 `preview_id`。确认时提交同一组 `ids`、`dry_run:false`、`confirm:true` 和原 `preview_id`。缺少标识或清单变化返回 409，需要重新预览。客户端应读取执行结果中每部影片的状态和失败文件，不能仅以 HTTP 200 判断全部文件已删除。
+
+文件浏览器调用 `POST /api/fs/delete`，以相同的 `library_id` 和完整的 `paths` 预览、确认。电影详情调用 `DELETE /api/movies/{id}/files`，确认时建议使用预览返回的 `plans[0].rel` 作为 `name`，旧式文件名只有解析到预览中的同一文件才能确认。两个接口都需要原 `preview_id` 和 `dry_run:false`，正片还需要 `confirm:true`。旧客户端缺少预览凭据或目标身份变化时返回 409。执行结果按项返回，非空目录会跳过。
 
 ### 文件内容预览与下载
 
@@ -628,9 +635,11 @@ POST /api/tv/ingestion-reviews/decision {"preview_id": "…", "ids": [72], "deci
 
 入库检查、待办及执行均为管理操作。自动详情检查已有授权时才启动，401/403 静默留待手动操作，不能因为浏览详情主动要求认证。同范围任务复用，重叠范围排队；取消是协作式停止，已成功补资料和文件动作保留，后台实际退出后才释放重叠任务。
 
+`GET /api/jobs/tv-organize/history?library_id=<id>` 列出所选视频库的整理批次。通过 `POST /api/jobs/tv-organize-restore` 预览后，网页在确认请求中提交预览摘要中的 `batch_id` 与 `preview_id`，以及原先选择的视频库和动作类型。如果期间可撤销的文件、目录或其身份已改变，任务状态会变为 `failed`，需重新预览。旧客户端可继续按原接口提交明确的撤销操作。
+
 ### 扫描状态复用
 
-`GET /api/jobs/scan` 返回正在运行或最近的扫描任务，墙上与设置工具共用状态。扫描只复用相同作用域/选项，不同范围返回 409；剧集入库检查则协调重叠范围并排队，不能把另一库的任务当成本次完成。扫描完成摘要的 `tv_ingest` 提供统一入库预览结果，客户端直接接续展示，无需重新发现文件。
+`GET /api/jobs/scan` 返回正在运行或最近的扫描任务，墙上与设置工具共用状态。扫描只复用相同作用域/选项，不同范围返回 409；剧集入库检查则协调重叠范围并排队，不能把另一库的任务当成本次完成。扫描结果的 `summary.root_reviews` 按视频库 ID 返回待核对目录及确认令牌。核对挂载后，通过 `POST /api/libraries/{id}/accept-scan-root` 提交 `{token}`，然后重新发起扫描。根目录离线时返回 503，确认期间目录再次变化时返回 409。手动核对 `GET /api/files/missing` 和清理 `POST /api/files/clean` 会跳过不可核实的库，可从 `unavailable_libraries` 与 `root_reviews` 获取原因和恢复入口。手动清理的 `ids:[]` 表示选中零项。扫描完成摘要的 `tv_ingest` 提供统一入库预览结果，客户端直接接续展示，无需重新发现文件。
 
 ### 相邻分集与版本
 
@@ -803,7 +812,7 @@ AI 服务默认关闭。所有产生外部调用的入口使用 POST，沿用应
 | `POST /api/ai/search/results/refresh` | 提交上次的 `session_id` 及同一页面与库范围，重新核实可见作品和观看状态，恢复返回位置。此请求不调用模型 |
 | `POST /api/ai/match` | `{kind:"movie"\|"tv", id}`；按该行所属视频库查候选，返回 `query/year/candidates/summary/warnings`，不更改绑定或媒体文件 |
 
-设置对话可以在本地识别明确的在线视频源换址请求，返回 `suggestion.kind = "online_source"`。`template_id` 标识内置运营方模板，`api_base_url` 可携带用户指定的公开目录地址，两项均可为空。网页让用户核对已有来源、目标地址和勾选的域名替换，然后沿用管理接口的换址预览和带指纹的 PATCH 提交。聊天响应本身只生成建议。
+设置对话可以在本地识别明确的在线视频源换址请求，返回 `suggestion.kind = "online_source"`。`template_id` 标识内置运营方模板，`api_base_url` 可携带用户指定的公开目录地址，两项均可为空。网页让用户核对已有来源、目标地址和勾选的域名替换，同一运营方模板的已知换址按镜像更新，其他地址由用户选择片库关系，再调用相应的管理接口。聊天响应本身只生成建议。
 
 用户报告在线资源播放故障时，浏览或设置对话可返回 `diagnose_online:true` 及可空的 `diagnosis_template_id`。网页选择来源后调用播放诊断接口。启用模型时，服务端可将症状类别、已有工具结果状态和可选的只读工具名交给模型排序。模型不可用或返回未知工具时，使用本地检查顺序；网络目标和配置提案均由服务端根据实际检测结果生成。[诊断和确认请求](#online-diagnosis)
 
@@ -815,9 +824,11 @@ AI 服务默认关闭。所有产生外部调用的入口使用 POST，沿用应
 
 自定义兼容服务允许空 Key，DeepSeek 与 OpenCode Go 要求 Key。API 部分更新不会因仅修改 `provider` 就自动重置地址或模型，应一并提交完整有效组合。
 
+网页编辑器读取设置时带 `X-AI-Settings-Repair: 1`。配置无效时，响应为 200，并用 `invalid_fields` 将字段名映射到可公开的错误说明。服务商和基础地址出错时，对应表单值留空，其他异常字段提供安全的修正初值。已有有效密钥只显示掩码。读取修正草稿不会写入配置或调用模型。普通 GET 对无效配置仍返回 400，实际模型调用仍要求完整配置有效。
+
 ### 密钥与环境值
 
-`api_key` 空串表示保留；`clear_api_key:true` 明确删除 DB 密钥并恢复环境值，不可与新 Key 同时提交。只有一套有效配置，切换服务商时由操作者填写对应 Key，不存在分服务商密钥槽位。配置错误返回 400，请求体不符合业务 schema 返回 422。
+`api_key` 空串表示保留；`clear_api_key:true` 明确删除 DB 密钥并恢复环境值，不可与新 Key 同时提交。当前实际密钥格式无效时，管理员可提交新密钥，或显式提交 `ignore_invalid_api_key:true` 删除无效数据库密钥，并在环境密钥格式无效时忽略它。此标志不能与新 Key 或 `clear_api_key:true` 同时使用。后续格式有效的环境密钥仍可生效。只有一套有效配置，切换服务商时由操作者填写对应 Key，不存在分服务商密钥槽位。配置错误返回 400，请求体不符合业务 schema 返回 422。
 
 有效配置按 DB → 对应环境变量 → 默认值解析，环境变量为 `AI_ENABLED/AI_PROVIDER/AI_BASE_URL/AI_MODEL/AI_API_KEY/AI_TIMEOUT_SECONDS/AI_DAILY_LIMIT`。默认关闭、超时 12 秒、每日上限 100 次；超时可设 2–60 秒，每日上限为 1–10000 次。设置存在数据库中，脱敏回显不等于加密存储。
 

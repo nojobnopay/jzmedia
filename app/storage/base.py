@@ -89,6 +89,7 @@ class StorageBackend(abc.ABC):
 
     driver = "base"
     read_cache_revision = 0
+    UNVERIFIED_DIRECTORY = "unverified-directory"
 
     def __init__(self, library: dict, driver: str = ""):
         self.library = dict(library or {})
@@ -232,11 +233,100 @@ class StorageBackend(abc.ABC):
         yield  # pragma: no cover（生成器语法占位）
 
     @abc.abstractmethod
-    def rename(self, src: str, dst: str) -> None:
+    def rename(self, src: str, dst: str, *, overwrite: bool = True) -> None:
         """同库 rename；跨设备时后端自行降级（复制+删除）。"""
 
+    def _entry_lstat(self, path: str):
+        raise StorageUnsupported("此存储无法核对待删除文件的身份")
+
+    def delete_entry_identity(self, path: str):
+        """Return the current entry type, size and revision, without following its final link."""
+        info = self._entry_lstat(path)
+        return self._delete_identity(info) if info is not None else None
+
+    def organize_identity(self, path: str, obj: str, *, recorded_at=None) -> str:
+        """Identify a file or directory across renames. Directory contents can change independently."""
+        info = self._entry_lstat(path)
+        return self._organize_stamp(info, obj, self.abs_path(path) if info is not None else None,
+                                    recorded_at=recorded_at, remote_sample=lambda: self._organize_file_sample(path, info))
+
+    def _organize_file_sample(self, path, info):
+        return None
+
+    @staticmethod
+    def _organize_stamp(info, obj, absolute, *, recorded_at=None, remote_sample=None):
+        mode_check = _stat.S_ISDIR if obj == "dir" else _stat.S_ISREG
+        if info is None or not mode_check(info.st_mode) or getattr(info, "st_reparse_tag", 0):
+            return ""
+        birth = getattr(info, "st_birthtime_ns", None)
+        if hasattr(info, "st_chgtime_ns"):
+            birth = info.st_ctime_ns  # smbclient distinguishes CreationTime from ChangeTime.
+        elif birth is None and absolute is not None:
+            from ..fsutil import file_birthtime_ns
+            birth = file_birthtime_ns(absolute, info)
+        if birth is not None and birth <= 0:
+            birth = None
+        # A replacement created after a legacy audit cannot be the object from that move.
+        if birth and recorded_at is not None and birth // 1_000_000_000 > recorded_at:
+            return ""
+        if not info.st_ino and not birth:
+            return ""
+        if obj == "dir" and not birth:
+            # Allow normal organization. Inode reuse makes automatic reversal unsafe.
+            return StorageBackend.UNVERIFIED_DIRECTORY
+        stamp = (obj, info.st_dev, info.st_ino, birth)
+        if obj == "file":
+            stamp += (info.st_size, info.st_mtime_ns)
+            if birth is None:
+                from ..fsutil import file_sample
+                if absolute is not None:
+                    sample = file_sample(absolute, info)
+                else:
+                    sample = remote_sample() if remote_sample else None
+                if sample is None:
+                    return ""
+                stamp += (sample,)
+        return hashlib.sha256(str(stamp).encode()).hexdigest()
+
+    def organize_move(self, src: str, dst: str, obj: str, *, expected: str | None = None, copied=None) -> str:
+        identity = self.organize_identity(src, obj)
+        if expected is not None and identity == self.UNVERIFIED_DIRECTORY:
+            raise StorageSourceChanged("存储未提供目录创建时间，请人工核对目录，分集文件可单独撤销")
+        if not identity or expected is not None and identity != expected:
+            raise StorageSourceChanged("源文件或目录已变化，请重新预览")
+        copies, destination_identity = self._organize_rename(src, dst, restoring=expected is not None)
+        if copied is not None:
+            copied.update(copies)
+        return destination_identity or identity
+
+    def _organize_rename(self, src, dst, *, restoring):
+        self.rename(src, dst, overwrite=False)
+        return {}, None
+
+    def file_delete_identity(self, path: str) -> tuple[int, str] | None:
+        identity = self.delete_entry_identity(path)
+        return identity[1:] if identity and identity[0] == "file" else None
+
+    def delete_empty_dir(self, path: str) -> None:
+        """Remove only an empty directory, never a file that replaced it."""
+        raise StorageUnsupported("此存储不支持清理空目录")
+
+    @staticmethod
+    def _delete_identity(info):
+        if _stat.S_ISLNK(info.st_mode) or getattr(info, "st_reparse_tag", 0):
+            kind = "link"
+        elif _stat.S_ISDIR(info.st_mode):
+            kind = "dir"
+        elif _stat.S_ISREG(info.st_mode):
+            kind = "file"
+        else:
+            return None
+        stamp = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns,
+                 getattr(info, "st_chgtime_ns", None))
+        return kind, info.st_size, hashlib.sha256(str(stamp).encode()).hexdigest()
+
     @abc.abstractmethod
-    def delete(self, path: str, recursive: bool = False) -> None:
+    def delete(self, path: str, recursive: bool = False, *, file_only: bool = False) -> None:
         """删除文件/空目录；目录需 recursive=True，缺失抛 StorageNotFound。"""
 
     # ---------------- 健康 ----------------

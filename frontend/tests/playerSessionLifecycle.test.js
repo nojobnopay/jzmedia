@@ -15,7 +15,8 @@ function eventTarget() {
 }
 
 async function player(t, { slowCreation = false, p5 = false, blocked = false, versions = [], sessionPlan = null,
-  realCasting = false, direct = false, initialCast = null, mp4 = false, clearCastPositionOnStop = false, kind = 'movie' } = {}) {
+  realCasting = false, direct = false, initialCast = null, mp4 = false, clearCastPositionOnStop = false,
+  kind = 'movie', saveProgress, preview = false, keyframeLead = 0 } = {}) {
   const mounted = [], beforeUnmount = [], unmounted = [], refs = [], requests = [], emitted = [], timers = new Map()
   const copied = []
   const saving = deferred(), creation = deferred(), page = eventTarget()
@@ -56,7 +57,8 @@ async function player(t, { slowCreation = false, p5 = false, blocked = false, ve
     if (path === '/api/stream/versions') return { versions }
     if (path.endsWith('/sessions')) {
       const session = { session_id: `lease-${++nextSid}`, method: p5 ? 'video_transcode' : 'remux', plan: sessionPlan || (mp4 ? { seg: 'mp4' } : makePlan(body)),
-        media_start: body.start, initial_time: 0, playlist_url: `/session-${nextSid}.m3u8`,
+        media_start: Math.max(0, body.start - keyframeLead), initial_time: Math.min(body.start, keyframeLead),
+        playlist_url: `/session-${nextSid}.m3u8`,
         ...(mp4 ? { media_url: '/synthetic-segment.mp4', clip_duration: 1200 } : {}) }
       if (nextSid === (slowCreation === true ? 1 : slowCreation)) return creation.promise
       return session
@@ -67,7 +69,7 @@ async function player(t, { slowCreation = false, p5 = false, blocked = false, ve
       return pingResult
     }
     if (options.method === 'DELETE') return { closed: true }
-    if (options.method === 'POST' && path.includes('/progress')) return saving.promise
+    if (options.method === 'POST' && path.includes('/progress')) return saveProgress ? saveProgress(body) : saving.promise
     if (path.includes('/progress')) return { position: 112, duration: 1200 }
     return {}
   }
@@ -91,7 +93,7 @@ async function player(t, { slowCreation = false, p5 = false, blocked = false, ve
   })
   const scope = Vue.effectScope()
   let render
-  scope.run(() => { render = component.setup({ versionId: 1, kind, title: '合成影片', preview: false },
+  scope.run(() => { render = component.setup({ versionId: 1, kind, title: '合成影片', preview },
     { expose() {}, emit: (name, payload) => emitted.push(payload ? { name, payload } : name) }) })
   refs[1].value = video
   let closed = false
@@ -149,7 +151,7 @@ test('actual PlayerModal page exit releases before a hanging progress save and b
   await flush()
   const created = ui.requests.filter(request => request.path.endsWith('/sessions'))
   assert.equal(created.length, 2)
-  assert.equal(created[1].body.start, 137)
+  assert.equal(created[1].body.start, 137.25)
   assert.equal(ui.video.paused, true)
   assert.equal(ui.video.autoplay, false, 'Native autoplay must not override a restored pause')
   assert.equal(ui.video.src, '/session-2.m3u8')
@@ -157,6 +159,151 @@ test('actual PlayerModal page exit releases before a hanging progress save and b
   await flush()
   const saved = ui.requests.filter(request => request.options.method === 'POST' && request.path.includes('/progress'))
   assert.equal(saved.at(-1).body.position, 137.25, 'Detaching the media must not replace the final source position with zero')
+})
+
+test('a paused local player leaves another device’s bookmark alone on timeupdate and exit', async t => {
+  const positions = []
+  let shared = 112
+  const ui = await player(t, { direct: true, saveProgress({ position }) { shared = position; positions.push(position) } })
+  ui.video.currentTime = 112
+  ui.video.pause()
+  await flush()
+  assert.deepEqual(positions, [], 'merely loading the shared bookmark does not claim it')
+  ui.video.currentTime = 157.25
+  ui.video.pause()
+  await flush()
+  shared = 850
+  ui.video.dispatch('timeupdate')
+  ui.page.dispatch('pagehide')
+  ui.close()
+  await flush()
+  assert.deepEqual(positions, [157.25])
+  assert.equal(shared, 850)
+})
+
+for (const direct of [true, false]) {
+  test(`restoring an idle fractional ${direct ? 'direct' : 'HLS'} bookmark preserves another device’s progress`, async t => {
+    const positions = []
+    const ui = await player(t, { direct, keyframeLead: 1, saveProgress: ({ position }) => positions.push(position) })
+    ui.video.currentTime = direct ? 137.25 : 26.25
+    ui.video.pause()
+    await flush()
+    ui.page.dispatch('pagehide', { persisted: true })
+    ui.page.dispatch('pageshow', { persisted: true })
+    await flush()
+    // Browser applies #t for direct media or the server-provided initial seek on HLS.
+    ui.video.currentTime = direct ? Number(ui.video.src.split('#t=')[1]) : 1
+    ui.video.dispatch('timeupdate')
+    ui.close()
+    await flush()
+    assert.deepEqual(positions, [137.25])
+  })
+}
+
+test('a changed rewind is saved after an in-flight write and an uncertain final position is retried', async t => {
+  const first = deferred(), positions = []
+  const ui = await player(t, { direct: true, saveProgress({ position }) {
+    positions.push(position)
+    if (positions.length === 1) return first.promise
+    if (positions.length === 2) throw new Error('response lost')
+  } })
+  ui.video.currentTime = 180
+  ui.video.pause()
+  await flush()
+  const seek = ui.nodes().find(node => node.props?.onInput && node.props?.onCommit)
+  seek.props.onCommit({ target: { value: '112' } })
+  ui.video.pause()
+  ui.close()
+  await flush()
+  assert.deepEqual(positions, [180])
+  first.resolve({})
+  await flush()
+  assert.deepEqual(positions, [180, 112, 112])
+})
+
+test('local previews never save progress on pause or exit', async t => {
+  const ui = await player(t, { preview: true, direct: true })
+  ui.video.currentTime = 30
+  ui.video.pause()
+  ui.close()
+  await flush()
+  assert.equal(ui.requests.some(r => r.path.includes('/progress')), false)
+})
+
+test('a paused seek burst behind a slow save sends only the latest pending position on exit', async t => {
+  const first = deferred(), positions = []
+  const ui = await player(t, { direct: true, saveProgress({ position }) {
+    positions.push(position)
+    if (positions.length === 1) return first.promise
+  } })
+  ui.video.currentTime = 180
+  ui.video.pause()
+  await flush()
+  const seek = ui.nodes().find(node => node.props?.onInput && node.props?.onCommit)
+  for (const target of [300, 230, 190, 80]) seek.props.onCommit({ target: { value: String(target) } })
+  ui.close()
+  first.resolve({})
+  await flush()
+  assert.deepEqual(positions, [180, 80])
+})
+
+test('an explicit paused seek to zero persists before closing', async t => {
+  const positions = []
+  const ui = await player(t, { direct: true, saveProgress: ({ position }) => positions.push(position) })
+  ui.video.currentTime = 220
+  ui.video.pause()
+  await flush()
+  const seek = ui.nodes().find(node => node.props?.onInput && node.props?.onCommit)
+  seek.props.onCommit({ target: { value: '0' } })
+  ui.close()
+  await flush()
+  assert.deepEqual(positions, [220, 0])
+})
+
+test('a paused HLS seek outside the buffer stays paused after opening a new session', async t => {
+  const ui = await player(t, { saveProgress: () => {} })
+  ui.video.currentTime = 10
+  ui.video.pause()
+  const seek = ui.nodes().find(node => node.props?.onInput && node.props?.onCommit)
+  seek.props.onCommit({ target: { value: '700' } })
+  await flush()
+  assert.equal(ui.requests.filter(r => r.path.endsWith('/sessions')).at(-1).body.start, 700)
+  assert.equal(ui.video.autoplay, false)
+  assert.equal(ui.video.paused, true)
+})
+
+test('closing retries a failed explicit rewind to zero when the media clock is already zero', async t => {
+  const positions = []
+  const ui = await player(t, { direct: true, saveProgress({ position }) {
+    positions.push(position)
+    if (positions.length === 2) throw new Error('response lost')
+  } })
+  ui.video.currentTime = 220
+  ui.video.pause()
+  await flush()
+  const seek = ui.nodes().find(node => node.props?.onInput && node.props?.onCommit)
+  seek.props.onCommit({ target: { value: '0' } })
+  await flush()
+  ui.close()
+  await flush()
+  assert.deepEqual(positions, [220, 0, 0])
+})
+
+test('starting from the beginning clears the bookmark after an in-flight save', async t => {
+  const ui = await player(t, { direct: true })
+  ui.video.currentTime = 180
+  ui.video.pause()
+  await flush()
+  const restarting = button(ui, '从头开始').props.onClick()
+  await flush()
+  const progress = () => ui.requests.filter(r => r.path.includes('/progress') && r.options.method)
+  assert.deepEqual(progress().map(r => r.options.method), ['POST'])
+  ui.saving.resolve({})
+  await restarting
+  await flush()
+  ui.close()
+  await flush()
+  assert.deepEqual(progress().map(r => r.options.method), ['POST', 'DELETE'])
 })
 
 for (const exit of ['pagehide', 'unmount']) {
@@ -379,7 +526,7 @@ for (const paused of [false, true]) {
     await flush()
     const sessions = ui.requests.filter(request => request.path.startsWith('/api/stream/') && request.path.endsWith('/sessions'))
     assert.equal(sessions.length, 2)
-    assert.equal(sessions[1].body.start, 137, 'Ordinary stream startup keeps its existing whole-second seek precision')
+    assert.equal(sessions[1].body.start, paused ? 137.25 : 137)
     assert.equal(ui.video.paused, paused)
     assert.equal(ui.video.autoplay, !paused)
     assert.match(ui.casting.error.value, /电视拒绝起播/)

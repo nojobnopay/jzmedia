@@ -117,6 +117,53 @@ def update_online_source(source_id: str, changes: dict) -> dict:
     return update_online_source_with_change(source_id, changes)[0]
 
 
+def replace_catalogue(source_id, request):
+    """Retain the old source and its offline identities, with a separate identity for the new catalogue."""
+    changes = request.model_dump(mode="json", exclude_unset=True)
+    digest = source_migration.fingerprint(changes)
+    selection = changes.pop("host_migration")
+    with _connection(write=True) as connection:
+        previous = _source(connection.execute("SELECT * FROM online_sources WHERE id=?", (source_id,)).fetchone())
+        if previous is None:
+            raise OnlineNotFound("在线来源不存在")
+        if previous["provider"] != "maccms":
+            raise ValueError("固定开放样例不能更换片库")
+        if changes["api_base_url"] == previous["api_base_url"]:
+            raise ValueError("新片库需要不同的接口地址")
+        receipt_key = "online_catalogue_replacement:" + source_id
+        row = connection.execute("SELECT value FROM app_settings WHERE key=?", (receipt_key,)).fetchone()
+        if row:
+            receipt = json.loads(row["value"])
+            if digest == receipt["request"]:
+                new_id = receipt["source"]
+                existing = _source(connection.execute("SELECT * FROM online_sources WHERE id=?", (new_id,)).fetchone())
+                if (existing is None or source_revision(connection, source_id) != receipt["previous_revision"]
+                        or source_revision(connection, new_id) != receipt["source_revision"]):
+                    raise source_migration.SourceChanged()
+                return {"previous": previous, "source": existing}, False
+        changes["allowed_hosts"] = source_migration.hosts_for_update(previous, changes, selection)
+        configuration = {key: previous[key] for key in OnlineSourceCreate.model_fields}
+        source = insert_online_source(connection, {**configuration, **changes})
+        connection.execute(
+            "INSERT INTO online_network_policies(source_id,rules_json,revision,updated_at)"
+            " SELECT ?,rules_json,1,? FROM online_network_policies WHERE source_id=?",
+            (source["id"], source["created_at"], source_id),
+        )
+        suffix = "（旧片库）"
+        name = previous["name"].removesuffix(suffix)[:128 - len(suffix)] + suffix
+        # Advance the fingerprint even when an already disabled source is replaced in the same second.
+        updated = max(int(time.time()), previous["updated_at"] + 1)
+        connection.execute("UPDATE online_sources SET name=?,enabled=0,updated_at=? WHERE id=?",
+                           (name, updated, source_id))
+        _advance_source_revision(connection, source_id)
+        previous.update(name=name, enabled=False, updated_at=updated)
+        receipt = {"request": digest, "source": source["id"], "previous_revision": source_revision(connection, source_id),
+                   "source_revision": source_revision(connection, source["id"])}
+        connection.execute("INSERT OR REPLACE INTO app_settings(key,value,updated_at) VALUES(?,?,?)",
+                           (receipt_key, json.dumps(receipt), updated))
+        return {"previous": previous, "source": source}, True
+
+
 def update_online_source_with_change(source_id: str, changes: dict) -> tuple[dict, bool]:
     """Return committed configuration and its material change from one transaction."""
     patch = OnlineSourcePatch.model_validate(changes).model_dump(mode="json", exclude_unset=True)

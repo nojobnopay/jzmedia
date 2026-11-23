@@ -100,7 +100,18 @@ class FakeSmbClient:
         self._guard()
         if self.stat_ntstatus is not None:
             raise os_error(self.stat_ntstatus, str(unc))
-        return os.stat(self._p(unc))
+        path = self._p(unc)
+        info = os.stat(path, follow_symlinks=kwargs.get("follow_symlinks", True))
+        # Real SMB servers expose CreationTime and ChangeTime separately. Some
+        # tests explicitly remove birth time to exercise weaker remote storage.
+        from app.fsutil import file_birthtime_ns
+        birth = file_birthtime_ns(path, info)
+        if birth is None:
+            return info
+        fields = {field: getattr(info, field) for field in dir(info) if field.startswith("st_")}
+        fields.update(st_ctime_ns=birth, st_ctime=birth / 1e9,
+                      st_chgtime_ns=info.st_ctime_ns, st_chgtime=info.st_ctime)
+        return SimpleNamespace(**fields)
 
     def open_file(self, unc, mode="r", share_access=None, **kwargs):
         self._count("open_file")
@@ -108,6 +119,8 @@ class FakeSmbClient:
             self._wguard()
         else:
             self._guard()
+        if kwargs.get("file_type") == "dir":
+            return os.scandir(self._p(unc))
         return open(self._p(unc), mode)
 
     def makedirs(self, unc, exist_ok=False, **kwargs):
@@ -129,8 +142,8 @@ class FakeSmbClient:
     def rename(self, src, dst, **kwargs):
         self._wguard()
         # Emulate SMB's no-replace commit, including a competing writer.
-        os.link(self._p(src), self._p(dst))
-        self._p(src).unlink()
+        from app.fsutil import rename_no_replace
+        rename_no_replace(self._p(src), self._p(dst))
 
     def replace(self, src, dst, **kwargs):
         self._wguard()

@@ -86,6 +86,46 @@ def test_show_detail_exposes_version(tv_lib):
     assert nxt.status_code == 200
 
 
+def test_partial_overlap_retains_unwatched_content_in_the_same_edition(tv_lib):
+    lib, _ = tv_lib
+    show = store.upsert_show(lib["id"], "合并集")
+
+    def episode(first, last=0, version=1):
+        path = f"合并集-V{version}-S01E{first:02d}" + (f"-E{last:02d}" if last else "") + ".mkv"
+        return store.upsert_episode(show, lib["id"], path, 1, first, episode_end=last)
+
+    first = episode(1)
+    combined = episode(1, 3)
+    fourth = episode(4)
+    other_edition = episode(2, version=2)
+    store.mark_episode_watched(first, True)
+    assert store.next_episode(show)["id"] == combined
+    assert store.season_next_episode(show, 1)["id"] == combined
+    assert store.episode_after(first)["id"] == combined
+    assert store.episode_after(combined)["id"] == fourth
+
+    second = episode(2)
+    third = episode(3)
+    assert store.episode_after(first)["id"] == second
+    with store._lock, store._conn() as connection:
+        connection.execute("UPDATE tv_episodes SET missing=1 WHERE id=?", (second,))
+    assert store.episode_after(first)["id"] == combined
+    with store._lock, store._conn() as connection:
+        connection.execute("UPDATE tv_episodes SET missing=1 WHERE id=?", (combined,))
+    assert store.episode_after(first)["id"] == second  # Stop at the known gap before E03.
+    with store._lock, store._conn() as connection:
+        connection.execute("UPDATE tv_episodes SET missing=0 WHERE id IN (?,?)", (second, combined))
+    assert store.season_next_episode(show, 1)["id"] == second
+    assert store.show_season_stats(show)[0]["next_episode"] == 2
+    store.mark_episode_watched(second, True)
+    store.mark_episode_watched(third, True)
+    assert store.next_episode(show)["id"] == fourth
+    assert store.show_season_stats(show)[0]["next_episode"] == 4
+    assert store.season_next_episode(show, 1, version=2)["id"] == other_edition
+    store.mark_episode_watched(fourth, True)
+    assert store.season_next_episode(show, 1, version=1) is None
+
+
 def test_navigation_ranges_versions_and_pagination(tv_lib):
     lib, _ = tv_lib
     lid = lib['id']

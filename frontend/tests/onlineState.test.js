@@ -132,6 +132,77 @@ test('a writer conflict never reads a newer revision or reclaims ownership autom
   assert.equal(notices.length, 1); assert.equal(notices[0].includes('private data'), false)
 })
 
+test('a lost response retries the same claim and progress packet before the newest paused position', async () => {
+  const calls = [], saved = [], notices = []
+  let claims = 0, writes = 0
+  const writer = createOnlineProgressWriter({ identity: MOVIE, scopeToken: SCOPE, revision: 4,
+    onSaved: value => saved.push(value.position), onNotice: value => notices.push(value),
+    request: responder(calls, {
+      claim: body => {
+        if (++claims === 1) throw new TypeError('connection lost')
+        return { identity: MOVIE, writer_id: WRITER, writer_revision: body.expected_revision + 1, scope_token: SCOPE }
+      },
+      write: body => {
+        if (++writes === 1) throw Object.assign(new Error(), { status: 503 })
+        return { progress: progress(body), scope_token: SCOPE }
+      },
+    }) })
+  assert.equal(await writer.session({ identity: MOVIE, session_id: SID }), false)
+  assert.equal(calls.length, 1, 'playback starts after the first claim attempt')
+  writer.update(snap(12)); const sent = writer.flush(); await tick()
+  assert.deepEqual(calls[0].options.body, calls[1].options.body)
+  writer.update(snap(7, { paused: true, reason: 'seek' }))
+  await sent; await writer.close()
+  assert.equal(calls[2].options.body, calls[3].options.body)
+  assert.deepEqual(calls.slice(2).map(row => row.body.seq), [1, 1, 2])
+  assert.deepEqual(saved, [12, 7]); assert.equal(notices.length, 2)
+  assert.match(notices[0], /重试/); assert.match(notices[1], /已恢复保存/)
+})
+
+test('after the retry limit only a later snapshot starts a new write, and revoked access stops the writer', async () => {
+  const calls = [], notices = []
+  let status = 504
+  const writer = createOnlineProgressWriter({ identity: MOVIE, scopeToken: SCOPE, onNotice: text => notices.push(text),
+    request: responder(calls, { write: () => { throw Object.assign(new Error(), { status }) } }) })
+  await writer.session({ identity: MOVIE, session_id: SID })
+  writer.update(snap(8)); await writer.flush()
+  assert.deepEqual(calls.slice(1).map(row => row.body.seq), [1, 1, 1])
+  assert.equal(writer.snapshot().disabled, false)
+  assert.equal(notices.length, 1)
+  status = 403; writer.update(snap(9)); await writer.flush()
+  assert.equal(calls.length, 5); assert.equal(calls.at(-1).body.seq, 2)
+  assert.equal(writer.snapshot().disabled, true); await writer.close()
+})
+
+test('the next real position can recover an exhausted claim using the original session and revision', async () => {
+  const calls = []
+  let claims = 0
+  const writer = createOnlineProgressWriter({ identity: MOVIE, scopeToken: SCOPE, revision: 7,
+    request: responder(calls, { claim: body => {
+      if (++claims === 1) throw Object.assign(new Error(), { status: 503 })
+      if (claims === 2) throw Object.assign(new Error(), { name: 'TimeoutError' })
+      if (claims <= 4) throw Object.assign(new Error(), { status: 429 })
+      return { identity: MOVIE, writer_id: WRITER, writer_revision: body.expected_revision + 1, scope_token: SCOPE }
+    } }) })
+  assert.equal(await writer.session({ identity: MOVIE, session_id: SID }), false)
+  assert.equal(claims, 1)
+  writer.update(snap(10)); await writer.flush()
+  assert.equal(claims, 4); assert.equal(writer.snapshot().disabled, false)
+  writer.update(snap(16)); await writer.close()
+  assert.equal(claims, 5)
+  assert.ok(calls.slice(0, 5).every(call => call.options.body === calls[0].options.body))
+  assert.deepEqual(calls[0].body, { session_id: SID, expected_revision: 7 })
+  assert.equal(calls[5].body.position, 16); assert.equal(calls[5].body.seq, 1)
+})
+
+test('a permanent quota response does not retry despite its HTTP 429 status', async () => {
+  const calls = []
+  const writer = createOnlineProgressWriter({ identity: MOVIE, scopeToken: SCOPE,
+    request: responder(calls, { claim: () => { throw Object.assign(new Error(), { status: 429, code: 'online_progress_limit' }) } }) })
+  await writer.session({ identity: MOVIE, session_id: SID }); writer.update(snap(1)); await writer.close()
+  assert.equal(calls.length, 1); assert.equal(writer.snapshot().disabled, true)
+})
+
 test('renewing the same playback uses the known owned revision and immutable scope', async () => {
   const calls = []
   const writer = createOnlineProgressWriter({ identity: MOVIE, scopeToken: SCOPE, revision: 4, intervalMs: 100000, request: responder(calls) })

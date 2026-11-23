@@ -1,18 +1,24 @@
 <template>
   <section class="card-block ai-settings">
     <p v-if="!settings && busy" role="status">正在加载智能辅助配置…</p>
+    <div v-if="repairing" class="ai-result error" role="alert">
+      <strong>智能辅助配置需要修正</strong>
+      <p v-for="(reason, name) in settings.invalid_fields" :key="name">{{ reason }}</p>
+      <p>请核对表单后保存，修改只在保存后生效。</p>
+    </div>
     <fieldset :disabled="busy || !settings">
       <div class="ai-enable"><div><h3>智能辅助服务</h3><p class="hint">用自然语言找片、核对匹配，或向设置助手提问。</p></div><label class="check"><input v-model="form.enabled" type="checkbox" />启用智能辅助</label></div>
       <p class="ai-privacy">找片时，模型会收到你的要求和相关候选的片名、简介、主创等资料。观看状态由本地片库判断。设置问答会发送问题、必要的对话上下文和本版手册摘录。</p>
       <div v-if="!form.enabled" class="ai-disabled"><span>当前关闭。可以先配置并测试服务，保存后再启用。</span><JzButton type="button" :aria-expanded="configure" aria-controls="ai-service-fields" @click="configure = !configure">{{ configure ? '收起服务配置' : '配置与测试服务' }}</JzButton></div>
       <div v-if="form.enabled || configure" id="ai-service-fields">
         <div class="ai-fields">
-          <JzField id="ai-provider" label="服务商"><select id="ai-provider" v-model="form.provider" @change="selectProvider"><option value="deepseek">DeepSeek</option><option value="opencode_go">OpenCode Go</option><option value="compatible">自定义兼容接口</option></select></JzField>
+          <JzField id="ai-provider" label="服务商" :error="fieldErrors.provider"><select id="ai-provider" v-model="form.provider" @change="selectProvider"><option v-if="!form.provider" disabled value="">请选择服务商</option><option value="deepseek">DeepSeek</option><option value="opencode_go">OpenCode Go</option><option value="compatible">自定义兼容接口</option></select></JzField>
           <JzField id="ai-model" label="模型名称" :error="fieldErrors.model" v-slot="field"><input :id="field.id" v-model="form.model" name="ai-model" autocomplete="off" :aria-describedby="field.describedby" :aria-invalid="field.invalid || undefined" :placeholder="preset.model || '模型 ID'" /></JzField>
           <JzField class="wide" id="ai-base-url" label="API 基础地址" :error="fieldErrors.base_url" v-slot="field"><input :id="field.id" v-model="form.base_url" name="ai-base-url" type="url" autocomplete="off" :spellcheck="false" :aria-describedby="field.describedby" :aria-invalid="field.invalid || undefined" :placeholder="preset.base_url || 'http://localhost:11434/v1'" /></JzField>
-          <JzField class="wide" id="ai-api-key" label="API Key"><input id="ai-api-key" v-model="apiKey" name="ai-api-key" type="password" autocomplete="new-password" placeholder="留空保留已有密钥；本地服务可不填" aria-describedby="ai-key-hint" /></JzField>
+          <JzField class="wide" id="ai-api-key" label="API Key" :error="fieldErrors.api_key"><input id="ai-api-key" v-model="apiKey" name="ai-api-key" type="password" autocomplete="new-password" placeholder="留空保留已有密钥；本地服务可不填" aria-describedby="ai-key-hint" /></JzField>
         </div>
         <p id="ai-key-hint" class="hint">{{ settings?.api_key_set ? '密钥已配置 · ' + sourceText(settings.api_key_source) : '未配置密钥' }} {{ settings?.api_key_masked }}</p>
+        <label v-if="settings?.invalid_fields?.api_key" class="check"><input v-model="ignoreInvalidKey" type="checkbox" :disabled="!!apiKey.trim()" />移除无效密钥并忽略无效环境密钥</label>
         <p class="hint">切换服务商后请填写对应密钥；留空沿用当前密钥。</p>
         <div v-if="form.provider === 'opencode_go'" class="provider-note"><p>OpenCode Go 官方面向编码代理。请核对订阅的使用范围及模型权限。<a href="https://opencode.ai/docs/console/go/#where-can-i-use-it" target="_blank" rel="noopener noreferrer">查看官方使用范围 <AppIcon name="external-link" :size="14" /></a></p><p>模型使用 Chat Completions 对应 ID，例如 glm-5.3-flash，不加 opencode-go/ 前缀。</p></div>
         <details ref="advanced" class="ai-advanced"><summary>调用限额、超时与密钥管理</summary>
@@ -28,7 +34,7 @@
       <SettingsFormActions v-if="form.enabled || configure || dirty" class="ai-actions" :dirty="dirty" :busy="busy" :status="error ? '操作未完成，请查看错误提示' : message ? '设置操作已完成' : ''" label="智能辅助配置操作">
         <JzButton variant="primary" :disabled="busy || !settings" :loading="busy" @click="save">保存智能辅助配置</JzButton>
         <JzButton v-if="dirty" :disabled="busy" @click="discard">放弃修改</JzButton>
-        <JzButton v-if="form.enabled || configure" :disabled="busy || dirty" @click="check">测试已保存连接</JzButton>
+        <JzButton v-if="form.enabled || configure" :disabled="busy || dirty || repairing" @click="check">测试已保存连接</JzButton>
       </SettingsFormActions>
     </fieldset>
     <div v-if="busy || error || message" class="ai-result" :class="{ error: !!error }" role="status">{{ busy ? '正在处理…' : error || message }}</div>
@@ -52,6 +58,7 @@ const fields = ['enabled', 'provider', 'base_url', 'model', 'timeout_seconds', '
 const settings = ref(null)
 const form = reactive({ enabled: false, provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-flash', timeout_seconds: 12, daily_limit: 100 })
 const apiKey = ref('')
+const ignoreInvalidKey = ref(false)
 const message = ref('')
 const armClear = ref(false)
 const configure = ref(false)
@@ -61,9 +68,12 @@ watch(() => props.openServiceRequest, request => {
 const advanced = ref(null), attempted = ref(false)
 const { busy, error, run } = useAiRequest()
 const preset = computed(() => aiProviderPreset(form.provider))
-const dirty = computed(() => !!settings.value && (!!apiKey.value || fields.some(key => form[key] !== settings.value[key])))
+const repairing = computed(() => !!settings.value?.invalid_fields)
+const dirty = computed(() => !!settings.value && (!!apiKey.value || ignoreInvalidKey.value || fields.some(key => form[key] !== settings.value[key])))
 const validationErrors = computed(() => {
   const errors = {}
+  if (!['deepseek', 'opencode_go', 'compatible'].includes(form.provider)) errors.provider = '请选择服务商。'
+  if (settings.value?.invalid_fields?.api_key && !apiKey.value.trim() && !ignoreInvalidKey.value) errors.api_key = '请填写新密钥，或选择移除无效密钥。'
   if (!form.model.trim()) errors.model = '请填写模型名称。'
   try { const url = new URL(form.base_url.trim()); if (!['http:', 'https:'].includes(url.protocol)) throw new Error('protocol') }
   catch { errors.base_url = '请填写完整的 HTTP 或 HTTPS 服务地址。' }
@@ -84,15 +94,22 @@ function sync(value, preserveDraft = false) {
     if (!preserveDraft || form[key] === settings.value?.[key]) form[key] = value[key]
   }
   settings.value = value
-  if (!preserveDraft) { apiKey.value = ''; attempted.value = false }
+  if (!preserveDraft) { apiKey.value = ''; ignoreInvalidKey.value = false; attempted.value = false }
   armClear.value = false
 }
 function discard() { if (busy.value || !settings.value) return; sync(settings.value); message.value = ''; error.value = '' }
 useSettingsDraft({ section: 'sec-ai', label: '智能辅助配置', dirty: () => dirty.value,
   busy: () => !!settings.value && busy.value, discard })
 async function load() {
-  const value = await run('/api/ai/settings', undefined, 'GET')
-  if (value) sync(value)
+  const value = await run('/api/ai/settings', undefined, 'GET', { 'X-AI-Settings-Repair': '1' })
+  if (value) {
+    sync(value)
+    if (value.invalid_fields) {
+      configure.value = true
+      await nextTick()
+      if (advanced.value && (value.invalid_fields.timeout_seconds || value.invalid_fields.daily_limit)) advanced.value.open = true
+    }
+  }
 }
 async function save() {
   if (busy.value || !settings.value) return
@@ -102,7 +119,7 @@ async function save() {
     configure.value = true
     await nextTick()
     if ((validationErrors.value.timeout_seconds || validationErrors.value.daily_limit) && advanced.value) advanced.value.open = true
-    const ids = { model: 'ai-model', base_url: 'ai-base-url', timeout_seconds: 'ai-timeout', daily_limit: 'ai-daily-limit' }
+    const ids = { provider: 'ai-provider', api_key: 'ai-api-key', model: 'ai-model', base_url: 'ai-base-url', timeout_seconds: 'ai-timeout', daily_limit: 'ai-daily-limit' }
     if (typeof document !== 'undefined') {
       const field = document.getElementById(ids[invalid[0]])
       field?.focus({ preventScroll: true })
@@ -111,13 +128,15 @@ async function save() {
     return
   }
   message.value = ''
-  const body = { ...form, base_url: form.base_url.trim(), model: form.model.trim() }
+  const fieldsToSave = repairing.value ? fields.filter(key => Object.hasOwn(settings.value.invalid_fields, key) || form[key] !== settings.value[key]) : fields
+  const body = Object.fromEntries(fieldsToSave.map(key => [key, typeof form[key] === 'string' ? form[key].trim() : form[key]]))
   if (apiKey.value.trim()) body.api_key = apiKey.value.trim()
+  else if (ignoreInvalidKey.value) body.ignore_invalid_api_key = true
   const value = await run('/api/ai/settings', body, 'PATCH')
   if (value) { sync(value); emit('saved'); message.value = value.enabled ? '配置已保存，智能辅助已开启' : '配置已保存，智能辅助已关闭' }
 }
 async function check() {
-  if (dirty.value) return
+  if (dirty.value || repairing.value) return
   message.value = ''
   const value = await run('/api/ai/check')
   if (value) { message.value = value.message; if (value.usage) settings.value.usage = value.usage }

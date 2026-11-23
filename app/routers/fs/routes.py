@@ -1,4 +1,6 @@
 """routers.fs.routes（自 app/routers/fs.py 拆分，评审 R01-Q4；经 fs 门面使用）。"""
+import hashlib
+import json
 import os
 import re
 from functools import wraps
@@ -462,93 +464,73 @@ def fs_move(body: dict | None = None):
 @router.post("/delete")
 @_locked_write
 def fs_delete(body: dict | None = None):
-    """删除文件：{paths[], dry_run, confirm}。
-
-    - 花絮/字幕/周边：dry_run:false 即删（无二次确认）。
-    - 正片 feature：预览带 requires_confirm + 影响面，必须 confirm:true 才执行；
-      执行删文件 + 删库行 + NFO 收尾（海报/tmdb_cache 保留）。
-    - 目录：仅允许空目录（传目录 rel，调 rmdir），非空拒绝。
-    """
+    """Preview exact entries, then confirm the returned preview_id."""
     body = body or {}
-    raws = body.get("paths") or []
-    if not isinstance(raws, list) or not raws:
-        raise HTTPException(422, "paths required")
-    if len(raws) > 100:
-        raise HTTPException(422, "too many paths (max 100)")
-    dry_run = body.get("dry_run", True)
-    confirm = bool(body.get("confirm", False))
-    lid_raw = _lib_param(body.get("library_id", body.get("library")))
-    lid = library_paths.default_id() if lid_raw is None else lid_raw
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not 1 <= len(paths) <= 100:
+        raise HTTPException(422, "paths must contain 1 to 100 entries")
+    lid = _lib_param(body.get("library_id", body.get("library")))
+    lid = library_paths.default_id() if lid is None else lid
+    return delete_paths(body, lid, paths)
+
+
+def _delete_plan(backend, rel):
+    lid = backend.library_id
+    base = {"rel": rel, "name": os.path.basename(rel), "library_id": lid, "requires_confirm": False}
+    try:
+        identity = backend.delete_entry_identity(rel)
+    except storage.StorageNotFound:
+        return {**base, "kind": "other", "status": "skipped_missing_src"}
+    if identity is None:
+        return {**base, "kind": "other", "status": "unsupported"}
+    kind, size, revision = identity
+    base.update(size=size, revision=revision)
+    if kind == "dir":
+        status = "dir_not_empty" if backend.list(rel) else "planned_rmdir"
+        return {**base, "kind": "dir", "status": status}
+    return {**_impact_for_delete(rel, lid, backend=backend), "library_id": lid,
+            "size": size, "revision": revision, "entry_kind": kind}
+
+
+def delete_paths(body, lid, paths, *, movie_id=None):
     backend = _backend(lid)
-    remote = _is_remote(backend)
-    plans: list[dict] = []
-    for r in raws:
-        rel = _check_inside_root(str(r or ""), lid)
-        try:
-            st = backend.stat(rel)
-        except storage.StorageNotFound:
-            st = None
-        except storage.StorageError as e:
-            raise _http_storage(e, "stat failed")
-        if st is None:
-            # 本地断链符号链接：stat 失败但 lexists 为真，仍允许删除（清理语义）
-            if not remote:
-                abs_p = library_paths.resolve(lid, rel)
-                if os.path.islink(abs_p) and os.path.lexists(abs_p):
-                    plans.append({**_impact_for_delete(rel, lid),
-                                  "library_id": lid})
-                    continue
-            plans.append({"rel": rel, "name": os.path.basename(rel),
-                          "kind": "other", "requires_confirm": False,
-                          "library_id": lid, "status": "skipped_missing_src"})
-            continue
-        if st.is_dir:
-            try:
-                entries = backend.list(rel)
-                empty = not entries
-            except storage.StorageError:
-                empty = False
-            plans.append({"rel": rel, "name": os.path.basename(rel),
-                          "kind": "dir", "requires_confirm": False,
-                          "library_id": lid,
-                          "status": "planned_rmdir" if empty else "dir_not_empty"})
-            continue
-        plans.append({**_impact_for_delete(rel, lid,
-                                           backend=backend if remote else None),
-                      "library_id": lid})
-    needs_confirm = [p for p in plans if p.get("requires_confirm")]
-    if dry_run or (needs_confirm and not confirm):
-        return {"dry_run": True, "total": len(plans), "plans": plans,
-                "needs_confirm": len(needs_confirm),
-                "hint": ("含正片文件，需 confirm:true 二次确认"
-                         if needs_confirm else "")}
+    rels = list(dict.fromkeys(_check_inside_root(str(path or ""), lid) for path in paths))
+    storage.clear_meta_cache(lid)
+    try:
+        plans = [_delete_plan(backend, rel) for rel in rels]
+    except storage.StorageError as exc:
+        raise _http_storage(exc, "无法核对删除清单") from exc
+    digest = hashlib.sha256(json.dumps([lid, movie_id, plans], sort_keys=True,
+                                       ensure_ascii=False).encode()).hexdigest()
+    needs_confirm = sum(bool(p["requires_confirm"]) for p in plans)
+    if body.get("dry_run", True) or (needs_confirm and not body.get("confirm")):
+        return {"dry_run": True, "total": len(plans), "plans": plans, "preview_id": digest,
+                "needs_confirm": needs_confirm, "hint": "请核对清单后确认删除"}
     _require_writable(lid)
-    done = []
-    for p in plans:
-        if p.get("kind") == "dir":
-            if p.get("status") != "planned_rmdir":
-                done.append({**p, "status": p.get("status") or "dir_not_empty"})
-                continue
-            try:
-                if remote:
-                    backend.delete(p["rel"])
-                else:
-                    os.rmdir(library_paths.resolve(lid, p["rel"]))
-                store.record_fs_change(lid, 'delete', p['rel'])
-                done.append({**p, "status": "deleted"})
-            except storage.StorageError as e:
-                done.append({**p, "status": f"error: {e}"})
-            except OSError as e:
-                done.append({**p, "status": f"error: {e}"})
+    if body.get("preview_id") != digest:
+        raise HTTPException(409, "删除清单已变化或缺少预览，请重新预览后确认")
+    results = []
+    for plan in plans:
+        if plan.get("status") not in (None, "planned_rmdir"):
+            results.append(plan)
             continue
-        if p.get("status") == "skipped_missing_src":
-            done.append(p)
-            continue
-        done.append(_exec_delete_one_remote(p, backend) if remote
-                    else _exec_delete_one(p))
-    ok = sum(1 for r in done if r.get("status") == "deleted")
-    return {"dry_run": False, "total": len(done), "deleted": ok,
-            "results": done}
+        rel = plan["rel"]
+        try:
+            identity = backend.delete_entry_identity(rel)
+            if not identity or identity[2] != plan["revision"]:
+                raise storage.StorageSourceChanged("文件已变化，请重新预览")
+            if plan.get("status") == "planned_rmdir":
+                backend.delete_empty_dir(rel)
+                store.record_fs_change(lid, "delete", rel)
+                result = {**plan, "status": "deleted"}
+            else:
+                result = (_exec_delete_one_remote(plan, backend) if _is_remote(backend)
+                          else _exec_delete_one(plan))
+        except (storage.StorageError, OSError) as exc:
+            result = {**plan, "status": f"error: {exc}"}
+        results.append(result)
+    return {"dry_run": False, "total": len(results), "deleted": sum(r["status"] == "deleted" for r in results),
+            "results": results}
 
 
 # ===== 复制（评审 B9 后续）：目录递归 + 冲突自动副本命名 + 后台 job 进度/取消 =====

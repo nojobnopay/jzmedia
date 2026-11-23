@@ -44,6 +44,7 @@
             <router-link v-for="source in otherSeasonSources" :key="sourceSeasonPath(source)" :to="sourceSeasonPath(source)">在 {{ source.library_name || '其他视频库' }} 中查看 · {{ seasonLabel(source.season) }}</router-link>
           </div>
           <MediaOverview :text="s.overview || collectionSeason?.overview || catalog?.overview || ''" />
+          <p v-if="playbackNotice" class="page-feedback" role="status">{{ playbackNotice }}</p>
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
         </div>
       </div>
@@ -107,7 +108,7 @@
   </EmptyState>
   <PlayerModal v-if="playing" :key="'episode:' + playing.id"
     :version-id="playing.id" :title="playing.label" kind="episode"
-    @close="playing = null" @watched="onWatched" @ended="onEnded" @version-change="playing = $event" />
+    @close="playing = null" @watched="onWatched" @ended="onEnded(s?.show_title)" @version-change="playing = $event" />
 </template>
 
 <script setup>
@@ -120,7 +121,7 @@ import AppIcon from '../components/AppIcon.vue'
 import JzButton from '../components/JzButton.vue'
 
 import EmptyState from '../components/EmptyState.vue'
-import { followingPlayback } from '../episodePlayback.js'
+import { useEpisodeAutoplay } from '../episodePlayback.js'
 import { episodeDisplayTitle } from '../episodeTitles.js'
 import PlayerIcon from '../components/PlayerIcon.vue'
 
@@ -174,6 +175,7 @@ const hasMore = ref(false)
 const loadingMore = ref(false)
 const msg = ref('')
 const playing = ref(null)
+const { onEnded, notice: playbackNotice } = useEpisodeAutoplay(playing, () => [route.path, route.params.showId, route.params.season], api)
 const busy = ref(false)
 const selectedVersion = ref('')
 let loadGeneration = 0
@@ -355,14 +357,6 @@ async function onWatched () {
   if (!cur) return
   await markWatched(cur.id, true)
   await load()
-}
-async function onEnded () {
-  const cur = playing.value
-  if (!cur || cur.kind && cur.kind !== 'episode') return
-  try {
-    const next = await followingPlayback(cur, s.value.show_title)
-    if (playing.value === cur) playing.value = next
-  } catch (e) { msg.value = '自动连播失败：' + e.message }
 }
 
 onMounted(() => load())

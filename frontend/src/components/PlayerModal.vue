@@ -206,12 +206,15 @@ function castingMedia() {
     audio: audios.value.length ? Number(audioIdx.value) : null,
     sub: isLocalSub(selectedSub()) ? -1 : Number(subIdx.value ?? -1) }
 }
+function localPlaybackWanted(video) {
+  return !!video && ((!video.paused && !video.ended)
+    || (seekPending.value || booting.value) && wantPlaying && !pauseOnReady)
+}
 async function prepareCasting(position) {
   if (disposed || pageLifecycle.isAway()) throw new Error('当前页面已离开，请重新打开播放器后投屏')
   if (castHeld.value) return
   const video = videoEl.value
-  const playing = !!video && ((!video.paused && !video.ended)
-    || (seekPending.value || booting.value) && wantPlaying && !pauseOnReady)
+  const playing = localPlaybackWanted(video)
   const generation = ++reloadGen
   castHandoff = { position, playing, generation }
   castReceiverId = null
@@ -229,9 +232,9 @@ async function prepareCasting(position) {
   seekPos.value = position
   // A previous periodic save may still be writing an older position. Write the
   // frozen handoff after it, without deriving it from a changing media element.
-  await (savePromise || Promise.resolve())
+  await savePromise
   if (disposed || pageLifecycle.isAway() || reloadGen !== generation) throw new Error('播放状态已变化，请重新发起投屏')
-  await postProgress({ pos: position, dur: mediaDuration(video) })
+  await queueProgress({ pos: position, dur: mediaDuration(video) }, true)
   if (disposed || pageLifecycle.isAway() || reloadGen !== generation) throw new Error('播放状态已变化，请重新发起投屏')
 }
 function restoreFailedCasting() {
@@ -314,6 +317,8 @@ async function returnToPhone() {
     : previous?.last_position ?? castReportedPosition ?? requested ?? castRequestedPosition ?? seekPos.value)
   casting.close()
   casting.forget()
+  savedProgressMillis = undefined
+  latestProgress = null
   castHeld.value = false
   castReceiverId = null
   castReportedPosition = null
@@ -1190,7 +1195,12 @@ async function reload(options) {
     decidedDuration.value = Number(d.media?.duration) || 0
   const startAt = fromZero ? 0 : (resumePos || 0)
   resumePos = 0
-  lastStartAt = Math.floor(startAt)
+  // A paused restore must land at the acknowledged bookmark. Rounding it down
+  // makes an idle tab look like a deliberate rewind when it closes later.
+  lastStartAt = paused || (d.method !== 'direct' && p5Playback.value) ? startAt : Math.floor(startAt)
+  if (savedProgressMillis === undefined) {
+    savedProgressMillis = Math.round(lastStartAt * 1000)
+  }
   startOffset.value = lastStartAt
   mediaStart = d.method === 'direct' ? 0 : lastStartAt
   applySubs()
@@ -1199,7 +1209,7 @@ async function reload(options) {
     engine = 'direct'
     logEvt('engine:direct', '')
     // 服务端已编码路径和查询参数，再 encodeURI 会把中文路径中的 % 重复编码。
-    v.src = d.direct_url + (startAt > 0 ? `#t=${Math.floor(startAt)}` : '')
+    v.src = d.direct_url + (lastStartAt > 0 ? `#t=${lastStartAt}` : '')
     tryPlay()
   } else {
     // 渐进式会话：服务端按计划等待首批分片，首画面不等整片
@@ -1208,7 +1218,7 @@ async function reload(options) {
     let s
     try {
       s = prepared || await createPlayerSession({ quality: quality.value, audio: audioIdx.value,
-                               start: p5Playback.value ? startAt : Math.floor(startAt),
+                               start: lastStartAt,
                                sub: burnSub >= 0 ? burnSub : null,
                                caps: activeCaps,
                                force_burn: forceBurn.value, kind: props.kind,
@@ -1439,9 +1449,12 @@ function mediaDuration(v) {
   if (real > 0) return real
   return (v && Number.isFinite(v.duration) && v.duration > 0) ? v.duration : 0
 }
-// 进度上报去重（用户 2026-09）：并发调用共享同一请求；失败后至少间隔 10s 再试，
-// 防 timeupdate 高频触发 + 网络失败时堆积重复 POST（存档为单行 UPSERT、无文件 I/O）。
-let savePromise = null
+// Serialize writes from this player. A paused/closed tab must leave another device's
+// newer bookmark alone, even when the old position is sampled again on final exit.
+let savePromise = Promise.resolve()
+let queuedProgress = null
+let latestProgress = null
+let savedProgressMillis
 let lastSaveAttempt = 0
 // 取关闭/上报这一刻的存档内容（pos==null 表示无有效位置，不写）
 function progressPayload(v) {
@@ -1455,25 +1468,45 @@ function progressPayload(v) {
 }
 async function postProgress(p) {
   if (props.preview || castHeld.value) return
+  const millis = Math.round(p.pos * 1000)
+  if (millis === savedProgressMillis) return
+  // A failed response may still have committed. Permit a retry or an intentional
+  // seek back to the position that preceded the uncertain write.
+  savedProgressMillis = null
   try {
     await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`, {
       method: 'POST', body: JSON.stringify({ position: p.pos, duration: p.dur || 0 }),
       keepalive: true,   // 关页/刷新时也能把最后一次进度发出去（评审 B8/R14-D3）
       timeout: 15000     // 单行 UPSERT：慢/挂起时及时放弃，别拖住关播后的「上次看到」刷新
     })
+    savedProgressMillis = millis
     lastSave = Date.now()
   } catch (e) { /* 进度上报失败不打扰播放 */ }
 }
-function saveNow() {
-  if (props.preview || castHeld.value || pageLifecycle.isAway() || playbackFinished) return Promise.resolve()
-  if (savePromise) return savePromise
-  lastSaveAttempt = Date.now()
-  const v = videoEl.value
-  const p = v ? progressPayload(v) : null
-  savePromise = (p ? postProgress(p) : Promise.resolve()).finally(() => { savePromise = null })
+function queueProgress(p, final = false) {
+  if (!p) return savePromise
+  latestProgress = p
+  if (!final && queuedProgress) {
+    queuedProgress.payload = p
+    return savePromise
+  }
+  // Keep only the latest unsent sample behind a slow write. A final snapshot
+  // stays separate so it can retry an unacknowledged last pause or seek.
+  const slot = { payload: p }
+  queuedProgress = final ? null : slot
+  savePromise = savePromise.then(() => {
+    if (queuedProgress === slot) queuedProgress = null
+    return postProgress(slot.payload)
+  })
   return savePromise
 }
-// 关闭时最终存档：等在途请求落定后按「关闭这一刻」的位置再写一次（顺序正确、不并发堆积）。
+function saveNow() {
+  if (props.preview || castHeld.value || castPreparing.value || pageLifecycle.isAway() || playbackFinished) return savePromise
+  lastSaveAttempt = Date.now()
+  const v = videoEl.value
+  return queueProgress(v ? progressPayload(v) : null)
+}
+// 关闭时保留这一刻的快照，排在旧请求之后，已有成功存档的同一位置不再重写。
 // 幂等：父级关窗时先调一次、卸载钩子再调返回同一 Promise，不会双发。
 let finalSavePromise = null
 function saveFinal() {
@@ -1481,7 +1514,7 @@ function saveFinal() {
   if (finalSavePromise) return finalSavePromise
   const v = videoEl.value
   const p = v ? progressPayload(v) : null
-  finalSavePromise = (savePromise || Promise.resolve()).then(() => (p ? postProgress(p) : undefined))
+  finalSavePromise = queueProgress(p || latestProgress, true)
   return finalSavePromise
 }
 function onTime() {
@@ -1532,7 +1565,12 @@ function doSeek(t) {
   seekPreview.value = t
   if (method.value === 'direct') {
     const v = videoEl.value
-    if (v) { try { v.currentTime = t } catch (e) { /* 忽略 */ } }
+    if (v) {
+      try {
+        v.currentTime = t
+        if (v.paused) queueProgress({ pos: t, dur: mediaDuration(v) })
+      } catch (e) { /* 忽略 */ }
+    }
     return
   }
   const localTime = reusableSeekTime(videoEl.value, t, mediaStart)
@@ -1540,6 +1578,7 @@ function doSeek(t) {
     const v = videoEl.value
     try {
       v.currentTime = localTime
+      if (v.paused) queueProgress({ pos: t, dur: mediaDuration(v) })
       logEvt('seek:reuse', fmt(t))
       const gen = reloadGen
       seekFallbackTimer = setTimeout(() => {
@@ -1551,12 +1590,13 @@ function doSeek(t) {
   restartSeek(t)
 }
 function restartSeek(t) {
+  const paused = !localPlaybackWanted(videoEl.value)
   resumePos = t
   seekPending.value = true
   seekPendingSince = Date.now()
   try { videoEl.value && videoEl.value.pause() } catch (err) { /* 忽略 */ }
   sessStatus.value = '正在转码…'
-  reload()
+  reload({ paused })
 }
 async function onEnded() {
   if (castHeld.value || disposed || pageLifecycle.isAway() || playbackFinished) return
@@ -1614,9 +1654,18 @@ async function restartPlay() {
   startOffset.value = 0
   seekPos.value = 0
   if (!props.preview) {
-    try {
-      await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`, { method: 'DELETE' })
-    } catch (e) { /* 忽略 */ }
+    seekPreview.value = 0
+    seekPending.value = true
+    latestProgress = { pos: 0, dur: mediaDuration(videoEl.value) }
+    queuedProgress = null
+    savePromise = savePromise.then(async () => {
+      savedProgressMillis = null
+      try {
+        await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`, { method: 'DELETE' })
+        savedProgressMillis = 0
+      } catch (e) { /* 下次保存时重试当前进度 */ }
+    })
+    await savePromise
   }
   reload()
 }

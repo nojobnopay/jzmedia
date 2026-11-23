@@ -17,7 +17,7 @@ logger = get_logger("stream.session")
 from .common import (_min_segs, _SEG_RE, _SESS_FILE_RE, _has_endlist, _drop_session, _ffmpeg_ok, _get_session, _hls_sem, _hits,
                      _log_hit, _media_cached_or_probe, _media_start_for, _plan_marker,
                      _playlist_endlist, _playlist_text, _purge_old, _seg_count,
-                     _sess_lock, _write_session_meta,
+                     _sess_lock, _task_retired, _write_session_meta,
                      _sessions, _session_complete, _session_dir, _variant_playlists,
                      _version_source, _video_seg_prefix, _write_master, router, _tasks,
                      _artifact_key, _source_plan, _kill_proc, _watch_task)
@@ -55,6 +55,7 @@ class SessionPingBody(BaseModel):
 # sid. Keep the latest request number long enough for an older POST to finish.
 _client_requests: dict[str, tuple[int, float]] = {}
 _CLIENT_REQUEST_TTL = 3600
+_TASK_RETIRE_TIMEOUT = 10.0  # Allow FFmpeg's normal terminate/kill grace period.
 
 
 def _replace_client_request(client_id: str, request_seq: int) -> None:
@@ -167,9 +168,6 @@ def _spawn_session(version_id: int, quality: str, audio: int,
     if client_id is not None:
         _replace_client_request(client_id, request_seq)
     with _sess_lock:
-        # A newer request can arrive while the old producer is being stopped.
-        if client_id is not None and _client_requests.get(client_id, (None,))[0] != request_seq:
-            raise HTTPException(409, "superseded playback request")
         full_dir = _session_dir(int(m["id"]), _artifact_key(d["plan"], audio, full_key), 0, k)
         full_hit = (d["plan"].get("seg") != "mp4" and start > 0
                     and _session_complete(full_dir, full_key))
@@ -180,6 +178,15 @@ def _spawn_session(version_id: int, quality: str, audio: int,
             sdir = _session_dir(int(m["id"]), _artifact_key(d["plan"], audio, plan_key), start, k)
         key = (k, int(m["id"]), plan_key)
         task = _tasks.get(key)
+        if task is not None and task.get("cancelled"):
+            # DELETE can still be reaping the last producer when its client resumes
+            # at the same point. Wait without blocking other sessions or reusing
+            # the directory while FFmpeg (or a P5 publisher) is still writing.
+            _task_retired.wait_for(lambda: not (_tasks.get(key) or {}).get("cancelled"),
+                                   timeout=_TASK_RETIRE_TIMEOUT)
+            task = _tasks.get(key)
+        if client_id is not None and _client_requests.get(client_id, (None,))[0] != request_seq:
+            raise HTTPException(409, "superseded playback request")
         if task is not None and task.get("cancelled"):
             raise HTTPException(503, "transcode stopping, retry later")
         complete = _session_complete(sdir, plan_key)

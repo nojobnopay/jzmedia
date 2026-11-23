@@ -197,7 +197,7 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
                 override fun onFailure(call: Call, e: IOException) {
                     if (continuation.isActive) continuation.resumeWithException(ApiException(0,
                         if (e is InterruptedIOException) "服务器响应超时，请重试或检查网络"
-                        else "无法连接服务器，请检查地址、网络或服务器状态"))
+                        else "无法连接服务器，请检查地址、网络或服务器状态", "connection_failed"))
                 }
                 override fun onResponse(call: Call, response: Response) {
                     try {
@@ -230,7 +230,8 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
                         } else if (continuation.isActive) continuation.resume(bytes)
                     } catch (e: Exception) {
                         if (continuation.isActive) continuation.resumeWithException(
-                            if (e is ApiException) e else ApiException(0, "读取服务器响应失败，请重试"),
+                            if (e is ApiException) e else ApiException(0, "读取服务器响应失败，请重试",
+                                if (e is IOException) "connection_failed" else ""),
                         )
                     }
                 }

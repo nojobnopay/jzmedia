@@ -17,7 +17,7 @@ export function useAiRequest(request = api) {
     result.value = null
     error.value = ''
   }
-  async function run(path, payload, method = 'POST') {
+  async function run(path, payload, method = 'POST', headers) {
     if (disposed || busy.value) return null
     reset()
     const gen = generation
@@ -25,7 +25,7 @@ export function useAiRequest(request = api) {
     busy.value = true
     try {
       const value = await request(path, {
-        method, signal: controller.signal, timeout: 130000,
+        method, signal: controller.signal, timeout: 130000, headers,
         ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
       })
       if (disposed || gen !== generation) return null

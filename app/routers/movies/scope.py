@@ -1,198 +1,142 @@
-"""routers.movies.scope（自 app/routers/movies.py 拆分，评审 B9/R05-Q1；经 movies 门面使用）。"""
+"""Build a movie deletion manifest from catalogue ownership and unambiguous sidecars."""
 import os
+import re
+from collections import defaultdict
+
 from fastapi import HTTPException
-from ... import library_paths, storage, store
-from ...log import get_logger
-logger = get_logger("movies.scope")
-from ...scanner import same_stem
-__all__ = ['_movie_delete_scope']
+
+from ... import storage, store
+from ...scanner import SIDECAR_SUB_DIRS, SUBTITLE_EXTS, VIDEO_EXTS, _SIDECAR_LANG_HINTS, is_sidecar, same_stem
+
+__all__ = ["_movie_delete_scope"]
+
+_ART_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+_ART_NAMES = {"poster", "fanart", "backdrop", "folder", "banner", "logo", "clearlogo", "landscape"}
+_SUB_TAGS = {tag for tag, *_ in _SIDECAR_LANG_HINTS} | set(
+    "hans hant cn tw hk us gb ja kr fr fra fre es spa de deu ger it ita nl nld ru rus "
+    "pt por br ar ara hi hin und sdh cc forced default signs commentary 双语 字幕 双字".split())
 
 
-def _classify(rel: str, name: str, own_paths: set, extra_set: set) -> str:
-    if rel in own_paths:
-        return "feature"
-    if rel in extra_set:
-        return "sidecar"
-    from ...scanner import SUBTITLE_EXTS
-    ex = os.path.splitext(name)[1].lower()
-    if ex in SUBTITLE_EXTS:
-        return "subtitle"
-    if ex == ".nfo":
+def catalogue_owners(library_id, *, directory=None, path=None):
+    """A registered movie, TV file or another film's extra takes precedence over a filename."""
+    where = "library_id=?"
+    params = [library_id]
+    if path is not None:
+        where += " AND file_path=?"
+        params.append(path)
+    elif directory:
+        # Both ends delimit the prefix 'directory/' in SQLite's binary path ordering.
+        where += " AND file_path>=? AND file_path<?"
+        params.extend((directory + "/", directory + "0"))
+    elif directory == "":
+        where += " AND instr(file_path, '/')=0"
+    with store._lock, store._conn() as conn:
+        rows = conn.execute(
+            f"SELECT file_path, id AS owner FROM main.movies WHERE {where} "
+            f"UNION ALL SELECT file_path, CASE WHEN show_id IS NULL THEN movie_id END FROM main.extras WHERE {where} "
+            f"UNION ALL SELECT file_path, NULL FROM main.tv_episodes WHERE {where}", params * 3).fetchall()
+    owners = defaultdict(set)
+    for row in rows:
+        owners[row["file_path"]].add(row["owner"])
+    return owners
+
+
+def _sibling_kind(rel, own_stems, foreign_stems, dedicated):
+    name = os.path.basename(rel)
+    stem, ext = os.path.splitext(name)
+    ext = ext.lower()
+    own = max((s for s in own_stems if same_stem(stem, (s,))), key=len, default="")
+    if any(len(s) >= len(own) and same_stem(stem, (s,)) for s in foreign_stems):
+        return None
+    if ext in SUBTITLE_EXTS and own:
+        tags = [tag for tag in re.split(r"[-._ ]+", stem[len(own):].casefold()) if tag]
+        if stem == own or tags and all(tag in _SUB_TAGS for tag in tags):
+            return "subtitle"
+    if ext == ".nfo" and (stem in own_stems or dedicated and name.lower() == "movie.nfo"):
         return "nfo"
-    return "other"
+    if ext in _ART_EXTS and (stem in own_stems or dedicated and stem.lower() in _ART_NAMES
+                             or any(stem.startswith(s + "-") and stem[len(s) + 1:].lower() in _ART_NAMES for s in own_stems)):
+        return "artwork"
+    return None
 
 
-def _movie_delete_scope(movie_id: int, backend=None) -> dict:
-    """整片删除范围：返回 {movie, version_ids, files[{rel,size,kind}], total_size}。
-
-    - 独占目录：整棵目录树全部文件。
-    - 共享目录：本片版本文件 + 同茎跟随（不含 movie.nfo）+ 已归属花絮文件。
-    海报/tmdb_cache 不在此列（delete_movie 语义保留）。
-    远程直读库经 StorageBackend 遍历（无挂载依赖）；backend 缺省按库解析。"""
-    from ...scanner import VIDEO_EXTS, is_extra, is_sample
-    m = store.get_movie(movie_id)
-    if not m:
-        raise HTTPException(404, f"movie {movie_id} not found")
-    versions = [v.get("file_path", "") for v in (m.get("versions") or [])]
-    if m["file_path"] not in versions:
-        versions.append(m["file_path"])
-    version_ids = [v.get("id") for v in (m.get("versions") or []) if v.get("id")]
-    if m["id"] not in version_ids:
-        version_ids.append(m["id"])
-    own_paths = set(versions)
-    own_stems = {os.path.splitext(os.path.basename(p))[0] for p in versions}
-    rel_dir = os.path.dirname(m["file_path"])
-    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
-
-    def _same_stem(stem: str) -> bool:
-        return same_stem(stem, own_stems)   # 单源（评审 B9/R05-B4）
-
-    try:
-        extra_rows = store.list_extras_by_movie(movie_id)
-    except Exception:
-        extra_rows = []
-    extra_set = {e["file_path"] for e in extra_rows}
-
-    if backend is None:
-        try:
-            backend = storage.backend_for(lib_id)
-        except storage.StorageError as e:
-            logger.debug("delete scope backend unavailable lib=%s: %s", lib_id, e)
-            backend = None
-    local_dir = backend.abs_path(rel_dir) if backend is not None else None
-    if backend is not None and local_dir is None:
-        return _remote_scope(m, backend, rel_dir, versions, version_ids,
-                             own_paths, extra_set, _same_stem, is_extra,
-                             is_sample, VIDEO_EXTS)
-
-    lib_root = library_paths.library_root(lib_id)
-    movie_dir = local_dir if local_dir is not None else (
-        os.path.join(lib_root, rel_dir) if rel_dir else lib_root)
-
-    # 共享判定：目录顶层存在不属于本片的正片视频
-    foreign = False
-    try:
-        top = sorted(os.listdir(movie_dir)) if os.path.isdir(movie_dir) else []
-    except OSError:
-        top = []
-    for n in top:
-        full = os.path.join(movie_dir, n)
-        if not os.path.isfile(full):
+def _foreign_stems(directory, entries, owners, own_paths, backend):
+    stems = {os.path.splitext(os.path.basename(rel))[0] for rel in owners
+             if rel not in own_paths and os.path.dirname(rel) == directory}
+    for entry in entries:
+        if entry["is_dir"]:
             continue
-        rel = os.path.join(rel_dir, n) if rel_dir else n
-        _, ex = os.path.splitext(n)
-        if ex.lower() in VIDEO_EXTS and not is_sample(n) \
-                and not is_extra(rel, library_id=lib_id) and rel not in own_paths:
-            foreign = True
-            break
-    rels: dict[str, str] = {}  # rel -> kind
-    if not foreign and os.path.isdir(movie_dir):
-        for root, _, files in os.walk(movie_dir):
-            for fn in sorted(files):
-                if fn.startswith("."):
-                    continue
-                full = os.path.join(root, fn)
-                try:
-                    rel = os.path.relpath(full, lib_root)
-                except ValueError:
-                    continue
-                rels[rel] = _classify(rel, fn, own_paths, extra_set)
-    else:
-        for p in versions:
-            rels[p] = "feature"
-        if os.path.isdir(movie_dir):
-            for n in top:
-                full = os.path.join(movie_dir, n)
-                if not os.path.isfile(full):
-                    continue
-                rel = os.path.join(rel_dir, n) if rel_dir else n
-                if rel in rels or n == "movie.nfo":
-                    continue
-                if _same_stem(os.path.splitext(n)[0]):
-                    kind = _classify(rel, n, own_paths, extra_set)
-                    rels[rel] = "sidecar" if kind == "other" else kind
-    for e in extra_set:
-        if e not in rels and os.path.isfile(library_paths.resolve(lib_id, e)):
-            rels[e] = "sidecar"
-    files, total = [], 0
-    for rel in sorted(rels):
+        rel = os.path.join(directory, entry["name"])
+        stem, ext = os.path.splitext(entry["name"])
+        if rel not in own_paths and ext.lower() in VIDEO_EXTS and not is_sidecar(rel, backend=backend):
+            stems.add(stem)
+    return stems
+
+
+def _movie_delete_scope(movie_id: int, backend=None, *, movie=None, owners=None) -> dict:
+    movie = movie or store.get_movie(movie_id)
+    if not movie:
+        raise HTTPException(404, "movie not found")
+    lid = movie["library_id"]
+    backend = backend or storage.backend_for(lid)
+    owners = catalogue_owners(lid) if owners is None else owners
+    versions = {row["file_path"]: row["id"] for row in movie["versions"] if row["library_id"] == lid}
+    version_ids = set(versions.values())
+    own_paths = {rel for rel, ids in owners.items() if ids and ids <= version_ids}
+    candidates = {rel: "feature" if rel in versions else "sidecar" for rel in own_paths}
+    by_dir = defaultdict(set)
+    for rel in versions:
+        by_dir[os.path.dirname(rel)].add(rel)
+    exclusive = True
+    for directory, paths in by_dir.items():
+        own_stems = {os.path.splitext(os.path.basename(rel))[0] for rel in paths}
         try:
-            size = os.path.getsize(library_paths.resolve(lib_id, rel))
-        except OSError:
-            size = 0
-        total += size
-        files.append({"rel": rel, "size": size, "kind": rels[rel]})
-    return {"movie": m, "version_ids": sorted(set(version_ids)),
-            "exclusive": not foreign, "files": files, "total_size": total}
-
-
-def _remote_scope(m, backend, rel_dir, versions, version_ids, own_paths,
-                  extra_set, _same_stem, is_extra, is_sample, video_exts) -> dict:
-    """远程直读分支：一次 list 判共享 + 一次 iter_tree 收整棵子树（不逐文件 stat）。"""
-    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
-    empty = {"movie": m, "version_ids": sorted(set(version_ids)),
-             "exclusive": False, "files": [], "total_size": 0}
-    try:
-        top_entries = backend.list(rel_dir)
-    except storage.StorageNotFound:
-        top_entries = []
-    except storage.StorageError as e:
-        # 列目录失败（离线/权限）：不猜范围，返回空计划（调用方 skipped_empty，不删行）
-        logger.debug("delete scope list failed lib=%s rel=%s: %s", lib_id, rel_dir, e)
-        return empty
-    foreign = False
-    for e in top_entries:
-        if e.get("is_dir"):
+            entries = backend.list(directory)
+        except storage.StorageNotFound:
             continue
-        n = e["name"]
-        rel = f"{rel_dir}/{n}" if rel_dir else n
-        _, ex = os.path.splitext(n)
-        if ex.lower() in video_exts and not is_sample(n) \
-                and not is_extra(rel, library_id=lib_id, backend=backend) \
-                and rel not in own_paths:
-            foreign = True
-            break
-    rels: dict[str, str] = {}
-    sizes: dict[str, int] = {}
-    if not foreign:
-        try:
-            for we in backend.iter_tree(rel_dir):
-                if we.is_dir or we.name.startswith("."):
-                    continue
-                rels[we.rel] = _classify(we.rel, we.name, own_paths, extra_set)
-                sizes[we.rel] = int(we.size)
-        except storage.StorageError as e:
-            # 遍历中途失败：丢弃部分结果，绝不按“半个目录”删
-            logger.debug("delete scope tree failed lib=%s rel=%s: %s", lib_id, rel_dir, e)
-            rels, sizes = {}, {}
-    else:
-        for p in versions:
-            rels[p] = "feature"
-        for e in top_entries:
-            if e.get("is_dir"):
+        foreign_stems = _foreign_stems(directory, entries, owners, own_paths, backend)
+        names = set(own_stems)
+        for title in (movie.get("title"), movie.get("original_title")):
+            if title:
+                names.add(title)
+                if movie.get("year"):
+                    names.add(f"{title} ({movie['year']})")
+        dedicated = bool(directory and not foreign_stems and os.path.basename(directory).casefold()
+                         in {name.casefold() for name in names})
+        exclusive = exclusive and dedicated
+        for entry in entries:
+            if entry["is_dir"] or entry["name"].startswith("."):
                 continue
-            n = e["name"]
-            rel = f"{rel_dir}/{n}" if rel_dir else n
-            if rel in rels or n == "movie.nfo":
+            rel = os.path.join(directory, entry["name"])
+            if rel in owners:
                 continue
-            if _same_stem(os.path.splitext(n)[0]):
-                kind = _classify(rel, n, own_paths, extra_set)
-                rels[rel] = "sidecar" if kind == "other" else kind
-                sizes[rel] = int(e.get("size") or 0)
-    for e in extra_set:
-        if e in rels:
-            continue
+            kind = _sibling_kind(rel, own_stems, foreign_stems, dedicated)
+            if kind:
+                candidates[rel] = kind
+        for entry in entries:
+            if not entry["is_dir"] or entry["name"] not in SIDECAR_SUB_DIRS:
+                continue
+            subdir = os.path.join(directory, entry["name"])
+            subs = backend.list(subdir)
+            if any(not sub["is_dir"] and os.path.splitext(sub["name"])[1].lower() in VIDEO_EXTS for sub in subs):
+                continue
+            for sub in subs:
+                rel = os.path.join(subdir, sub["name"])
+                if (not sub["is_dir"] and rel not in owners
+                        and _sibling_kind(rel, own_stems, foreign_stems, dedicated=False) == "subtitle"):
+                    candidates[rel] = "subtitle"
+    files = []
+    for rel, kind in sorted(candidates.items()):
         try:
-            st = backend.stat(e)
-        except storage.StorageError:
+            identity = backend.file_delete_identity(rel)
+        except storage.StorageNotFound:
             continue
-        if not st.is_dir:
-            rels[e] = "sidecar"
-            sizes[e] = int(st.size)
-    files, total = [], 0
-    for rel in sorted(rels):
-        size = int(sizes.get(rel) or 0)
-        total += size
-        files.append({"rel": rel, "size": size, "kind": rels[rel]})
-    return {"movie": m, "version_ids": sorted(set(version_ids)),
-            "exclusive": not foreign, "files": files, "total_size": total}
+        if identity is None:
+            continue
+        size, revision = identity
+        files.append({"rel": rel, "size": size, "kind": kind, "revision": revision,
+                      **({"version_id": versions[rel]} if kind == "feature" else {})})
+    present = {f["rel"] for f in files if f["kind"] == "feature"}
+    retained = [{"id": mid, "rel": rel} for rel, mid in sorted(versions.items()) if rel not in present]
+    return {"movie": movie, "version_ids": sorted(version_ids), "retained_versions": retained, "exclusive": exclusive,
+            "files": files, "total_size": sum(f["size"] for f in files)}

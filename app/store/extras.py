@@ -1,5 +1,6 @@
 """store.extras（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
 import os
+from contextlib import nullcontext
 import time
 from ._base import DEFAULT_LIBRARY_ID, _conn, _lock, _row_to_dict, logger
 __all__ = ['upsert_extra', 'upsert_tv_extra', 'list_extras_by_movie', 'list_extras_by_show',
@@ -131,24 +132,14 @@ def update_extra_movie(extra_id: int, movie_id: int) -> bool:
     return changed
 
 
-def _abs_in_library(library_id: int, rel: str) -> str:
-    """库内相对路径 → 绝对路径（延迟导入 library_paths，避免 store↔library_paths 循环）。"""
-    try:
-        from ..library_paths import resolve
-        return resolve(int(library_id), rel)
-    except Exception:
-        from ..config import settings
-        return os.path.join(settings.media_root, rel)
-
-
-def repath_extras_prefix(library_id: int, old_dir: str, new_dir: str) -> int:
+def repath_extras_prefix(library_id: int, old_dir: str, new_dir: str, *, connection=None) -> int:
     """影片目录整体改名后批量改花絮行：该目录下所有 extras.file_path 前缀替换。"""
     old = os.path.normpath((old_dir or "").strip().strip("/"))
     new = os.path.normpath((new_dir or "").strip().strip("/"))
     if old in ("", ".") or old == new:
         return 0
     like = old.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/%"
-    with _lock, _conn() as c:
+    with _lock, (nullcontext(connection) if connection is not None else _conn()) as c:
         rows = [str(r["file_path"]) for r in c.execute(
             "SELECT file_path FROM extras WHERE library_id=? AND file_path LIKE ?"
             " ESCAPE '\\'", (int(library_id), like))]
@@ -183,45 +174,70 @@ def delete_extra_by_path(file_path: str,
 
 def repath_extra_by_basename(basename: str, new_path: str,
                              movie_id: int | None, kind: str,
-                             library_id: int = DEFAULT_LIBRARY_ID) -> dict | None:
-    """已入库花絮被搬迁改路径后按 basename 认领：仅认领原文件已消失的行
-    （同名不同文件不误认），更新路径+归属/kind，避免删建抖动。
-    返回更新后的行，无可认领返回 None。"""
+                             library_id: int = DEFAULT_LIBRARY_ID, *, backend=None,
+                             tree_files=None, old_path: str | None = None) -> dict | None:
+    """按同名认领已搬迁的花絮。先向所属库确认旧文件消失，再合并这些记录。"""
+    from .. import storage
     with _lock, _conn() as c:
-        rows = [dict(r) for r in c.execute(
-            "SELECT * FROM extras WHERE library_id=? AND show_id IS NULL",
-            (int(library_id),)).fetchall()]
-    same = [r for r in rows if os.path.basename(r["file_path"]) == basename]
-    if not same:
+        rows = c.execute(
+            "SELECT * FROM extras WHERE library_id=? AND show_id IS NULL AND"
+            " (file_path=? OR substr(file_path, -length(?))=?) ORDER BY id",
+            (int(library_id), basename, "/" + basename, "/" + basename)).fetchall()
+    for row in rows:
+        if row["file_path"] == new_path:
+            return dict(row)
+    if old_path is not None:
+        rows = [row for row in rows if row["file_path"] == old_path]
+    if not rows:
         return None
-    if any(r["file_path"] == new_path for r in same):
-        return next(r for r in same if r["file_path"] == new_path)
-    gone = [r for r in same if not os.path.exists(
-        _abs_in_library(library_id, r["file_path"]))]
+    if backend is None:
+        backend = storage.backend_for(library_id)
+    stat = getattr(backend, "stat_uncached", backend.stat)
+    gone = []
+    for row in rows:
+        if tree_files is not None and row["file_path"] in tree_files:
+            continue
+        try:
+            stat(row["file_path"])
+        except storage.StorageNotFound:
+            gone.append(row)
     if not gone:
         return None
-    keep = sorted(gone, key=lambda r: r["id"])[0]
     with _lock, _conn() as c:
-        c.execute('BEGIN IMMEDIATE')
-        previous = c.execute('SELECT * FROM extras WHERE id=?', (keep['id'],)).fetchone()
-        if not previous:
+        c.execute("BEGIN IMMEDIATE")
+        target = c.execute("SELECT * FROM extras WHERE library_id=? AND file_path=?",
+                           (library_id, new_path)).fetchone()
+        if target:
+            return dict(target)
+        confirmed = []
+        for row in gone:
+            current = c.execute("SELECT * FROM extras WHERE id=? AND library_id=?"
+                                " AND file_path=? AND show_id IS NULL",
+                                (row["id"], library_id, row["file_path"])).fetchone()
+            if current:
+                confirmed.append(current)
+        if not confirmed:
             return None
-        try:
-            c.execute("UPDATE extras SET file_path=?, kind=?,"
-                      " updated_at=? WHERE id=?",
-                      (new_path, kind or "extra",
-                       int(time.time()), keep["id"]))
-        except Exception:
-            return keep
-        movie_id, show_id, changed_movies = _extra_ownership(c, previous, movie_id=movie_id)
-        for r in same:
-            if r["id"] != keep["id"] and r["file_path"] != new_path:
-                live = c.execute('SELECT * FROM extras WHERE id=?', (r['id'],)).fetchone()
-                movie_id, show_id, merged = _extra_ownership(c, live, movie_id, show_id)
-                changed_movies.extend(merged)
-                c.execute("DELETE FROM extras WHERE id=?", (r["id"],))
-        c.execute('UPDATE extras SET movie_id=?,show_id=? WHERE id=?', (movie_id, show_id, keep['id']))
-        # A changed path also revokes an existing stream for this persistent ID.
+        # Keep independent extras independent when several films move a trailer in one scan.
+        same_owner = [row for row in confirmed if movie_id is not None and row["movie_id"] == movie_id]
+        if same_owner:
+            confirmed = same_owner
+        if len(confirmed) > 1 and (same_owner or all(row["movie_id"] is None for row in confirmed)):
+            # An unambiguous common directory distinguishes moves under the same film.
+            ancestors = [(os.path.commonpath([new_path, row["file_path"]]), row) for row in confirmed]
+            nearest = max(len(directory) for directory, _ in ancestors)
+            closest = [row for directory, row in ancestors if nearest and len(directory) == nearest]
+            if len(closest) != 1:
+                return None
+            confirmed = closest
+        keep, *duplicates = confirmed
+        movie_id, show_id, changed_movies = _extra_ownership(c, keep, movie_id=movie_id)
+        for row in duplicates:
+            movie_id, show_id, merged = _extra_ownership(c, row, movie_id, show_id)
+            changed_movies.extend(merged)
+            c.execute("DELETE FROM extras WHERE id=?", (row["id"],))
+        c.execute("UPDATE extras SET file_path=?, kind=?, movie_id=?, show_id=?, updated_at=? WHERE id=?",
+                  (new_path, kind or "extra", movie_id, show_id, int(time.time()), keep["id"]))
         from ..viewing import invalidate_content_access
         invalidate_content_access(c)
     _resync_policies(changed_movies)

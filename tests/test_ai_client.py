@@ -80,6 +80,39 @@ def test_db_overrides_env_secret_clear_restores_environment(monkeypatch):
     assert not settings.public_settings()["api_key_set"]
 
 
+def test_invalid_settings_have_an_opt_in_editable_snapshot_without_applying_defaults(monkeypatch):
+    monkeypatch.setenv("AI_TIMEOUT_SECONDS", "typo")
+    monkeypatch.setenv("AI_DAILY_LIMIT", "271")
+    monkeypatch.setenv("AI_PROVIDER", "compatible")
+    monkeypatch.setenv("AI_BASE_URL", "https://private:credentials@invalid.example/")
+    monkeypatch.setenv("AI_API_KEY", "private-preserved-key")
+    assert api.get("/api/ai/settings").status_code == 400
+    data = api.get("/api/ai/settings", headers={"X-AI-Settings-Repair": "1"}).json()
+    assert set(data["invalid_fields"]) == {"timeout_seconds", "base_url"}
+    assert data["timeout_seconds"] == 12 and data["daily_limit"] == 271
+    assert data["base_url"] == "" and data["provider"] == "compatible" and data["api_key_set"]
+    assert "private" not in str(data) and "credentials" not in str(data)
+    with pytest.raises(ValueError):
+        settings.effective()
+    fixed = api.patch("/api/ai/settings", json={"base_url": "http://localhost:11434/v1", "timeout_seconds": 8})
+    assert fixed.status_code == 200 and "invalid_fields" not in fixed.json()
+    monkeypatch.setenv("AI_DAILY_LIMIT", "272")
+    assert settings.effective().daily_limit == 272 and settings.effective().api_key == "private-preserved-key"
+
+
+def test_invalid_secret_cannot_leak_and_can_be_replaced_or_explicitly_ignored(monkeypatch):
+    monkeypatch.setenv("AI_API_KEY", "invalid secret example")
+    data = api.get("/api/ai/settings", headers={"X-AI-Settings-Repair": "1"}).json()
+    assert set(data["invalid_fields"]) == {"api_key"} and not data["api_key_masked"]
+    assert "invalid secret" not in str(data)
+    assert api.patch("/api/ai/settings", json={"ignore_invalid_api_key": True}).status_code == 200
+    assert settings.effective().api_key == ""
+    monkeypatch.setenv("AI_API_KEY", "corrected-environment-key")
+    assert settings.effective().api_key == "corrected-environment-key"
+    assert api.patch("/api/ai/settings", json={"ignore_invalid_api_key": True}).status_code == 400
+    assert settings.effective().api_key == "corrected-environment-key"
+
+
 @pytest.mark.parametrize("changes", [
     {"provider": "unknown"}, {"enabled": "false"}, {"timeout_seconds": 0},
     {"timeout_seconds": 61}, {"daily_limit": 0}, {"daily_limit": True},

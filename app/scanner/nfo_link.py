@@ -337,7 +337,8 @@ def _sync_nfos(movie: dict, fs, name: str, dry_run: bool,
             st = _write_one(movie, fs, stem + ".nfo", force)
         return {"ok": st != "failed", "mode": "shared", "dir": rel_dir,
                 "wrote": [stem + ".nfo"], "deleted": []}
-    existing_nfos = [n for n in (names or []) if n.endswith(".nfo") and fs.is_file(n)]
+    version_nfos = {os.path.splitext(feature)[0] + ".nfo" for feature in related}
+    existing_nfos = [n for n in names if n in version_nfos and fs.is_file(n)]
     if len(feats) <= 1:
         deleted = [n for n in existing_nfos if n != "movie.nfo"]
         st = "written"

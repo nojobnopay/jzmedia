@@ -75,15 +75,17 @@ def test_fs_write_remote_ops(smb_lib):
     d = c.post("/api/fs/delete", json={"library_id": lid,
                                        "paths": ["电影/新目录"]}).json()
     assert d["plans"][0]["status"] == "dir_not_empty"
-    d = c.post("/api/fs/delete", json={"library_id": lid, "dry_run": False,
-                                       "paths": ["电影/新目录/n2.txt"]}).json()
+    body = {"library_id": lid, "paths": ["电影/新目录/n2.txt"]}
+    key = c.post("/api/fs/delete", json=body).json()["preview_id"]
+    d = c.post("/api/fs/delete", json={**body, "preview_id": key, "dry_run": False}).json()
     assert d["deleted"] == 1 and not (root / "电影" / "新目录" / "n2.txt").exists()
     # 删最后一个文件后旧目录空 → 收尾自动清掉（与本地 _cleanup_old_dir 同语义）
     assert not (root / "电影" / "新目录").exists()
     # 显式删除空目录
     c.post("/api/fs/mkdir", json={"library_id": lid, "path": "电影", "name": "空目录"})
-    d = c.post("/api/fs/delete", json={"library_id": lid, "dry_run": False,
-                                       "paths": ["电影/空目录"]}).json()
+    body = {"library_id": lid, "paths": ["电影/空目录"]}
+    key = c.post("/api/fs/delete", json=body).json()["preview_id"]
+    d = c.post("/api/fs/delete", json={**body, "preview_id": key, "dry_run": False}).json()
     assert d["deleted"] == 1 and not (root / "电影" / "空目录").exists()
 
 

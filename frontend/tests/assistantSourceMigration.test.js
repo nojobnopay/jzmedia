@@ -14,7 +14,7 @@ const changes = [{ kind: 'api', old_host: 'old.example', new_host: 'new.example'
   { kind: 'media', old_host: 'old-media.example', new_host: 'new-media.example', notice_url: 'https://example.com/notice' }]
 const initial = { kind: 'online_source', template_id: 'liangzi', api_base_url: null }
 
-async function mount(t, { items = [source], suggestion = initial, save, read, preview } = {}) {
+async function mount(t, { items = [source], suggestion = initial, save, replace, read, preview } = {}) {
   const requests = [], saved = [], busy = []
   const access = Vue.reactive({ blocked: '', setBusy: value => busy.push(value), saved: row => saved.push(row) })
   const api = async (path, options = {}) => {
@@ -23,6 +23,8 @@ async function mount(t, { items = [source], suggestion = initial, save, read, pr
     if (path.endsWith('/source-templates')) return { items: [template] }
     if (path.endsWith('/sources')) return { items }
     if (path.endsWith('/host-migration-preview')) return preview ? preview(body) : { expected_fingerprint: fingerprint, changes }
+    if (path.endsWith('/replace-catalogue')) return replace ? replace(body) : { previous: { ...source, enabled: false }, source: { ...source,
+      id: 'src_' + 'd'.repeat(32), api_base_url: body.api_base_url } }
     const row = items.find(item => path.endsWith('/' + item.id))
     assert.ok(row)
     if (options.method === 'PATCH') return save ? save(row, body) : { ...row, api_base_url: body.api_base_url }
@@ -81,6 +83,20 @@ test('ambiguous or unrecognized named sources need explicit selection, and custo
   assert.equal(unmatched.requests.length, 2)
 })
 
+test('a custom destination needs a catalogue decision before applying an assistant proposal', async t => {
+  const ui = await mount(t, { suggestion: { ...initial, template_id: null, api_base_url: 'https://other.example/catalog' } })
+  assert.ok(ui.button('确认应用').props.disabled)
+  await ui.button('确认应用').props.onClick()
+  assert.equal(ui.requests.some(request => request.method === 'PATCH' || request.path.endsWith('/replace-catalogue')), false)
+  ui.field('assistant-catalogue-change').props['onUpdate:modelValue']('replace'); await flush()
+  await ui.button('确认应用').props.onClick(); await flush()
+  assert.ok(ui.requests.at(-1).path.endsWith('/replace-catalogue'))
+  assert.equal(ui.requests.at(-1).method, 'POST')
+  assert.equal(ui.saved.length, 2)
+  assert.equal(ui.saved[0].id, source.id)
+  assert.notEqual(ui.saved[1].id, source.id)
+})
+
 test('a conflict blocks stale saves until a new snapshot; re-reading a completed change avoids another patch', async t => {
   let current = source
   const ui = await mount(t, { save: () => {
@@ -93,6 +109,24 @@ test('a conflict blocks stale saves until a new snapshot; re-reading a completed
   await ui.button('重新核对').props.onClick(); await flush()
   assert.match(ui.text(), /此来源已使用该接口/)
   assert.equal(ui.button('确认应用').props.disabled, true)
+})
+
+test('a lost replacement response can be confirmed with the exact same draft and preview', async t => {
+  const submitted = []
+  const ui = await mount(t, { suggestion: { ...initial, template_id: null, api_base_url: 'https://other.example/catalog' },
+    replace: body => {
+      submitted.push(body)
+      if (submitted.length === 1) throw new TypeError('connection closed')
+      return { previous: { ...source, enabled: false }, source: { ...source, id: 'src_' + 'd'.repeat(32), api_base_url: body.api_base_url } }
+    } })
+  ui.field('assistant-catalogue-change').props['onUpdate:modelValue']('replace'); await flush()
+  await ui.button('确认应用').props.onClick(); await flush()
+  assert.match(ui.text(), /尚未收到换库结果/)
+  assert.equal(ui.button('确认应用').props.disabled, false)
+  await ui.button('确认应用').props.onClick(); await flush()
+  assert.equal(submitted.length, 2)
+  assert.deepEqual(submitted[1], submitted[0])
+  assert.equal(ui.saved.length, 2)
 })
 
 test('switching targets discards a late snapshot, and cancelling a pending preview never writes', async t => {

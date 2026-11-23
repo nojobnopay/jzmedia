@@ -268,10 +268,14 @@ def search(access, source_id, query, page=1, *, operation=None, background=False
 
 
 def _artwork(source, result):
-    from . import artwork
+    from . import artwork, source_hosts
     urls = [item.pop("_poster_url", "") for item in result["items"]]
-    for item, poster in zip(result["items"], artwork.catalog_posters(source, urls)):
+    blocked = []
+    for item, url, poster in zip(result["items"], urls, artwork.catalog_posters(source, urls)):
         item["poster_path"], item["poster_host_blocked"] = poster
+        if item["poster_host_blocked"]:
+            blocked.append((item["external_id"], url))
+    source_hosts.remember_list_posters(source, blocked)
     return result
 
 

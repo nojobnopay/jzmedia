@@ -165,6 +165,7 @@ CREATE TABLE IF NOT EXISTS organize_moves (
   action TEXT NOT NULL DEFAULT '',
   from_path TEXT NOT NULL,
   to_path TEXT NOT NULL,
+  object_identity TEXT NOT NULL DEFAULT '',
   created_at INTEGER DEFAULT 0,
   undone_at INTEGER DEFAULT 0
 );
@@ -513,7 +514,14 @@ DROP TRIGGER IF EXISTS movies_ad;
 DROP TRIGGER IF EXISTS movies_au;
 """
 
-SCHEMA = "".join([_MEDIA_LIBRARIES_DDL, _LIBRARIES_DDL, _MOVIES_DDL, _EXTRAS_DDL,
+_SCAN_ROOTS_DDL = """
+CREATE TABLE IF NOT EXISTS library_scan_roots (
+  library_id INTEGER PRIMARY KEY, accepted TEXT NOT NULL DEFAULT '',
+  candidate TEXT NOT NULL DEFAULT '', token TEXT NOT NULL DEFAULT ''
+);
+"""
+
+SCHEMA = "".join([_MEDIA_LIBRARIES_DDL, _LIBRARIES_DDL, _SCAN_ROOTS_DDL, _MOVIES_DDL, _EXTRAS_DDL,
                   _SCAN_STATE_DDL, _ORGANIZE_MOVES_DDL, _MEDIA_INFO_DDL, _PROGRESS_DDL,
                   _TV_SHOWS_DDL,
                   _TV_SEASONS_DDL, _TV_EPISODES_DDL, _COLLECTIONS_DDL,
@@ -579,7 +587,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "online_network_default"}
 
 
-SCHEMA_VERSION = 39
+SCHEMA_VERSION = 40
 
 
 def _columns(c, table: str) -> set:
@@ -641,24 +649,25 @@ def _seed_default_library(c) -> None:
     logger.info("多库迁移：默认媒体库 id=%s name=%s path=%s", DEFAULT_LIBRARY_ID, name, root)
 
 
-def _migrate(c) -> int:
+def _migrate(c) -> bool:
     """按 user_version 顺序应用迁移（评审 B9/R02-D1：替代启动时 ad-hoc ALTER 探测）。
     每一步都必须幂等；老库无需人工干预，新库由 SCHEMA 建全量后直接把版本推到最新。"""
     try:
         version = int(c.execute("PRAGMA user_version").fetchone()[0] or 0)
     except (TypeError, ValueError):
         version = 0
-    applied = False
+    refresh_movie_fts = False
     for v, fn in _MIGRATION_STEPS:
         if version < v:
             fn(c)
             version = v
-            applied = True
+            if v != 40:  # v40 only adds an organization audit field.
+                refresh_movie_fts = True
     try:
         c.execute(f"PRAGMA user_version = {int(version)}")
     except sqlite3.OperationalError as e:
         logger.warning("set user_version failed: %s", e)
-    return version, applied
+    return refresh_movie_fts
 
 
 # v1：movies 基础补充列 + persons.avatar
@@ -1457,6 +1466,13 @@ def _m39(c) -> None:
         c.execute(statement)
 
 
+def _m40(c) -> None:
+    """Bind TV organization undo to the original filesystem object."""
+    _ensure_columns(c, "organize_moves", [
+        ("object_identity", "ALTER TABLE organize_moves ADD COLUMN object_identity TEXT NOT NULL DEFAULT ''"),
+    ])
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
@@ -1464,7 +1480,7 @@ _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (22, _m22), (23, _m23),                      (24, _m24), (25, _m25),
                     (26, _m26), (27, _m27), (28, _m28), (29, _m29), (30, _m30),
                     (31, _m31), (32, _m32), (33, _m33), (34, _m34), (35, _m35), (36, _m36),
-                    (37, _m37), (38, _m38), (39, _m39)]
+                    (37, _m37), (38, _m38), (39, _m39), (40, _m40)]
 
 
 def init_db() -> None:
@@ -1480,8 +1496,14 @@ def init_db() -> None:
             c.execute("DROP TABLE IF EXISTS __fts_probe")
         except sqlite3.OperationalError as e:
             raise RuntimeError("SQLite 缺少 FTS5 扩展，jzmedia 无法运行") from e
+        fresh = not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").fetchone()
+        if fresh:
+            os.makedirs(settings.media_root, exist_ok=True)
         c.executescript(SCHEMA)
-        _migrated = _migrate(c)
+        refresh_movie_fts = _migrate(c)
+        if fresh:
+            from ..library_roots import register_local
+            register_local(c, DEFAULT_LIBRARY_ID, settings.media_root)
         from ..viewing import init_schema
         init_schema(c)
         # v17/v18 索引：旧库在迁移里建表列后补，新库此处兜底（故不能写进 SCHEMA）
@@ -1512,8 +1534,8 @@ def init_db() -> None:
     except Exception as e:
         logger.warning("organize_moves legacy backfill failed: %s", e)
     # R02-D3：FTS 与 movies 行数一致时跳过全量重建（大库启动不再 O(n) 连接+写）；
-    # 本次跑过迁移（可能改标题/新列）则强制重建，避免索引与数据脱节
-    if _migrated[1] or fts_needs_rebuild():
+    # 可能改动电影搜索字段的迁移仍强制重建，保证索引与数据一致。
+    if refresh_movie_fts or fts_needs_rebuild():
         rebuild_fts()
 
 

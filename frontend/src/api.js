@@ -87,13 +87,15 @@ export async function api(path, opts = {}) {
       throw error
     }
     if (r.status === 204) return null
-    return r.json()
+    return await r.json()
   } catch (e) {
     if (e && e.name === 'AbortError') {
       if (outer && outer.aborted) throw new Error('已取消')
-      if (mayContinue) throw new Error('请求超时，后台任务可能仍在处理，可稍后刷新查看')
-      if (method === 'GET') throw new Error('请求超时，请检查连接后重试')
-      throw new Error('请求超时，操作结果未知，请刷新后核对')
+      const message = mayContinue ? '请求超时，后台任务可能仍在处理，可稍后刷新查看'
+        : method === 'GET' ? '请求超时，请检查连接后重试' : '请求超时，操作结果未知，请刷新后核对'
+      const error = new Error(message)
+      error.name = 'TimeoutError'
+      throw error
     }
     throw e
   } finally {

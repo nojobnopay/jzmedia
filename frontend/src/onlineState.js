@@ -115,6 +115,13 @@ export function nextOnlineEpisode(detail, identity) {
     && next.identity.line_id === identity.line_id ? next : null
 }
 
+function transientProgressError(error) {
+  if (['online_disabled', 'online_source_disabled'].includes(error?.code) || /^online_.*_limit$/.test(error?.code)) return false
+  const status = error?.status
+  if (typeof status === 'number') return status === 408 || status === 429 || status >= 500 && status < 600
+  return !error?.code && (error instanceof TypeError || error?.name === 'TimeoutError')
+}
+
 // One playback run owns one writer. A session renewal can re-claim using only
 // this writer's known revision. A conflict never causes an automatic GET/claim
 // loop that would take ownership from a newer tab.
@@ -126,7 +133,7 @@ export function createOnlineProgressWriter({ identity, scopeToken, revision = 0,
   let expectedRevision = Number.isSafeInteger(revision) && revision >= 0 ? revision : 0
   let session = null, grantedSession = null, grant = null, sequence = 0
   let pending = null, flight = null, timer = null, lastSent = -Infinity
-  let closing = false, closed = false, disabled = !exact(SCOPE, scope)
+  let closing = false, closed = false, disabled = !exact(SCOPE, scope), retryNotice = false
   const headers = disabled ? {} : scopeHeaders(scope)
   function notify(error) { onNotice(onlineStateError(error), error?.code || 'online_state_unavailable') }
   function clear() { if (timer !== null) clearTimeout(timer); timer = null }
@@ -136,17 +143,29 @@ export function createOnlineProgressWriter({ identity, scopeToken, revision = 0,
     const wait = Math.max(0, intervalMs - (now() - lastSent))
     timer = setTimeout(() => { timer = null; void send().catch(() => {}) }, wait)
   }
+  async function write(path, body, sendingSession, attempts = 3) {
+    const options = { method: 'POST', body: JSON.stringify(body), headers, timeout: 4000,
+      credentials: 'same-origin', redirect: 'error', cache: 'no-store', keepalive: true }
+    for (let attempt = 1; ; attempt++) {
+      try { return sameScope(await request(path, options), scope) }
+      catch (error) {
+        if (attempt >= attempts || !transientProgressError(error) || closed || session?.session_id !== sendingSession) throw error
+        await new Promise(resolve => setTimeout(resolve, 250 * attempt))
+        if (closed || session?.session_id !== sendingSession) throw error
+      }
+    }
+  }
   async function send({ claimOnly = false } = {}) {
     if (flight) return flight
     if (closed || disabled || !pending && !claimOnly || !session) return false
+    const sendingSession = session.session_id, initialSnapshot = pending
     const work = (async () => {
       try {
         if (grantedSession !== session.session_id) {
           const claiming = session.session_id
-          const response = sameScope(await request('/api/online/state/progress/claim', {
-            method: 'POST', body: JSON.stringify({ session_id: claiming, expected_revision: expectedRevision }),
-            headers, timeout: 4000, credentials: 'same-origin', redirect: 'error', cache: 'no-store', keepalive: true,
-          }), scope)
+          // The first frame only waits for one claim. A decoded snapshot can retry the same session and revision.
+          const response = await write('/api/online/state/progress/claim',
+            { session_id: claiming, expected_revision: expectedRevision }, claiming, claimOnly ? 1 : 3)
           if (!currentIdentity(response.identity) || !exact(OPAQUE, response.writer_id)
             || !Number.isSafeInteger(response.writer_revision) || response.writer_revision <= expectedRevision) throw invalid()
           expectedRevision = response.writer_revision
@@ -154,22 +173,28 @@ export function createOnlineProgressWriter({ identity, scopeToken, revision = 0,
           sequence = 0; grantedSession = claiming
           if (closed || disabled || grantedSession !== session?.session_id) return false
         }
-        if (!pending) return true
+        if (claimOnly || !pending) return true
         const value = pending
         pending = null
-        const response = sameScope(await request('/api/online/state/progress', {
-          method: 'POST', body: JSON.stringify({ ...grant, seq: ++sequence, ...value }), headers,
-          timeout: 4000, credentials: 'same-origin', redirect: 'error', cache: 'no-store', keepalive: true,
-        }), scope)
+        const response = await write('/api/online/state/progress', { ...grant, seq: ++sequence, ...value }, sendingSession)
         if (!currentIdentity(response.progress?.identity) || response.progress.writer_revision !== grant.writer_revision) throw invalid()
         lastSent = now()
-        if (!closed) onSaved(response.progress)
+        if (!closed) {
+          onSaved(response.progress)
+          if (retryNotice) { retryNotice = false; onNotice('观看进度已恢复保存。', 'online_state_recovered') }
+        }
         return true
       } catch (error) {
-        // A failed mutation may already have committed. Stop this writer; a
-        // later explicit playback start reads a revision and can claim anew.
-        disabled = true; pending = null; clear()
-        if (!closed) notify(error)
+        if (transientProgressError(error)) {
+          if (!claimOnly) {
+            lastSent = now()
+            if (pending === initialSnapshot) pending = null
+          }
+          if (!closed && !retryNotice) { retryNotice = true; onNotice('观看进度暂未保存，将在后续保存时重试。', 'online_state_retrying') }
+        } else {
+          disabled = true; pending = null; clear()
+          if (!closed) notify(error)
+        }
         return false
       }
     })()

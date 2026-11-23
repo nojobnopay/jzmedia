@@ -55,36 +55,51 @@ def validate_base_url(value: str) -> str:
     return value
 
 
+class _InvalidField(ValueError):
+    def __init__(self, name, message, replacement=None):
+        super().__init__(message)
+        self.name = name
+        self.replacement = DEFAULTS[name] if replacement is None else replacement
+
+
+def _valid_key(value):
+    return len(value) <= 4096 and not re.search(r"[\s\x00-\x1f\x7f]", value)
+
+
 def _validate(values: dict) -> AiConfig:
     result = dict(values)
     if type(result["enabled"]) is not bool:
-        raise ValueError("启用状态须为布尔值")
+        raise _InvalidField("enabled", "启用状态须为布尔值")
     if result["provider"] not in ("deepseek", "opencode_go", "compatible"):
-        raise ValueError("请选择 DeepSeek、OpenCode Go 或兼容接口")
+        raise _InvalidField("provider", "请选择 DeepSeek、OpenCode Go 或兼容接口", "compatible")
     for name in ("base_url", "model", "api_key"):
         if not isinstance(result[name], str):
-            raise ValueError("地址、模型和密钥须为文本")
+            raise _InvalidField(name, "地址、模型和密钥须为文本")
         result[name] = result[name].strip()
-    result["base_url"] = validate_base_url(result["base_url"])
+    try:
+        result["base_url"] = validate_base_url(result["base_url"])
+    except ValueError as error:
+        base = OPENCODE_GO_BASE_URL if result["provider"] == "opencode_go" else DEFAULTS["base_url"]
+        raise _InvalidField("base_url", str(error), base) from None
     if result["provider"] == "deepseek" and result["base_url"] not in (
         "https://api.deepseek.com", "https://api.deepseek.com/v1",
     ):
-        raise ValueError("自定义 API 地址请使用兼容接口")
+        raise _InvalidField("base_url", "自定义 API 地址请使用兼容接口")
     if result["provider"] == "opencode_go" and result["base_url"] != OPENCODE_GO_BASE_URL:
-        raise ValueError("OpenCode Go 请使用官方 Go 基础地址；自定义地址请使用兼容接口")
+        raise _InvalidField("base_url", "OpenCode Go 请使用官方 Go 基础地址；自定义地址请使用兼容接口", OPENCODE_GO_BASE_URL)
     if not result["model"] or len(result["model"]) > 128 or re.search(
         r"[\x00-\x1f\x7f]", result["model"],
     ):
-        raise ValueError("模型名称须为 1 至 128 字符的单行文本")
-    if len(result["api_key"]) > 4096 or re.search(r"[\s\x00-\x1f\x7f]", result["api_key"]):
-        raise ValueError("API Key 格式无效")
+        raise _InvalidField("model", "模型名称须为 1 至 128 字符的单行文本")
+    if not _valid_key(result["api_key"]):
+        raise _InvalidField("api_key", "API Key 格式无效")
     for name, minimum, maximum, label in (
         ("timeout_seconds", 2, 60, "超时秒数"),
         ("daily_limit", 1, 10000, "每日调用上限"),
     ):
         value = result[name]
         if type(value) is not int or not minimum <= value <= maximum:
-            raise ValueError(f"{label}须为 {minimum} 至 {maximum} 的整数")
+            raise _InvalidField(name, f"{label}须为 {minimum} 至 {maximum} 的整数")
     return AiConfig(**result)
 
 
@@ -96,24 +111,29 @@ def _setting_rows(conn) -> dict:
     )}
 
 
-def _resolve(rows: dict) -> tuple[AiConfig, dict]:
+def _resolve(rows: dict, overrides=None) -> tuple[AiConfig, dict]:
     values, sources = {}, {}
     for name, default in DEFAULTS.items():
         stored = rows.get("ai_" + name, "")
         env = os.getenv("AI_" + name.upper(), "").strip()
         raw = stored if stored else env
         sources[name] = "db" if stored else ("env" if env else ("default" if default != "" else "unset"))
-        if raw == "":
+        if overrides and name in overrides:
+            values[name] = overrides[name]
+        elif name == "api_key" and not stored and rows.get("ai_ignore_invalid_env_key") == "true" and not _valid_key(env):
+            values[name] = ""
+            sources[name] = "unset"
+        elif raw == "":
             values[name] = default
         elif isinstance(default, bool):
             if raw.lower() not in ("true", "false", "1", "0"):
-                raise ValueError("AI_ENABLED 须为 true 或 false")
+                raise _InvalidField(name, "AI_ENABLED 须为 true 或 false")
             values[name] = raw.lower() in ("true", "1")
         elif isinstance(default, int):
             try:
                 values[name] = int(raw)
             except ValueError:
-                raise ValueError("AI 超时与限额设置须为整数") from None
+                raise _InvalidField(name, "超时秒数须为整数" if name == "timeout_seconds" else "每日调用上限须为整数") from None
         else:
             values[name] = raw
     return _validate(values), sources
@@ -129,6 +149,9 @@ def update(changes: dict) -> dict:
     changes = dict(changes)
     if isinstance(changes.get("api_key"), str) and not changes["api_key"].strip():
         changes.pop("api_key")
+    ignore_invalid_key = changes.pop("ignore_invalid_api_key", False)
+    if type(ignore_invalid_key) is not bool or ignore_invalid_key and (changes.get("api_key") or changes.get("clear_api_key")):
+        raise ValueError("请选择替换或忽略无效密钥")
     if set(changes) - set(DEFAULTS) - {"clear_api_key"}:
         raise ValueError("包含不支持的智能辅助设置")
     if "clear_api_key" in changes and type(changes["clear_api_key"]) is not bool:
@@ -138,6 +161,12 @@ def update(changes: dict) -> dict:
     with _base._lock, closing(_base._conn()) as conn, conn:
         conn.execute("BEGIN IMMEDIATE")
         rows = _setting_rows(conn)
+        if ignore_invalid_key:
+            current_key = (rows.get("ai_api_key") or os.getenv("AI_API_KEY", "")).strip()
+            if _valid_key(current_key):
+                raise ValueError("密钥已变化，请重新加载配置")
+            rows["ai_api_key"] = ""
+            rows["ai_ignore_invalid_env_key"] = "true"
         # Start from raw settings so an invalid environment value can be repaired.
         for name, value in changes.items():
             if name == "clear_api_key":
@@ -171,8 +200,11 @@ def update(changes: dict) -> dict:
             conn.execute("INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,?) "
                          "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
                          ("ai_" + name, encoded, int(time.time())))
-        if changes.get("clear_api_key"):
+        if changes.get("clear_api_key") or ignore_invalid_key:
             conn.execute("DELETE FROM app_settings WHERE key='ai_api_key'")
+        if ignore_invalid_key:
+            conn.execute("INSERT OR REPLACE INTO app_settings(key,value,updated_at) VALUES('ai_ignore_invalid_env_key','true',?)",
+                         (int(time.time()),))
     return public_settings()
 
 
@@ -212,11 +244,27 @@ def record_tokens(day: str, input_tokens: int, output_tokens: int) -> None:
                      "WHERE date=?", (input_tokens, output_tokens, day))
 
 
-def public_settings() -> dict:
+def public_settings(*, repair=False) -> dict:
+    errors, overrides = {}, {}
     with _base._lock, closing(_base._conn()) as conn, conn:
-        current, sources = _resolve(_setting_rows(conn))
+        rows = _setting_rows(conn)
+        while True:
+            try:
+                current, sources = _resolve(rows, overrides)
+                break
+            except _InvalidField as error:
+                if not repair or error.name in overrides:
+                    raise
+                errors[error.name] = str(error)
+                overrides[error.name] = error.replacement
     result = asdict(current)
     result.pop("api_key")
     result.update(api_key_set=bool(current.api_key), api_key_masked=mask_secret(current.api_key),
                   api_key_source=sources["api_key"], usage=usage())
+    if errors:
+        result["invalid_fields"] = errors
+        # A guessed provider or endpoint could send an existing key to the wrong service.
+        for name in ("provider", "base_url"):
+            if name in errors:
+                result[name] = ""
     return result

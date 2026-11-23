@@ -1,5 +1,5 @@
 <template>
-  <div class="browse-page cinema-browse" :class="{ 'catalogue-tools-ready': !loadError && !scanOpen && !msg }">
+  <div class="browse-page cinema-browse" :class="{ 'catalogue-tools-ready': !loadError && !scanOpen && !msg && !playbackNotice }">
   <header class="browse-heading">
     <h1>剧集</h1>
   </header>
@@ -44,6 +44,7 @@
     @fill="discovery.fill" @remember="discovery.remember" @public="discovery.searchPublic" /></div>
   <ScanAction v-if="scanOpen" kind="tv" @done="onAdded" />
   <UploadDialog v-if="upDlg" kind="tv" @close="upDlg = false" @done="onAdded" />
+  <p v-if="playbackNotice" class="page-feedback" role="status">{{ playbackNotice }}</p>
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
 
   <div v-show="!ai.open" class="browse-results">
@@ -97,7 +98,7 @@
   </div>
 
   <PlayerModal v-if="playing" ref="playerRef" :key="'episode:' + playing.id" :version-id="playing.id" :title="playing.label"
-    kind="episode" @close="closePlayback" @watched="onWatched" @ended="onWatched" @version-change="playing = $event" />
+    kind="episode" @close="closePlayback" @watched="onWatched" @ended="onEnded(resumeTitle)" @version-change="playing = $event" />
   </div>
 </template>
 
@@ -135,6 +136,7 @@ import BrowseFeature from '../components/BrowseFeature.vue'
 import ContinueWatchingRow from '../components/ContinueWatchingRow.vue'
 import TvUpdatesRow from '../components/TvUpdatesRow.vue'
 import { loadPrefs } from '../prefs.js'
+import { useEpisodeAutoplay } from '../episodePlayback.js'
 import PlayerModal from '../components/PlayerModal.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -214,7 +216,9 @@ function setAiOpen(value) {
 }
 
 const showContinue = computed(() => !activeCount.value && !q.value.trim())
+const resumeTitle = ref('')
 const playing = ref(null)
+const { onEnded, notice: playbackNotice } = useEpisodeAutoplay(playing, () => [route.path, curMediaId.value], api)
 const playerRef = ref(null)
 const cwRef = ref(null)
 const featureRef = ref(null)
@@ -490,7 +494,8 @@ async function loadFacets() {
 function resume(m) {
   const p = m && m.progress
   if (!p || !p.version_id) return
-  playing.value = { id: p.version_id, label: `${m.title}${m.subtitle ? ' ' + m.subtitle : ''}` }
+  resumeTitle.value = m.title
+  playing.value = { kind: 'episode', id: p.version_id, label: `${m.title}${m.subtitle ? ' ' + m.subtitle : ''}` }
 }
 async function closePlayback() {
   const media = curMediaId.value

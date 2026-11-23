@@ -5,8 +5,11 @@ selected exact hosts is a separate, compare-and-append configuration operation;
 the existing transport still checks DNS answers and actual public socket peers.
 """
 
+from collections import OrderedDict
 import ipaddress
 import re
+from threading import Lock
+import time
 from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -21,6 +24,8 @@ from .source_migration import fingerprint
 
 
 MAX_HOSTS = 128
+_list_posters = OrderedDict()
+_list_posters_lock = Lock()
 
 
 class HostCheckError(catalog.CatalogError):
@@ -49,12 +54,15 @@ class HostCheckRequest(_Contract):
 class HostCheckReport(_Contract):
     source_id: SourceId
     external_id: str
-    title: str
     missing_hosts: list[str]
-    missing_poster_hosts: list[str]
     allowed_hosts: list[str]
     rejected_count: int
     configuration_fingerprint: str
+
+
+class PosterHostCheckReport(HostCheckReport):
+    title: str
+    missing_poster_hosts: list[str]
 
 
 class AllowHostsRequest(_Contract):
@@ -107,6 +115,29 @@ def _candidate(source_id, value, *, media, page=False):
     return host
 
 
+def remember_list_posters(source, blocked):
+    """Keep validated thumbnail hosts, without retaining artwork URLs or search terms."""
+    if not blocked:
+        return
+    version = fingerprint(source)
+    with _list_posters_lock:
+        expires = time.monotonic() + 1800
+        for external_id, address in blocked:
+            key = (version, external_id, _checked_host(urlsplit(address).hostname))
+            _list_posters[key] = expires
+            _list_posters.move_to_end(key)
+        while len(_list_posters) > 512:
+            _list_posters.popitem(last=False)
+
+
+def _observed_posters(version, external_id):
+    now = time.monotonic()
+    with _list_posters_lock:
+        while _list_posters and next(iter(_list_posters.values())) <= now:
+            _list_posters.popitem(last=False)
+        return {host for config, item, host in _list_posters if config == version and item == external_id}
+
+
 def _suggestions(source, row, page_poster):
     # Reuse the provider parser's group/entry/string limits before traversing
     # raw links. Unsupported host entries remain visible without being trusted.
@@ -155,7 +186,7 @@ def _homepage_sample(source, action):
     return page["list"][0]
 
 
-def check(access, source_id, external_id, *, operation=None):
+def check(access, source_id, external_id, poster_report=False, *, operation=None):
     """Inspect a requested programme or select one from the first catalogue page."""
     _management(access)
     with catalog._admit(access.owner, operation):
@@ -183,10 +214,16 @@ def check(access, source_id, external_id, *, operation=None):
             raise HostCheckError("online_source_changed", 409)
         catalog._ready_source(source_id)
         allowed = source["allowed_hosts"]
-        return {"source_id": source_id, "external_id": selected, "title": maccms.plain(row.get("vod_name"), required=True),
-                "missing_hosts": sorted(candidates.difference(allowed)), "missing_poster_hosts": sorted(posters.difference(allowed)),
-                "allowed_hosts": allowed, "rejected_count": rejected,
-                "configuration_fingerprint": version}
+        report = {"source_id": source_id, "external_id": selected, "allowed_hosts": allowed,
+                  "rejected_count": rejected, "configuration_fingerprint": version}
+        if poster_report:
+            posters.update(_observed_posters(version, selected))
+            candidates.update(posters)
+            if len(candidates) > MAX_HOSTS:
+                raise HostCheckError("online_host_candidate_limit", 422)
+            report.update(title=maccms.plain(row.get("vod_name"), required=True),
+                          missing_poster_hosts=sorted(posters.difference(allowed)))
+        return {**report, "missing_hosts": sorted(candidates.difference(allowed))}
 
 
 def allow(access, source_id, body):

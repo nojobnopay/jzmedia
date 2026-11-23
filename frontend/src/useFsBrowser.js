@@ -304,18 +304,26 @@ export function useFsBrowser(props, emit, api, router) {
     const snapshot = { library_id: libraryId.value, paths: [...rels] }
     await runBusy(async () => {
       const data = await post('delete', { ...snapshot, dry_run: true })
-      prompt.value = { type: 'delete', ...snapshot, plans: data.plans || [] }
+      if (disposed || libraryId.value !== snapshot.library_id) return
+      if (!data.preview_id) throw new Error('未收到删除凭据，请更新服务后重新预览')
+      prompt.value = { type: 'delete', ...snapshot, plans: data.plans || [], preview_id: data.preview_id }
     }, '删除预览失败')
   }
   async function confirmDelete() {
     const p = prompt.value
     if (p?.type !== 'delete') return
-    const paths = p.plans.filter(plan => !plan.status || plan.status === 'planned_rmdir').map(plan => plan.rel)
-    if (!paths.length) return
+    const actionable = p.plans.filter(plan => !plan.status || plan.status === 'planned_rmdir').length
+    if (!actionable || !p.preview_id) return
     await runBusy(async () => {
-      const data = await post('delete', { library_id: p.library_id, paths, dry_run: false, confirm: true })
+      let data
+      try {
+        data = await post('delete', { library_id: p.library_id, paths: p.paths, preview_id: p.preview_id, dry_run: false, confirm: true })
+      } catch (e) {
+        if (e.status === 409 && prompt.value === p) prompt.value = null
+        throw e
+      }
       prompt.value = null
-      message.value = `已物理删除 ${data.deleted || 0} 项（不可恢复）` + (data.deleted < paths.length ? '，部分项目未删除，请刷新核对' : '')
+      message.value = `已物理删除 ${data.deleted || 0} 项（不可恢复）` + (data.deleted < actionable ? '，部分项目未删除，请刷新核对' : '')
       changed(p.library_id, 'delete', data.deleted || 0)
       await refreshAfter(p.library_id)
     }, '删除失败')

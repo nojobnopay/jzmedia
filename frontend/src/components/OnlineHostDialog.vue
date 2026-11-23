@@ -9,7 +9,7 @@
       <p v-if="saved" data-online-host-saved role="status">媒体主机已加入允许列表。</p>
       <p v-if="error" class="online-host-dialog-error" data-online-host-error role="alert">{{ error }}</p>
       <template v-if="report && !saved">
-        <p v-if="!candidates.length" role="status">{{ postersOnly ? '这部节目的详情中没有待允许的海报域名。' : '没有发现需要新增的域名。' }}</p>
+        <p v-if="!candidates.length" role="status">{{ postersOnly ? '这部节目没有待允许的海报域名。' : '没有发现需要新增的域名。' }}</p>
         <fieldset v-else class="online-host-dialog-hosts" :disabled="saving">
           <legend>确认允许的域名</legend>
           <label v-for="host in candidates" :key="host"><input v-model="selected" type="checkbox" :value="host" data-online-host-candidate /><span>{{ host }}{{ !postersOnly && report.missing_poster_hosts?.includes(host) ? '（海报）' : '' }}</span></label>
@@ -48,8 +48,9 @@ let disposed = false, generation = 0, controller = null
 function current(turn) { return !disposed && turn === generation && props.current() }
 function close() { if (!saving.value && !authorizing.value) emit('close') }
 async function request(action, body, signal) {
+  const headers = action === 'host-check' ? { 'X-Online-Host-Report': '2' } : undefined
   return api('/api/online/sources/' + props.sourceId + '/' + action,
-    { method: 'POST', body: JSON.stringify(body), signal, timeout: 35000, silentViewing: true })
+    { method: 'POST', headers, body: JSON.stringify(body), signal, timeout: 35000, silentViewing: true })
 }
 function failed(problem) {
   if (['management_required', 'online_management_revoked'].includes(problem?.code)) permissionRequired.value = true

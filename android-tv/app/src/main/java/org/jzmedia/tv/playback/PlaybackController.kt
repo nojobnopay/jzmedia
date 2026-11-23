@@ -28,8 +28,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
@@ -39,14 +37,13 @@ import org.jzmedia.tv.BuildConfig
 import org.jzmedia.tv.data.JzApi
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicLong
 
 @UnstableApi
 class PlaybackController(context: Context, private val api: JzApi, val request: PlaybackRequest) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val writes = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val saveLock = Mutex()
+    private val progress = LocalPlaybackProgress()
     private val preferences = appContext.getSharedPreferences("playback", Context.MODE_PRIVATE)
     private val intent = PlaybackIntent()
     private var selectionNotice: String? = null
@@ -82,7 +79,6 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
     private var initialization: Job? = null
     private var watchedJob: Job? = null
     private var initialHlsSeek: Pair<String, Long>? = null
-    private val saveSequence = AtomicLong()
 
     private val http = OkHttpClient.Builder()
         .followRedirects(false).followSslRedirects(false)
@@ -274,12 +270,12 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                     subtitle = selection.subtitle, audios = audioTracks, subtitles = subtitleTracks,
                     videoAspectRatio = if (media.optInt("height") > 0) media.optInt("width").toFloat() / media.optInt("height") else 0f)
                 val explicitStart = explicitPlaybackStart(request, state.duration)
-                val progress = if (explicitStart != null) JSONObject() else if (request.resume) api.get(progressPath()) else {
+                val saved = if (explicitStart != null) JSONObject() else if (request.resume) api.get(progressPath()) else {
                     api.delete(progressPath())
                     JSONObject()
                 }
                 ensureActive()
-                val position = progress.optDouble("position", 0.0).finiteOrZero().coerceAtLeast(0.0)
+                val position = saved.optDouble("position", 0.0).finiteOrZero().coerceAtLeast(0.0)
                 val start = explicitStart ?: resumePosition(position, state.duration)
                 initialized = true
                 if (compatible) useCompatibleCapabilities()
@@ -385,6 +381,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 state = state.copy(method = method, output = "$size · ${if (method == "direct" || plan.optBoolean("vcopy")) "原视频" else "视频转码"}",
                     notice = playbackNotice)
                 val initialMs = (initial * 1000).toLong()
+                if (validPosition == null) progress.startAt(sourcePosition(initialMs, mediaStart, state.duration))
                 initialHlsSeek = if (method == "direct") null else itemId to initialMs
                 if (method == "direct") intent.prepared()
                 player.playWhenReady = intent.playerShouldPlay
@@ -432,7 +429,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         intent.request(play)
         state = state.copy(playWhenReady = play)
         player.playWhenReady = intent.playerShouldPlay
-        if (!play) queueSave()
+        if (!play) { updatePosition(); queueSave() }
     }
 
     fun seek(target: Double) {
@@ -694,15 +691,16 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
     private fun queueSave() {
         val position = validPosition ?: return
         val duration = state.duration
-        val sequence = saveSequence.incrementAndGet()
+        val sequence = progress.nextSequence()
         writes.launch { save(position, duration, sequence) }
     }
 
-    private suspend fun save(position: Double, duration: Double, sequence: Long) = saveLock.withLock {
-        if (sequence < saveSequence.get()) return@withLock
+    private suspend fun save(position: Double, duration: Double, sequence: Long) {
         try {
-            withTimeoutOrNull(10_000) { api.post(progressPath(), JSONObject().put("position", position).put("duration", duration)) }
-                ?: throw IOException("Progress update timeout")
+            progress.save(position, sequence) {
+                withTimeoutOrNull(10_000) { api.post(progressPath(), JSONObject().put("position", position).put("duration", duration)) }
+                    ?: throw IOException("Progress update timeout")
+            }
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) {
             withContext(Dispatchers.Main) { if (!disposed) state = state.copy(notice = "观看进度保存失败，稍后自动重试") }
@@ -724,7 +722,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         val sid = sessionId
         val position = validPosition
         val duration = state.duration
-        val sequence = saveSequence.incrementAndGet()
+        val sequence = progress.nextSequence()
         exit.close(position, duration, sequence, sid)
     }
 }

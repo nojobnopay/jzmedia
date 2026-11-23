@@ -10,7 +10,7 @@ const facets = label => ({ genres: [{ value: label, count: 1 }], regions: [], co
   years: [], decades: [], tags: [], status: [], collections: [],
   watched: { watched: 0, unwatched: 1 }, ratings: { tmdb: [], custom: [], douban: [] } })
 
-async function wall(t, kind, { query = {}, snapshot = null, components = {}, writeRequest, item } = {}) {
+async function wall(t, kind, { query = {}, snapshot = null, components = {}, writeRequest, nextEpisode, item } = {}) {
   const globals = {
     localStorage: { getItem: () => null, setItem() {} },
     window: { addEventListener() {}, removeEventListener() {}, scrollY: 40 },
@@ -67,6 +67,7 @@ async function wall(t, kind, { query = {}, snapshot = null, components = {}, wri
       if (writeRequest && options) return writeRequest(path, options)
       assert.equal(options, undefined, 'Browsing tests may only send read requests')
       requests.push(path)
+      if (nextEpisode && /^\/api\/tv\/episodes\/\d+\/next$/.test(path)) return nextEpisode(path)
       if (path.startsWith(facetPath + '?')) {
         const request = { path, ...deferred() }
         facetRequests.push(request)
@@ -185,6 +186,59 @@ test('movie selections and pending deletion previews cannot cross media librarie
   assert.equal(previews.length, 2, 'changing scopes never submits deletion')
 })
 
+test('movie deletion requires a complete server preview and a fresh confirmation after a change', async t => {
+  const writes = []
+  const file = { rel: '版本/合成电影.mkv', kind: 'feature', size: 100 }
+  const plan = { id: 1, title: '合成电影', files: [file] }
+  const current = { plans: [plan], total_movies: 1, total_files: 1, total_versions: 1, total_bytes: 100 }
+  const replies = [
+    { ...current, plans: [{ id: 1, title: '旧服务端' }] },
+    { ...current, preview_id: 'incomplete', plans: [{ ...plan, files: [] }] },
+    { ...current, preview_id: 'first' },
+    Object.assign(new Error('清单已变化'), { status: 409 }),
+    { ...current, preview_id: 'second' },
+    { ...current, deleted_movies: 0, deleted_files: 0, results: [
+      { ...plan, status: 'deleted_with_errors', failed_files: [{ rel: file.rel, error: '拒绝访问' }], retry_ids: [7] },
+    ] },
+    { ...current, preview_id: 'retry' },
+  ]
+  const dialog = { setup: (_props, { slots }) => () => Vue.h('section', { role: 'dialog' }, [slots.default?.(), slots.footer?.()]) }
+  const ui = await wall(t, 'movie', { components: { '../components/JzDialog.vue': { default: dialog } }, writeRequest(path, options) {
+    assert.equal(path, '/api/movies/batch-delete')
+    writes.push(JSON.parse(options.body))
+    const reply = replies.shift()
+    if (reply instanceof Error) throw reply
+    return Promise.resolve(reply)
+  } })
+  ui.facetRequests[0].resolve(facets('剧情'))
+  await flush()
+  ui.find(n => n.props['aria-label'] === '选择').props.onClick({ stopPropagation() {} })
+  await flush()
+  const open = async () => { ui.find(n => n.props.title === '删除选中影片').props.onClick(); await flush() }
+  const button = label => ui.find(n => n.props.role === 'dialog')?.children
+    .find(n => n.type === 'button' && nodeText(n).startsWith(label))
+  const click = async label => { button(label).props.onClick(); await flush() }
+  for (let i = 0; i < 2; i++) {
+    await open()
+    assert.match(ui.text(), /服务端未提供完整/)
+    assert.equal(button('确认删除').props.disabled, true)
+    await click('取消')
+  }
+  await open()
+  assert.match(ui.text(), /版本\/合成电影\.mkv/)
+  await click('确认删除')
+  assert.deepEqual(writes[3], { ids: [1], dry_run: false, confirm: true, preview_id: 'first' })
+  assert.equal(button('确认删除'), undefined)
+  await click('重新预览')
+  await click('确认删除')
+  assert.equal(writes[5].preview_id, 'second')
+  assert.match(ui.text(), /已删除 0\/1 部.*拒绝访问|拒绝访问.*已删除 0\/1 部/)
+  ui.facetRequests[1].resolve(facets('剧情'))
+  await flush()
+  await click('重新预览')
+  assert.deepEqual(writes[6], { ids: [7], dry_run: true })
+})
+
 test('TV shelf refresh waits for the final episode save and ignores a previous media library', async t => {
   let save, reloads = 0
   const ui = await wall(t, 'tv', { components: {
@@ -213,6 +267,53 @@ test('TV shelf refresh waits for the final episode save and ignores a previous m
   save.resolve()
   await flush()
   assert.equal(reloads, 1)
+})
+
+test('TV continue watching advances on ended, stops at a missing file, and discards a cancelled lookup', async t => {
+  let player, next, pending, watched = 0
+  const ui = await wall(t, 'tv', {
+    writeRequest: path => {
+      if (path === '/api/tv/episodes/45/watched') watched++
+      return Promise.resolve({})
+    },
+    nextEpisode: () => pending?.promise || Promise.resolve({ next }),
+    components: {
+      '../components/ContinueWatchingRow.vue': { default: { setup(_props, { emit, expose }) {
+        expose({ ready: async () => {}, reload() {} })
+        return () => Vue.h('button', { onClick: () => emit('resume', { title: '节目', progress: { version_id: 45 } }) }, '续播集')
+      } } },
+      '../components/PlayerModal.vue': { default: { props: ['versionId', 'title'], setup(props, { emit, expose }) {
+        player = emit
+        expose({ saveFinal: async () => {} })
+        return () => Vue.h('section', { 'data-episode': props.versionId }, props.title)
+      } } },
+    },
+  })
+  ui.facetRequests[0].resolve(facets('剧情'))
+  await flush()
+  const resume = async () => { ui.find(node => node.text === '续播集').props.onClick(); await flush() }
+  await resume()
+  player('watched')
+  await flush()
+  assert.equal(watched, 1)
+  assert.ok(ui.find(node => node.props['data-episode'] === 45))
+  next = { id: 46, season: 1, episode: 2, title: '集名', exists: true }
+  player('ended')
+  await flush()
+  assert.match(ui.find(node => node.props['data-episode'] === 46).text, /节目 S01E02/)
+  next = { id: 47, season: 1, episode: 3, exists: false }
+  player('ended')
+  await flush()
+  assert.equal(ui.find(node => node.props['data-episode']), undefined)
+  assert.match(ui.text(), /下一集文件缺失.*S01E03/)
+  assert.equal(watched, 1)
+  await resume()
+  pending = deferred()
+  player('ended')
+  player('close')
+  pending.resolve({ next: { id: 46, season: 1, episode: 2 } })
+  await flush()
+  assert.equal(ui.find(node => node.props['data-episode']), undefined)
 })
 
 for (const kind of ['movie', 'tv']) {

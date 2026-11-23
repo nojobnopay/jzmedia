@@ -1,7 +1,10 @@
 // 文件与版本行对齐回归：大小列 + 三个动作槽全部定宽，版本行与其它文件行逐列对齐。
-// 无 DOM 环境，按本仓既有约定做 SFC 源码静态断言。
+// 布局约束读取样式，删除流程通过 Vue 渲染器操作实际控件。
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { reactive } from 'vue'
+import { loadSfc } from './helpers/loadSfc.js'
+import { renderHarness, flush, deferred, nodeText } from './helpers/renderHarness.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,4 +39,39 @@ test('大小列与三个动作槽定宽', () => {
 
 test('文件分组 ul 无浏览器默认缩进', () => {
   assert.match(style, /\.files ul\s*\{[^}]*padding:\s*0/, '分组 ul 必须清掉默认左缩进')
+})
+
+test('movie details confirm the returned relative path and discard stale or late previews', async t => {
+  const gate = deferred(), requests = []
+  let delayed = false
+  const component = await loadSfc(new URL('../src/components/MovieFileManager.vue', import.meta.url), {
+    '../api.js': { api: async (path, options) => {
+      const body = JSON.parse(options.body)
+      requests.push({ path, body })
+      if (!body.dry_run) throw Object.assign(new Error('文件已变化'), { status: 409 })
+      if (delayed) await gate.promise
+      return { plans: [{ rel: '电影/Film.srt' }], preview_id: 'subtitle-version' }
+    } },
+    './FilePreviewHost.vue': { default: { render: () => null } },
+  })
+  const props = reactive({ movieId: 12, movie: { versions: [] }, sideFiles: { subtitles: [{ name: 'Film.srt' }] } })
+  const ui = renderHarness(component, props)
+  t.after(() => ui.app.unmount())
+  const button = label => ui.find(node => node.type === 'button' && nodeText(node) === label)
+  await button('删除').props.onClick()
+  await flush()
+  await button('确认删除').props.onClick()
+  await flush()
+  assert.deepEqual(requests.at(-1), { path: '/api/movies/12/files',
+    body: { name: '电影/Film.srt', preview_id: 'subtitle-version', dry_run: false, confirm: true } })
+  assert.ok(button('删除'))
+  assert.equal(button('确认删除'), undefined)
+  delayed = true
+  const old = button('删除').props.onClick()
+  props.movieId = 22
+  await flush()
+  gate.resolve()
+  await old
+  await flush()
+  assert.equal(button('确认删除'), undefined)
 })

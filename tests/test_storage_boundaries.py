@@ -94,9 +94,32 @@ def test_unmounted_library_scan_and_clean_preserve_catalogue(mount_library):
     assert not (root / "must-not-write").exists()
 
 
-def test_mount_loss_after_snapshot_does_not_run_gc(mount_library):
-    lib, _, state, rel, item_id, kind = mount_library
+@pytest.mark.parametrize("mount_library", [("nfs", "movie"), ("smb", "tv")], indirect=True)
+def test_changed_mounted_root_requires_review_before_scan(mount_library, tmp_path):
+    from app import library_roots
+    lib, root, state, rel, item_id, kind = mount_library
     state["mounted"] = True
+    known = root / rel
+    known.parent.mkdir(parents=True, exist_ok=True)
+    known.write_bytes(b"known video on original disk")
+    library_roots.checked(storage.backend_for(lib["id"]))
+    root.rename(tmp_path / "detached")
+    root.mkdir()
+    out = scanner.scan_all(library_id=lib["id"])
+    assert [row["status"] for row in out] == ["library_offline"]
+    assert out[0]["root_review"]["token"]
+    assert store.get_progress(item_id, kind=kind)["position"] == 50
+
+
+def test_mount_loss_after_snapshot_does_not_run_gc(mount_library):
+    from app import library_roots
+    lib, root, state, rel, item_id, kind = mount_library
+    state["mounted"] = True
+    known = root / rel
+    known.parent.mkdir(parents=True, exist_ok=True)
+    known.write_bytes(b"known video")
+    library_roots.checked(storage.backend_for(lib["id"]))
+    known.unlink()
 
     def after_snapshot(done, total):
         assert done == total == 0

@@ -346,9 +346,20 @@ def test_slow_termination_does_not_block_other_clients_or_clear_successor(produc
             getter = pool.submit(common._get_session, active["session_id"])
             assert getter.result(timeout=1)["proc"] is producers[1]
             assert common._tasks[task["key"]] is task and task["cancelled"]
+            # A request for a genuinely stuck producer must return in bounded time.
+            monkeypatch.setattr(session, "_TASK_RETIRE_TIMEOUT", 0.03)
             with pytest.raises(HTTPException) as exc:
                 create()
             assert exc.value.status_code == 503
+            monkeypatch.setattr(session, "_TASK_RETIRE_TIMEOUT", 3)
+            entered = threading.Event()
+            original = session._task_retired.wait
+            def observe_wait(timeout):
+                entered.set()
+                return original(timeout)
+            monkeypatch.setattr(session._task_retired, "wait", observe_wait)
+            reopening = pool.submit(create)
+            assert entered.wait(1)
             with pytest.raises(HTTPException) as exc:
                 create(start=40)
             assert exc.value.status_code == 429  # The stopping process still holds its slot.
@@ -357,7 +368,7 @@ def test_slow_termination_does_not_block_other_clients_or_clear_successor(produc
             # thread returns from wait. That late cleanup must not clear the replacement.
             old.finish(-15)
             assert task["done"].wait(2)
-            replacement = create()
+            replacement = reopening.result(timeout=2)
             new_task = common._sessions[replacement["session_id"]]["task"]
             assert new_task is not task
             meta = Path(new_task["sdir"]) / "session.json"
@@ -369,6 +380,41 @@ def test_slow_termination_does_not_block_other_clients_or_clear_successor(produc
         assert meta.read_bytes() == replacement_meta
         assert common._tasks[new_task["key"]] is new_task
         assert not producers[1].terminated
+
+
+def test_newer_seek_supersedes_request_waiting_for_retiring_output(producers, monkeypatch):
+    player = "browser_player_1234567890"
+    first = create(client_id=player, request_seq=1)
+    proc = producers[0]
+    closing, resume, waiting = threading.Event(), threading.Event(), threading.Event()
+    terminate = proc.terminate
+
+    def slow_terminate():
+        closing.set()
+        assert resume.wait(3)
+        terminate()
+
+    monkeypatch.setattr(proc, "terminate", slow_terminate)
+    wait = session._task_retired.wait
+    def observe_wait(timeout):
+        waiting.set()
+        return wait(timeout)
+    monkeypatch.setattr(session._task_retired, "wait", observe_wait)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        closer = pool.submit(session.hls_session_close, first["session_id"])
+        try:
+            assert closing.wait(1)
+            stale = pool.submit(create, client_id=player, request_seq=2)
+            assert waiting.wait(1)
+            latest = create(start=60, client_id=player, request_seq=3)
+        finally:
+            resume.set()
+        closer.result(timeout=2)
+        with pytest.raises(HTTPException) as exc:
+            stale.result(timeout=2)
+        assert exc.value.status_code == 409
+    assert set(common._sessions) == {latest["session_id"]}
+    assert len(producers) == 2
 
 
 def test_cache_ttl_and_manual_cleanup_protect_active_tasks(producers):

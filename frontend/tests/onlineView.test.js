@@ -2322,6 +2322,46 @@ function cacheSnapshot(entries = [cachedEpisode(EP1)]) { return { external_id: '
 function cacheListing(entries = [cachedEpisode(EP1)]) { return { enabled: true, storage: { used_bytes: 1024, available_bytes: 1024 ** 3, min_free_bytes: 1024 ** 2, ok: true },
   items: [{ item_id: ITEM, source_id: SOURCE_A, external_id: 'movie-1', title: '合成剧集', source_name: '来源 A', ready_count: entries.filter(entry => entry.state === 'ready').length, total_count: entries.length, entries }] } }
 
+test('a fully cached weekly series can explicitly reload its episodes without starting playback or losing the offline list on failure', async t => {
+  const snapshot = cacheSnapshot()
+  snapshot.detail.lines[0].entries.pop()
+  let detailReads = 0
+  const { ui, players } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return sources
+    if (path.includes('/detail?')) {
+      if (++detailReads === 1) throw { code: 'provider_timeout' }
+      return show()
+    }
+    return rows
+  }, { cacheRequest: async () => snapshot })
+  await openShow(ui)
+  const live = () => ui.find(node => node.props['data-online-live-episodes'] !== undefined)
+  assert.equal(detailReads, 0); assert.equal(selectedEntry(ui, '第2集'), undefined)
+  await live().props.onClick(); await flush()
+  assert.ok(ui.text().includes('仍显示缓存分集')); assert.ok(selectedEntry(ui))
+  await live().props.onClick(); await flush()
+  assert.ok(selectedEntry(ui, '第2集')); assert.equal(players.length, 0)
+  assert.equal(detailReads, 2)
+})
+
+test('leaving a cached detail discards the pending live episode list', async t => {
+  const gate = deferred()
+  const { ui, players } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return sources
+    if (path.includes('/detail?')) return gate.promise
+    return rows
+  }, { cacheRequest: async () => cacheSnapshot() })
+  await openShow(ui)
+  const loading = ui.find(node => node.props['data-online-live-episodes'] !== undefined).props.onClick()
+  await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回搜索结果').props.onClick()
+  await flush()
+  gate.resolve(show()); await loading; await flush()
+  assert.ok(ui.find(node => node.props['data-online-result'] !== undefined))
+  assert.equal(ui.find(node => node.props['data-online-detail'] !== undefined), undefined)
+  assert.equal(players.length, 0)
+})
+
 test('a bookmarked cache detail opens and plays without reading sources or any upstream catalogue', async t => {
   const upstream = [], cached = []
   const { ui, players } = await setup(t, async path => { upstream.push(path); throw { code: 'provider_timeout' } }, {
@@ -2357,6 +2397,28 @@ test('search opens a saved snapshot first and local autoplay asks before connect
   assert.equal(players.length, 2)
   assert.deepEqual(players[1].props.onlineIdentity, identity(EP2))
   assert.equal(players[1].props.cacheOnly, false)
+})
+
+test('a failed cache refresh keeps ready episodes playable offline until their removal is confirmed', async t => {
+  const upstream = []
+  let refreshError
+  const { ui, players } = await setup(t, async path => { upstream.push(path); throw { code: 'provider_timeout' } }, {
+    routeQuery: { view: 'cache', cache_item: ITEM },
+    cacheRequest: async () => { if (refreshError) throw refreshError; return cacheSnapshot() },
+  })
+  const refresh = () => ui.find(node => node.type === 'button' && nodeText(node).includes('刷新缓存状态')).props.onClick()
+  refreshError = { status: 503 }
+  await refresh(); await flush()
+  selectedEntry(ui).props.onClick(); await flush()
+  assert.equal(players.length, 1)
+  assert.equal(players[0].props.cacheOnly, true)
+  players[0].close(); await flush()
+  refreshError = { status: 404, code: 'online_cache_item_not_found' }
+  await refresh(); await flush()
+  selectedEntry(ui).props.onClick(); await flush()
+  assert.equal(players.length, 1)
+  assert.ok(ui.find(node => node.props['data-online-cache-network-confirm'] !== undefined))
+  assert.deepEqual(upstream, [])
 })
 
 test('local autoplay reads only the current snapshot and advances once to an exact ready episode', async t => {

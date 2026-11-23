@@ -369,6 +369,23 @@ for (const exit of ['pagehide', 'unmount']) {
   })
 }
 
+test('a 503 claiming the writer allows the player to start and the first decoded position restores progress', async t => {
+  const claims = []
+  const ui = await player(t, body => {
+    claims.push(body)
+    if (claims.length === 1) throw Object.assign(new Error(), { status: 503, code: 'online_state_unavailable' })
+    return grant()
+  })
+  assert.equal(claims.length, 1)
+  assert.equal(ui.playCalls(), 1); assert.match(ui.video.src, /\/media$/)
+  ui.frame(); ui.video.currentTime = 4.5; ui.timeUpdate()
+  await ui.writer.flush()
+  assert.deepEqual(claims, [claims[0], claims[0]])
+  const saves = ui.requests.filter(row => row.path === '/api/online/state/progress')
+  assert.equal(saves.length, 1); assert.equal(saves[0].body.position, 4.5)
+  assert.match(ui.notices.at(-1), /已恢复保存/); assert.deepEqual(ui.snapshot().errors, [])
+})
+
 test('a rejected online writer claim still permits media playback with a saving notice', async t => {
   const ui = await player(t, async () => { throw Object.assign(new Error('isolated failure'), { code: 'online_state_unavailable' }) })
   assert.match(ui.video.src, /\/media$/)

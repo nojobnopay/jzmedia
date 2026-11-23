@@ -76,6 +76,32 @@ class OnlineProgressWriterTest {
         }
     }
 
+    @Test fun transientClaimAndSaveErrorsRetryTheSameIdentityAndPacket() = runBlocking {
+        MockWebServer().use { server ->
+            val writer = OnlineProgressWriter(OnlineApi(JzApi(server.url("/").toString())), identity, scope, 0) { }
+            server.enqueue(MockResponse().setResponseCode(503))
+            assertFalse(writer.prepare(session))
+            server.enqueue(MockResponse().setBody(claim(1).toString()))
+            server.enqueue(MockResponse().setResponseCode(503))
+            server.enqueue(MockResponse().setBody(saved(1, 8.0).toString()))
+            assertTrue(writer.save(OnlineProgressSnapshot(8.0, 24.0, true, false)))
+            fun nextBody() = server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8()
+            assertEquals(nextBody(), nextBody())
+            val packet = nextBody()
+            assertEquals(1L, JSONObject(packet).getLong("seq"))
+            assertEquals(packet, nextBody())
+
+            repeat(3) { server.enqueue(MockResponse().setResponseCode(502)) }
+            assertFalse(writer.save(OnlineProgressSnapshot(16.0, 24.0, false, false)))
+            assertFalse(writer.disabled)
+            val lost = nextBody()
+            assertEquals(lost, nextBody()); assertEquals(lost, nextBody())
+            server.enqueue(MockResponse().setBody(saved(1, 20.0).toString()))
+            assertTrue(writer.save(OnlineProgressSnapshot(20.0, 24.0, true, false)))
+            assertEquals(3L, JSONObject(nextBody()).getLong("seq"))
+        }
+    }
+
     @Test fun cancellingPreparationCancelsTheHttpClaimWithoutCreatingAProgressPacket() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setBody(claim(1).toString()).setBodyDelay(2, TimeUnit.SECONDS))

@@ -51,3 +51,28 @@ test('background TV checks keep authorization failures silent while retaining st
   }
   assert.deepEqual(events, [])
 })
+
+for (const source of ['timeout', 'caller']) {
+  test(`API ${source} cancels a pending response body after headers`, async t => {
+    const outer = new AbortController()
+    let reading
+    const bodyStarted = new Promise(resolve => { reading = resolve })
+    t.mock.method(globalThis, 'fetch', async (_path, { signal }) => ({
+      ok: true,
+      json: () => new Promise((resolve, reject) => {
+        const fallback = setTimeout(() => resolve({}), 500)
+        signal.addEventListener('abort', () => {
+          clearTimeout(fallback)
+          reject(new globalThis.DOMException('Aborted', 'AbortError'))
+        }, { once: true })
+        reading()
+      })
+    }))
+    const request = api('/api/test', { signal: outer.signal, timeout: source === 'timeout' ? 30 : 1000 })
+    await bodyStarted
+    if (source === 'caller') outer.abort()
+    await assert.rejects(request, source === 'timeout'
+      ? { name: 'TimeoutError', message: '请求超时，请检查连接后重试' }
+      : { name: 'Error', message: '已取消' })
+  })
+}

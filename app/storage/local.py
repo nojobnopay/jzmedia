@@ -10,7 +10,8 @@ from __future__ import annotations
 import errno
 import os
 import shutil
-import time
+import stat
+import uuid
 from contextlib import contextmanager
 from typing import Iterator, BinaryIO
 
@@ -192,27 +193,29 @@ class LocalStorageBackend(StorageBackend):
 
     @contextmanager
     def open_write(self, path: str, *, overwrite: bool = True) -> Iterator[BinaryIO]:
-        """流式原子写：`.part-<pid>-<ns>` 临时文件，关闭成功后 os.replace 落位；
-        异常/中断清理临时文件，绝不留下半成品。"""
+        """先写同目录的独立临时文件，关闭成功后才发布最终文件名。"""
         self._require_writable()
         dest = self._abs(path)
-        tmp = f"{dest}.part-{os.getpid()}-{time.monotonic_ns()}"
+        if not overwrite and dest != os.path.join(self._abs(""), self.norm(path)):
+            raise StorageInvalidPath("目标路径包含链接")
+        tmp = os.path.join(os.path.dirname(dest), f".jzmedia-part-{uuid.uuid4().hex}")
         try:
             parent = os.path.dirname(dest)
             if parent:
                 os.makedirs(parent, exist_ok=True)
-            fh = open(tmp, "wb")
+            fh = open(tmp, "xb")
         except OSError as e:
             raise _map_os_error(e, path) from e
         ok = False
         try:
             yield fh
             fh.close()
+            if self._abs(path) != dest:
+                raise StorageInvalidPath("写入期间目标路径已变化")
             if overwrite:
                 os.replace(tmp, dest)
             else:
-                os.link(tmp, dest)  # Atomic no-replace commit on the same filesystem.
-                os.unlink(tmp)
+                fsutil.rename_no_replace(tmp, dest)
             ok = True
         except OSError as e:
             raise _map_os_error(e, path) from e
@@ -227,27 +230,92 @@ class LocalStorageBackend(StorageBackend):
                 except OSError:
                     pass
 
-    def rename(self, src: str, dst: str) -> None:
+    def rename(self, src: str, dst: str, *, overwrite: bool = True) -> None:
+        self._rename(src, dst, overwrite)
+
+    def _organize_rename(self, src, dst, *, restoring):
+        copied = {}
+        root_identity = None
+
+        def capture(source, staged, entries):
+            nonlocal root_identity
+            for rel, entry in entries.items():
+                mode = entry[0]
+                if mode not in (stat.S_IFDIR, stat.S_IFREG):
+                    continue
+                old = os.path.join(source, rel) if rel else source
+                new = os.path.join(staged, rel) if rel else staged
+                old_info = os.lstat(old)
+                # A second hard link may still identify the original outside this tree.
+                obj = "dir" if mode == stat.S_IFDIR else "file"
+                before = self._organize_stamp(old_info, obj, old)
+                after = self._organize_stamp(os.lstat(new), obj, new)
+                if not rel:
+                    if not after or restoring and after == self.UNVERIFIED_DIRECTORY:
+                        raise StorageUnsupported("目标卷无法核实整理对象的身份")
+                    root_identity = after
+                if mode == stat.S_IFREG and old_info.st_nlink > 1:
+                    continue
+                if before and after and self.UNVERIFIED_DIRECTORY not in (before, after):
+                    copied[before] = after
+
+        self._rename(src, dst, False, capture)
+        return copied, root_identity
+
+    def _rename(self, src, dst, overwrite, capture_copy=None):
         self._require_writable()
         s, d = self._abs(src), self._abs(dst)
+        if not overwrite:
+            root = self._abs("")
+            if s != os.path.join(root, self.norm(src)) or d != os.path.join(root, self.norm(dst)):
+                raise StorageInvalidPath("整理路径包含链接")
         try:
             parent = os.path.dirname(d)
             if parent:
                 os.makedirs(parent, exist_ok=True)
-            os.rename(s, d)
+            if overwrite:
+                os.rename(s, d)
+            else:
+                fsutil.move_no_replace(s, d, capture_copy)
         except OSError as e:
-            if e.errno == errno.EXDEV:
+            if overwrite and e.errno == errno.EXDEV:
                 shutil.move(s, d)
                 return
             raise _map_os_error(e, src) from e
 
-    def delete(self, path: str, recursive: bool = False) -> None:
+    def _entry_lstat(self, path: str):
+        lexical = os.path.join(self._abs(""), self.norm(path))
+        if os.path.realpath(os.path.dirname(lexical)) != os.path.dirname(lexical):
+            return None
+        try:
+            return os.lstat(lexical)
+        except OSError as e:
+            raise _map_os_error(e, path) from e
+
+    def delete_empty_dir(self, path: str) -> None:
+        self._require_writable()
+        if not self.norm(path):
+            return
+        absolute = self._abs(path)
+        if absolute != os.path.join(os.path.realpath(self.root), self.norm(path)):
+            raise StorageInvalidPath("目录路径包含链接")
+        try:
+            os.rmdir(absolute)
+        except OSError as e:
+            raise _map_os_error(e, path) from e
+
+    def delete(self, path: str, recursive: bool = False, *, file_only: bool = False) -> None:
         self._require_writable()
         p = self._abs(path)
         if not os.path.lexists(p):
             raise StorageNotFound(f"不存在: {path}")
         try:
-            if os.path.islink(p):
+            if file_only:
+                lexical = os.path.join(self._abs(""), self.norm(path))
+                if p != lexical:
+                    raise StorageInvalidPath("文件路径已变化")
+                os.remove(lexical)
+            elif os.path.islink(p):
                 os.remove(p)
             elif os.path.isdir(p):
                 if recursive:

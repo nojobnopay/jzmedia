@@ -18,7 +18,7 @@ async function mountTools(t, name, kind) {
     vue: { ...Vue, vShow: {}, vModelCheckbox: {}, vModelText: {} },
     '../api.js': { api: () => loading },
     '../useLibraryScan.js': { useLibraryScan: () => ({ running: Vue.ref(false), blocked: Vue.ref(false),
-      message: Vue.ref(''), stateText: Vue.ref('随时可用'), start: async () => {}, cancel: async () => {} }) },
+      reportRootReview: () => {}, rootReview: Vue.ref(null), message: Vue.ref(''), stateText: Vue.ref('随时可用'), start: async () => {}, cancel: async () => {} }) },
   }
   for (const component of ['OrganizePanel', 'LibraryMaintenancePanel', 'RestorePanel', 'TvOrganizePanel', 'TvBindingsDialog', 'TvMaintenancePanel']) overrides['./' + component + '.vue'] = { default: child }
   const component = await loadSfc(new URL('../src/components/' + name + '.vue', import.meta.url), overrides)

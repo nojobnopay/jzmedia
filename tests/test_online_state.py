@@ -164,6 +164,27 @@ def test_favorites_are_device_scoped_idempotent_and_separate_from_local_media(en
             assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
+def test_unchanged_paused_writer_renews_without_reordering_recent_watches(environment):
+    env = environment
+    movie_writer, _ = claim(env)
+    paused = save(env, movie_writer, paused=True).json()["progress"]
+    episode_writer, _ = claim(env, item=env.show, episode=env.episodes[1])
+    save(env, episode_writer)
+    with closing(store._base._conn()) as connection, connection:
+        connection.execute("UPDATE online_progress SET writer_expires_at=? WHERE writer_id=?",
+                           (time.time() + 60, movie_writer["writer_id"]))
+    idle = save(env, movie_writer, seq=2, paused=True).json()["progress"]
+    assert idle["updated_at"] == paused["updated_at"]
+    rows = env.client.get("/api/online/state/library").json()["items"]
+    assert [row["item"]["id"] for row in rows] == [env.show["id"], env.movie["id"]]
+    with closing(store._base._conn()) as connection:
+        seq, expiry = connection.execute("SELECT writer_seq, writer_expires_at FROM online_progress WHERE writer_id=?",
+                                         (movie_writer["writer_id"],)).fetchone()
+    assert seq == 2 and expiry > time.time() + 60
+    rewind = save(env, movie_writer, seq=3, position=8, paused=True).json()["progress"]
+    assert rewind["updated_at"] > paused["updated_at"]
+
+
 @pytest.mark.parametrize("operation", ["favorite", "delete", "claim", "progress"])
 def test_mutations_require_a_frozen_scope_intent(environment, operation):
     env = environment

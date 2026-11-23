@@ -190,16 +190,26 @@
   </JzDialog>
 
   <JzDialog v-if="delDlg" :title="`删除影片（${delSummary.total_movies} 部）`" size="small" :busy="batching" @close="delDlg = false">
-    <p class="del-warn">警告：将永久删除磁盘文件与库记录（海报/镜像缓存保留），不可恢复。每部片的全部版本与附属文件（花絮/字幕/NFO/周边）都会一起删除。</p>
+    <p v-if="!delPreviewId" class="warn-text">服务端未提供完整的逐文件删除清单，请更新服务端后重新预览。</p>
+    <p v-else-if="!delDone" class="del-warn">确认后将永久删除下列文件和对应库记录。未列出的文件会保留。</p>
     <p class="del-sum">{{ delSummary.total_movies }} 部影片 · {{ delSummary.total_versions }} 个正片版本 · {{ delSummary.total_files }} 个文件 · 共 {{ fmtBytes(delSummary.total_bytes) }}</p>
-    <ul class="collist">
-      <li v-for="p in visibleDelPlans" :key="p.id"><span>{{ p.title || '(未命名)' }}<span v-if="p.year"> ({{ p.year }})</span></span><span class="fhint">{{ p.feature_count }} 版本 · {{ p.extra_count }} 附属 · {{ fmtBytes(p.total_size) }}</span></li>
+    <ul class="delete-manifest">
+      <li v-for="p in visibleDelPlans" :key="p.id">
+        <strong>{{ p.title || '(未命名)' }}<span v-if="p.year"> ({{ p.year }})</span></strong>
+        <p v-if="p.library_name" class="fhint">{{ p.library_name }} · {{ p.feature_count }} 个版本 · {{ p.extra_count }} 个附属文件</p>
+        <ul v-if="p.files?.length"><li v-for="file in p.files" :key="file.rel"><span class="fhint">{{ deleteKinds[file.kind] || '其他' }} · {{ fmtBytes(file.size) }}</span> {{ file.rel }} <span v-if="file.status" class="fhint">{{ deleteFileStatus[file.status] }}</span></li></ul>
+        <p v-else-if="delPreviewId" class="fhint">没有可删除的文件</p>
+        <p v-for="v in p.retained_versions || []" :key="v.id" class="fhint">文件缺失或归属未能核实，保留版本记录 · {{ v.rel }}</p>
+        <p v-for="f in p.failed_files || []" :key="f.rel" class="warn-text">删除失败：{{ f.rel }} · {{ f.error }}</p>
+        <p v-for="message in p.db_errors || []" :key="message" class="warn-text">库记录更新失败：{{ message }}</p>
+      </li>
     </ul>
     <p v-if="delPlans.length > 20" class="fhint">等共 {{ delPlans.length }} 部<span v-if="!showAllDel">（仅列前 20）</span> <JzButton v-if="!showAllDel" @click="showAllDel = true" type="button">展开全部</JzButton></p>
     <template #footer>
       <p v-if="batchMsg" class="batch-result" role="status">{{ batchMsg }}</p>
       <JzButton :disabled="batching" @click="delDlg = false">{{ delDone ? '关闭' : '取消' }}</JzButton>
-      <JzButton v-if="!delDone" :loading="batching" :disabled="!delPlans.length" @click="confirmDel" variant="danger" icon="delete">确认删除 {{ delSummary.total_movies }} 部影片（{{ delSummary.total_files }} 个文件）</JzButton>
+      <JzButton v-if="delStale" :disabled="batching" @click="openDelDlg" icon="refresh">重新预览</JzButton>
+      <JzButton v-if="!delDone && !delStale" :loading="batching" :disabled="!delPreviewId || !delSummary.total_files" @click="confirmDel" variant="danger" icon="delete">确认删除 {{ delSummary.total_movies }} 部影片（{{ delSummary.total_files }} 个文件）</JzButton>
     </template>
   </JzDialog>
 
@@ -742,13 +752,15 @@ function resetBatchScope() {
   colQ.value = ''
   delPlans.value = []
   previewIds.value = []
+  delPreviewId.value = ''
+  delStale.value = false
   batchMsg.value = ''
   batching.value = false
 }
 function currentBatch(revision) {
   return !disposed && revision === mediaRevision
 }
-async function batchRequest(path, payload, errorPrefix, success) {
+async function batchRequest(path, payload, errorPrefix, success, onFailure) {
   if (batching.value || !selectedIds.value.size) return
   const revision = mediaRevision
   batching.value = true
@@ -757,7 +769,10 @@ async function batchRequest(path, payload, errorPrefix, success) {
     const response = await api(path, { method: 'POST', body: JSON.stringify(payload) })
     if (currentBatch(revision)) await success(response, revision)
   } catch (e) {
-    if (currentBatch(revision)) batchMsg.value = errorPrefix + e.message
+    if (currentBatch(revision)) {
+      batchMsg.value = errorPrefix + e.message
+      onFailure?.(e)
+    }
   } finally {
     if (currentBatch(revision)) batching.value = false
   }
@@ -819,6 +834,10 @@ function openColDlg() {
 const delDlg = ref(false)
 const delPlans = ref([])
 const previewIds = ref([])
+const delPreviewId = ref('')
+const delStale = ref(false)
+const deleteKinds = { feature: '正片', subtitle: '字幕', artwork: '图片', sidecar: '花絮', nfo: 'NFO' }
+const deleteFileStatus = { deleted: '已删除', failed: '删除失败', retained: '已保留' }
 const delSummary = ref({ total_movies: 0, total_versions: 0, total_files: 0, total_bytes: 0 })
 const delDone = ref(false)
 const showAllDel = ref(false)
@@ -830,7 +849,11 @@ function openDelDlg() {
   const ids = [...selectedIds.value]
   return batchRequest('/api/movies/batch-delete', { ids, dry_run: true }, '删除预览失败：', d => {
     previewIds.value = ids
+    delStale.value = false
     delPlans.value = d.plans || []
+    const complete = Array.isArray(d.plans) && d.plans.every(p => Array.isArray(p.files))
+      && d.plans.reduce((count, p) => count + p.files.length, 0) === d.total_files
+    delPreviewId.value = complete ? d.preview_id || '' : ''
     delSummary.value = {
       total_movies: d.total_movies || 0, total_versions: d.total_versions || 0,
       total_files: d.total_files || 0, total_bytes: d.total_bytes || 0
@@ -839,13 +862,18 @@ function openDelDlg() {
   })
 }
 function confirmDel() {
-  if (!delDlg.value || !delPlans.value.length || delDone.value) return
-  return batchRequest('/api/movies/batch-delete', { ids: previewIds.value, dry_run: false, confirm: true }, '删除失败：', async (d, revision) => {
+  if (!delDlg.value || !delPreviewId.value || delStale.value || delDone.value) return
+  const payload = { ids: previewIds.value, dry_run: false, confirm: true, preview_id: delPreviewId.value }
+  return batchRequest('/api/movies/batch-delete', payload, '删除失败：', async (d, revision) => {
     delDone.value = true
-    batchMsg.value = `已删除 ${d.deleted_movies}/${d.total_movies} 部（${d.total_files} 个文件）`
-    clearSelection()
+    delPlans.value = d.results || []
+    showAllDel.value = delPlans.value.some(p => p.status !== 'deleted')
+    batchMsg.value = `已删除 ${d.deleted_movies}/${d.total_movies} 部（${d.deleted_files} 个文件）`
+    const remaining = delPlans.value.flatMap(p => p.retry_ids || [])
+    selectedIds.value = new Set(remaining)
+    delStale.value = remaining.length > 0
     await refreshAfterBatch(revision)
-  })
+  }, e => { if (e.status === 409) delStale.value = true })
 }
 function joinCollection(cid) {
   return batchRequest(`/api/collections/${cid}/members`, { movie_ids: [...selectedIds.value] }, '加入失败：', async r => {
@@ -1052,6 +1080,10 @@ useAssistantPage('movie', () => {
 .taglist { display: flex; gap: 6px; flex-wrap: wrap; padding: 0; }
 .collist { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .collist li { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: var(--jz-surface-3); border-radius: 8px; padding: 6px 10px; }
+.delete-manifest { padding: 0; margin: 8px 0; list-style: none; }
+.delete-manifest > li { padding: 8px 0; border-top: 1px solid var(--jz-border); overflow-wrap: anywhere; }
+.delete-manifest p { margin: 4px 0; }
+.delete-manifest ul { padding-inline-start: 18px; }
 .del-warn { color: var(--jz-danger); font-size: 0.875rem; margin: 0 0 8px; }
 .del-sum { color: var(--jz-warn); font-size: 0.9375rem; margin: 0 0 8px; font-weight: bold; }
 @media (max-width: 700px), (pointer: coarse) {

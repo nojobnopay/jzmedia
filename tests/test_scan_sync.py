@@ -175,3 +175,104 @@ def test_scan_prepares_tv_ingestion_without_enumerating_twice(tmp_path, monkeypa
         assert seen["summary"]["tv_ingest"]["preview_id"] == "scan-preview"
     finally:
         _teardown(lib)
+
+
+@pytest.mark.parametrize("when", ["before_scan", "before_cleanup", "replaced_before_cleanup"])
+def test_disconnected_local_root_preserves_movie_and_progress(tmp_path, when):
+    lib, root = _lib(tmp_path)
+    lid = lib["id"]
+    movie = store.upsert_movie_by_path("Keep.mkv", library_id=lid)
+    store.save_progress(movie, 750, 3600)
+    disconnected = tmp_path / "disconnected"
+
+    def disconnect(*_):
+        if not disconnected.exists():
+            root.rename(disconnected)
+            if when == "replaced_before_cleanup":
+                root.mkdir()
+
+    try:
+        if when == "before_scan":
+            disconnect()
+        out = scanner.scan_all(library_id=lid, progress_cb=disconnect)
+        assert [row["status"] for row in out] == ["library_offline"]
+        assert root.exists() == (when == "replaced_before_cleanup")
+        if root.exists():
+            root.rmdir()
+        assert store.get_movie(movie)
+        assert store.get_progress(movie)["position"] == 750
+        disconnected.rename(root)
+        out = scanner.scan_all(library_id=lid)
+        assert any(r["status"] == "removed_movie" for r in out)
+    finally:
+        _teardown(lib)
+
+
+def test_only_new_database_creates_default_media_root(tmp_path, monkeypatch):
+    from app.config import settings
+    from app.store import _base
+    root = tmp_path / "default-media"
+    monkeypatch.setattr(_base, "DB_PATH", str(tmp_path / "new.db"))
+    monkeypatch.setattr(settings, "media_root", str(root))
+    library_paths.invalidate_cache()
+    try:
+        store.init_db()
+        assert root.is_dir()
+        mid = store.upsert_movie_by_path("Unplugged.mkv")
+        store.save_progress(mid, 750, 3600)
+        root.rename(tmp_path / "disconnected")
+        store.init_db()
+        out = scanner.scan_all(library_id=library_paths.DEFAULT_LIBRARY_ID)
+        assert [row["status"] for row in out] == ["library_offline"]
+        assert not root.exists()
+        assert store.get_progress(mid)["position"] == 750
+    finally:
+        library_paths.invalidate_cache()
+
+
+@pytest.mark.parametrize("when", ["before_first_walk", "after_last_file_check"])
+def test_tv_reconciliation_checks_original_root_before_deleting_episodes(tmp_path, monkeypatch, when):
+    from app import storage
+    lib, root = _lib(tmp_path, kind="tv")
+    lid = lib["id"]
+    backend = storage.backend_for(lid)
+    monkeypatch.setattr(storage, "backend_for", lambda _: backend)
+    show = store.upsert_show(lid, "Show")
+    rel = "Show-S01E01.mkv"
+    episode = store.upsert_episode(show, lid, rel, 1, 1)
+    store.save_progress(episode, 700, 3600, kind="episode")
+    detached = tmp_path / "detached"
+
+    def replace_root():
+        root.rename(detached)
+        root.mkdir()
+
+    if when == "before_first_walk":
+        (root / rel).write_bytes(b"old video")
+        walk = backend.iter_tree
+
+        def swapped_walk(*args, **kwargs):
+            if not detached.exists():
+                replace_root()
+            yield from walk(*args, **kwargs)
+
+        monkeypatch.setattr(backend, "iter_tree", swapped_walk)
+    else:
+        exists = backend.exists
+
+        def swapped_after_check(path):
+            found = exists(path)
+            if path == rel and not detached.exists():
+                replace_root()
+            return found
+
+        monkeypatch.setattr(backend, "exists", swapped_after_check)
+    try:
+        out = scanner.scan_all(library_id=lid)
+        assert detached.exists()
+        assert any(row["status"] == "library_offline" for row in out)
+        assert not any(row["status"].startswith("removed_") for row in out)
+        assert store.get_episode(episode)
+        assert store.get_progress(episode, kind="episode")["position"] == 700
+    finally:
+        _teardown(lib)

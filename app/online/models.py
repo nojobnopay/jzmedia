@@ -233,6 +233,11 @@ class OnlineSourcePatch(_Contract):
         return OnlineSourceCreate.normalize_hosts(values) if values is not None else None
 
 
+class CatalogueReplacementRequest(OnlineSourcePatch):
+    api_base_url: str = Field(max_length=2048)
+    host_migration: HostMigrationSelection
+
+
 class OnlineSource(OnlineSourceCreate):
     id: SourceId
     created_at: int = Field(ge=0)
@@ -241,6 +246,11 @@ class OnlineSource(OnlineSourceCreate):
 
 class OnlineSourceDetail(OnlineSource):
     configuration_fingerprint: Fingerprint
+
+
+class CatalogueReplacement(_Contract):
+    previous: OnlineSource
+    source: OnlineSource
 
 
 class OnlineItem(_Contract):

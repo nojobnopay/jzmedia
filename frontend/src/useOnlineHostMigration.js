@@ -2,6 +2,11 @@ import { computed, onScopeDispose, ref, watch } from 'vue'
 
 export const migrationKinds = { api: '接口', media: '媒体', image: '海报' }
 
+export function catalogueReceiptHint(error) {
+  return !error?.status || error.status === 408 || error.status >= 500
+    ? '尚未收到换库结果。请保持草稿不变，再次确认以核对同一次换库结果。' : ''
+}
+
 export function safeHomepage(value) {
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : '' }
   catch { return '' }

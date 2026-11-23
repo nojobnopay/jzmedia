@@ -2257,6 +2257,8 @@ async function sourceMigration() {
         await form.getByLabel('接口地址', { exact: true }).fill(endpoint(newApi))
         await changes.locator('input[value="' + oldMedia + '"]').waitFor()
         assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), 3)
+        assert.ok(await save.isDisabled())
+        await form.getByLabel('新地址的片库').selectOption('mirror')
       }
 
       await edit.click()
@@ -2294,7 +2296,31 @@ async function sourceMigration() {
       assert.equal(saved.api_base_url, endpoint(newApi))
       assert.equal(saved.priority, 77)
       assert.deepEqual([...saved.allowed_hosts].sort(), [newApi, newMedia, oldPoster, 'custom.example'].sort())
-      passed({ case: phase.name, selectionPreserved: true, staleSaveRejected: true })
+      await edit.click()
+      await form.getByLabel('接口地址', { exact: true }).fill('https://different.example/api/')
+      await form.getByLabel('新地址的片库').selectOption('replace')
+      let committed
+      await page.route('**' + sourcePath + '/replace-catalogue', async route => {
+        const reply = await route.fetch()
+        assert.equal(reply.status(), 200)
+        committed = await reply.json()
+        await route.abort('connectionreset')
+      }, { times: 1 })
+      phase.expectedHttp = true
+      const lost = page.waitForEvent('requestfailed', request => request.url().endsWith(sourcePath + '/replace-catalogue'))
+      await save.click()
+      assert.match((await lost).failure().errorText, /ERR_CONNECTION_RESET/)
+      await form.getByText('尚未收到换库结果', { exact: false }).waitFor()
+      phase.expectedHttp = false
+      const replaced = page.waitForResponse(res => res.url().endsWith(sourcePath + '/replace-catalogue'))
+      await save.click()
+      const replacement = await (await replaced).json()
+      assert.deepEqual(replacement, committed)
+      assert.notEqual(replacement.source.id, created.body.id)
+      assert.equal(replacement.previous.api_base_url, endpoint(newApi))
+      assert.equal(replacement.previous.enabled, false)
+      await page.getByRole('button', { name: '编辑 ' + name + '（旧片库）', exact: true }).waitFor()
+      passed({ case: phase.name, selectionPreserved: true, staleSaveRejected: true, separateCatalogue: true, lostReceiptRecovered: true })
     } finally {
       await closeContext(context)
     }
