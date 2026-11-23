@@ -2,9 +2,9 @@
 
 [开发者文档](README.md)
 
-数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。发行版本以根 `version.properties` 为准，数据库 `SCHEMA_VERSION=39`；两种版本号不是一一对应。启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
+数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。发行版本以根 `version.properties` 为准，数据库版本由 `SCHEMA_VERSION` 单独维护。启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
 
-最近迁移为 v28 剧集目录归属及历史、v29 文件实际变更日志 `fs_changes`、v30 媒体探测帧率 `media_info.fps`、v31 独立剧集播出快照与检查队列、v32 在线来源与稳定内容身份、v33 网络档案与来源用途规则、v34 MacCMS 接口兼容选项、v35 设备及观看模式隔离的在线收藏与进度、v36 在线海报受控快照、v37 统一剧集入库待办与整理预览、v38 媒体探测与扫描的片源修订、v39 在线剧集持久缓存任务与共享资料快照。当前 ffprobe 缓存版本为 `PROBE_VERSION=5`，旧探测结果在播放时重新获取；新增字段不要求用户重新扫描整库。
+最近迁移为 v28 剧集目录归属及历史、v29 文件实际变更日志 `fs_changes`、v30 媒体探测帧率 `media_info.fps`、v31 独立剧集播出快照与检查队列、v32 在线来源与稳定内容身份、v33 网络档案与来源用途规则、v34 MacCMS 接口兼容选项、v35 设备及观看模式隔离的在线收藏与进度、v36 在线海报受控快照、v37 统一剧集入库待办与整理预览、v38 媒体探测与扫描的片源修订、v39 在线剧集持久缓存任务与共享资料快照。v40 为 `organize_moves` 新增 `object_identity`，撤销剧集整理时用它核对原文件或目录。当前 ffprobe 缓存版本为 `PROBE_VERSION=5`，旧探测结果在播放时重新获取；新增字段不要求用户重新扫描整库。
 
 ## 主要实体
 
