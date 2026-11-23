@@ -6,32 +6,32 @@ import DocLibraryMap from '../.vitepress/theme/components/DocLibraryMap.vue'
 
 <span id="新手配置向导"></span>
 
-跟随四步向导连接自己的片库，登记一部电影或一集电视剧，并打开播放。完整流程以已经安装好的 jzmedia 为起点；还未安装请先看[安装教程](../getting-started/deployment.md)。
+这份向导带你把一部电影或一集电视剧加入片库并试播。请先[安装 jzmedia](../getting-started/deployment.md)。
 
 ## 准备
 
-准备一个媒体目录或待上传的视频。已有 NFO 时可以跳过 TMDB；需要网络资料时准备自己的 Read Token。媒体库是存储位置，视频库是其中的电影或剧集目录。
+准备好存放视频的目录，或一个可以从电脑、手机上传的视频文件。使用 TMDB 获取片名、海报等资料时，再准备自己的 Read Token。
 
 <details>
 <summary>媒体库与视频库有什么不同</summary>
 
-例如媒体库根目录为 `/app/media`，其下的 `Movies` 和 `TV Shows` 分别登记为电影与剧集视频库。扫描和上传先确认目标视频库。
+媒体库是存放文件的位置，例如 `/app/media`。下面的 `Movies` 和 `TV Shows` 可以分别建成电影和剧集视频库，扫描或上传时选择其中一个。
 
 <DocLibraryMap />
 
 </details>
 
-首次打开空库，点击“开始配置”；已有内容时从“设置 → 新手配置”进入。顶部显示当前步数，已完成步骤显示勾号；手机也使用相同四步，可通过“稍后继续”保留配置。
+首次打开空库，点“开始配置”。片库已有内容时，从“设置 → 新手配置”进入。
 
-<DocFigure src="../assets/previews/onboarding/00-welcome.webp" mobile-src="../assets/previews/onboarding/00-welcome-mobile.webp" alt="空库欢迎卡片中的开始配置按钮" caption="桌面与手机截图按屏幕宽度显示；截图和录屏均来自隔离演示，使用合成短片与本地 NFO。" />
+<DocFigure src="../assets/previews/onboarding/00-welcome.webp" mobile-src="../assets/previews/onboarding/00-welcome-mobile.webp" alt="空库欢迎卡片中的开始配置按钮" caption="本页用合成短片和本地 NFO 演示从空库到试播的过程。" />
 
 ## 跟随四步完成首次入库
 
 ### Step 1：选择资料来源
 
-填写自己的 TMDB Read Token，点“保存并测试 TMDB 连接”。也可以点“稍后配置 TMDB”，先用已有 NFO、本地缓存及启用的备用来源。
+有 TMDB 凭据时，填写自己的 Read Token，点“保存并测试 TMDB 连接”。令牌可按界面中的官方说明获取。同时填写 API Key 和 Read Token 时优先使用后者。测试会验证服务器与 TMDB 接口的连接，海报下载另走图片服务。
 
-测试成功表示服务器能够验证 TMDB 凭据和 API，不代表海报下载已验证。令牌获取见界面中的官方说明；Read Token 优先于 API Key。
+点“稍后配置 TMDB”也能继续，先使用影片旁的 NFO 资料文件、本地缓存或已启用的备用来源。
 
 <DocFigure src="../assets/previews/onboarding/01-source.webp" mobile-src="../assets/previews/onboarding/01-source-mobile.webp" alt="资料来源步骤中保存并测试与稍后配置 TMDB 的入口" caption="演示点击“稍后配置 TMDB”；跳过不妨碍登记本地影片。" />
 
@@ -56,21 +56,17 @@ import DocLibraryMap from '../.vitepress/theme/components/DocLibraryMap.vue'
 - 视频已在服务器或 NAS 上：选择“扫描服务器已有文件”，再点“扫描此视频库”。
 - 视频在当前电脑或手机上：选择“从当前设备上传”。
 
-两种方式都使用上一步确认的目标。只读库可以扫描和播放，上传需要写权限。
+只读库可以扫描和播放。上传需要写权限，同名文件会跳过。电影可选多个文件或整个文件夹。剧集可上传带剧名的整个文件夹，单独上传分集时需指定所属剧和季号。
 
-电影支持多文件和文件夹；剧集优先上传带剧名的整个文件夹，散集需指定所属剧与季号。同名文件跳过，不覆盖。
-
-扫描可能按视频库策略写入 NFO 和图片；命名档和资料落盘选项在建库表单的折叠区。剧集扫描或上传完成后会自动补齐缺资料并检查目录和命名；有可整理项时汇总显示预览，确认后才移动或改名。暂时不整理可选择稍后处理，详见[剧集整理与撤销](tv-organizing.md)。
+扫描可能按库设置写入 NFO 和图片，命名和写入选项可在建库表单中展开。导入剧集后会自动补充缺少的资料。若出现[目录整理预览](tv-organizing.md)，可选“稍后处理”，确认整理后才会移动或改名。
 
 <DocFigure src="../assets/previews/onboarding/03-import.webp" mobile-src="../assets/previews/onboarding/03-import-mobile.webp" alt="添加内容步骤中扫描此视频库与上传入口" caption="点击“扫描此视频库”开始；演示目录预置合成短片，扫描后登记为一部电影。" />
 
 ### Step 4：核对结果并试播
 
-查看已登记内容、待匹配提示与上传失败数。点击条目的“查看详情与播放”，核对片名、年份或集号，再点播放。未匹配的电影或整部剧可在详情点击“匹配资料”，展开搜索后继续核对。
+在结果页点“查看详情与播放”，核对片名、年份或集号，再点播放。若显示待匹配，可在详情点“匹配资料”搜索候选。
 
-文件传完不等于已登记；仅字幕、花絮或不能识别集号的文件不算完成导入。
-
-目标视频库保持启用、类型一致且当前连接配置已检查成功，并已登记至少一部电影或一集时，可完成引导；还可以继续添加另一个视频库。
+目标库中至少登记了一部电影或一集，才能点“完成引导”。如果上传后登记数仍为零，检查文件是否为正片、剧集文件名是否带有可识别的集号。字幕和花絮不计入首次入库。完成后还可以继续添加另一个视频库。
 
 <DocFigure src="../assets/previews/onboarding/04-result.webp" mobile-src="../assets/previews/onboarding/04-result-mobile.webp" alt="结果页列出已登记的演示影片与详情入口" caption="演示结果中已登记一部电影，可从条目进入详情与播放。" />
 
@@ -91,7 +87,7 @@ import DocLibraryMap from '../.vitepress/theme/components/DocLibraryMap.vue'
 
 ## 完成后检查
 
-海报墙能找到刚添加的内容，详情指向正确文件，播放能开始。未匹配或资料不完整的内容可以先登记，之后到[扫描与匹配](metadata.md)处理。目录整理需要另行预览和确认，向导不会自动移动或改名媒体文件。
+回到海报墙，打开刚添加的影片，确认播放的是正确文件。片名或海报不对时，可以稍后[核对匹配资料](metadata.md)。
 
 ## 暂缓与恢复
 
@@ -99,7 +95,7 @@ import DocLibraryMap from '../.vitepress/theme/components/DocLibraryMap.vue'
 
 扫描是后台任务，离开页面仍继续；上传依赖当前浏览器，需取消后才能离开。刷新或关闭浏览器后重新选择文件，已传完同名文件会跳过。传输结束却没有登记内容时，可扫描目标库确认。服务重启后任务详情可能消失，已入库内容和引导进度仍保留。
 
-返回时会检查目标库是否存在、启用、类型一致；配置变化需重新检查。部分内容入库、部分失败时可以完成引导，但应核对失败并按需重试。
+返回时，向导会核对目标库是否存在、已启用且类型一致。连接配置有变动时，回到第 2 步重新检查。部分文件入库成功也可完成引导，其余文件可按结果重试。
 
 ## 常见问题
 

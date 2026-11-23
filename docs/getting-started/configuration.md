@@ -16,26 +16,24 @@ TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：
 
 ## 在线视频源
 
-“设置 → 在线视频源”管理整个服务的在线点播总开关、来源及网络规则；顶栏“在线”提供海报墙、来源最近更新、分类、单源搜索、详情、线路和选集。使用步骤见[观看在线视频](../user-guide/watch-online.md)。总开关默认关闭；网页新增来源时默认勾选“启用此来源”，保存后才生效，已有来源的启用状态保持原值。配置保存在数据库，不继承环境变量。
+在线点播默认关闭。管理员在“设置 → 在线视频源”保存的总开关、来源及网络规则对整个服务生效。这些设置存入数据库，没有对应的环境变量。[添加来源并试播](../user-guide/watch-online.md) · [查找来源接口](../user-guide/watch-online.md#online-source-directory)
 
-添加来源可从内置配置目录选择并预填，也可使用“自定义接口”。目录列出开放样例和第三方接口建议，不会自动添加或探测全部来源；具体候选与验证范围见[去哪里找视频源？](../user-guide/watch-online.md#online-source-directory)。“测试来源”读取一页目录，实际媒体与海报仍按各自网络路径读取；目录读取成功不代表完整播放稳定。“发现推荐”只按来源最近更新排列，不使用个性化推荐或虚构热度。
+收藏和进度保存在服务端，按设备的观看 Cookie 和普通／隐私模式区分。关闭总开关会保留记录，仍可取消收藏、清除历史。自动连播默认关闭，偏好由当前浏览器按模式保存。
 
-收藏和观看进度按设备观看 Cookie 与普通／隐私模式分开保存在服务端，关闭总开关不删除记录，仍可取消收藏和清除历史。自动连播偏好在当前浏览器内按普通／隐私模式分别保存，默认关闭。
-
-MacCMS 提供方读取 Provide JSON 接口返回的 MP4/HLS 地址；量子当前主接口使用 `lzm3u8` 直链，此前已适配的接口还可使用 `liangzi` 网页线路，使用方法见[观看在线视频](../user-guide/watch-online.md#量子网页播放线路)。不执行站点播放器脚本或调用外部解析服务。标准模式为搜索 `ac=list`、详情 `ac=detail`；依据见 [MacCMS 官方接口说明](https://github.com/magicblack/maccms10/wiki/%E5%85%A5%E5%BA%93%E6%8E%A5%E5%8F%A3%E8%AF%B4%E6%98%8E)。站点兼容设置保存在 `provider_options`：
+MacCMS 从 Provide JSON 接口读取节目和 MP4/HLS 地址。默认使用 `ac=list` 搜索，使用 `ac=detail` 读取详情。部分量子接口还支持已适配的网页线路。服务只解析支持的格式，不执行站点播放器脚本或调用外部解析服务。[量子网页播放线路](../user-guide/watch-online.md#量子网页播放线路) · [MacCMS 官方接口说明](https://github.com/magicblack/maccms10/wiki/%E5%85%A5%E5%BA%93%E6%8E%A5%E5%8F%A3%E8%AF%B4%E6%98%8E)
 
 | 配置 | 取值与默认值 |
 |---|---|
-| `search_action` | `list`（默认）、`detail` 或 `videolist` |
-| `detail_action` | `detail`（默认）或 `videolist` |
+| `provider_options.search_action` | `list`（默认）、`detail` 或 `videolist` |
+| `provider_options.detail_action` | `detail`（默认）或 `videolist` |
 | `api_base_url` | 无账号密码、查询参数或片段的 HTTP(S) JSON 接口基础地址 |
 | `allowed_hosts` | API、媒体 CDN、重定向和 HLS 子资源需要的精确公网主机；自动包含 API 主机 |
-| `priority` | 0–1000，默认 100；越小越靠前，不代表已验证免费或直连 |
+| `priority` | 0–1000，默认 100。数值越小，来源排序越靠前 |
 | `enabled` | 网页新增默认勾选；直接调用管理 API 时，省略此字段仍默认 `false` |
 
-管理 API 更新时，省略 `provider_options` 保留原值；提交它会整体替换选项对象，未提供的子项恢复上述默认值。提供方类型创建后不可更改。配置保存不发起上游连接；不支持的格式、缺少允许主机或不满足公网策略的目标不能据此绕过检查。
+更新来源时，省略 `provider_options` 会保留原值。提交该对象会整体替换选项，省略的子项恢复默认值。来源创建后不能更改提供方类型。保存时会校验配置，实际连接上游时还会检查主机、访问目标和内容格式。
 
-`open_catalog` 是固定 Big Buck Bunny 开放样例，仍须由管理员添加并保存，基础地址固定为 `https://www.bigbuckbunny.org/`，媒体主机为 `video.blender.org`。样例本身不提供中文影视内容，也不会从该基础地址导入任意远程片库。它与 MacCMS 一样经过媒体网络策略；原项目及许可归因在详情中显示。
+`open_catalog` 仅提供 Big Buck Bunny 开放样例。管理员添加并保存后即可试播。其基础地址固定为 `https://www.bigbuckbunny.org/`，媒体主机为 `video.blender.org`。播放遵循来源的媒体网络规则，影片详情中可查看原项目和许可。
 
 ### 本地剧集缓存
 
@@ -52,7 +50,7 @@ MacCMS 提供方读取 Provide JSON 接口返回的 MP4/HLS 地址；量子当�
 
 ## 在线来源的网络策略
 
-播放故障可由小映沿现有 API 和媒体网络规则检查。若该来源的视频播放走代理，只有在你允许临时直连测试后，小映才会用直连出口比对同一线路；保存新的“视频播放”规则需要另行确认。[诊断播放问题与出口比对](../user-guide/watch-online.md#online-source-diagnosis)
+在线视频播不了时，可以从出问题的分集请小映检查目录和线路。临时测试直连和保存网络修改需分别确认。[诊断播放问题与出口比对](../user-guide/watch-online.md#online-source-diagnosis)
 
 在线来源适配、目录 API、网页入口与有界媒体网关使用独立网络配置。设置页通常只需选择“连接方式”为直连或 HTTP(S) 代理；代理可以选择已有配置，也可以直接填写协议、地址、端口和可选认证。地址必须从运行 jzmedia 的服务器可达，不是从当前浏览器所在设备可达。
 

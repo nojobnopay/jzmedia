@@ -2710,6 +2710,35 @@
       "artwork_sha256": "dafa20e9014abfc52403e658f2dfd0026079ba0a2e0a5741e0ded67575ccc96f",
       "bytes": 54136,
       "sha256": "85b1c9fc198fc37847e35bc01f4ace13ae1c5f091212737ec94e137e2e98d3df"
+    },
+    {
+      "file": "screenshots/xiaoying-settings.webp",
+      "page": "index.md",
+      "scene": "小映回答如何调整字体大小，提供手册和界面显示设置入口",
+      "verified_at": "2026-11-23",
+      "app_version": "0.43.0",
+      "source_commit": "d451913",
+      "source_state": "当前工作区的智能辅助界面",
+      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
+      "viewport": {
+        "width": 1700,
+        "height": 900,
+        "device_scale_factor": 2
+      },
+      "recording_script": "scripts/smoke_ai_ui.mjs --capture-assistant",
+      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
+      "capture_mode": "clip",
+      "capture_clip": {
+        "x": 1203,
+        "y": 61,
+        "width": 478,
+        "height": 321
+      },
+      "width": 956,
+      "height": 642,
+      "format": "WebP q86",
+      "bytes": 29490,
+      "sha256": "0ab8a9dc78081b4566d33314d46d48e10dd49db18906b5dff8d6cd26ddb55f1d"
     }
   ],
   "provenance_scope": "per_asset",

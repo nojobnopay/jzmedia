@@ -129,7 +129,7 @@ python3 scripts/check_docs_links.py
 
 两项检查共用源文件清单，覆盖根文档、Android TV、开发与用户文档、工具、设计、计划和 `.agents/skills/`；排除依赖、构建产物、运行数据、私有记录及其他 agent 本地目录。检查规则不改变页面的公开范围。
 
-格式 lint 由根 `.markdownlint-cli2.mjs` 配置，锁定 `markdownlint-cli2` 版本。它检查标题层级、空行、列表缩进与编号、代码围栏语言和表格结构；`docs/scripts/markdown-rules.mjs` 另外检查每个 H2 内的 Step 连续编号，以及步骤标题不能藏在 `DocStep` 属性中。首页的一级标题由模板生成，只有 `docs/index.md` 对首行 H1 规则例外。
+格式 lint 由根 `.markdownlint-cli2.mjs` 配置，锁定 `markdownlint-cli2` 版本。它检查标题层级、空行、列表缩进与编号、代码围栏语言和表格结构。`docs/scripts/markdown-rules.mjs` 还会检查每个 H2 内的 Step 编号是否连续、步骤标题是否写在正文中。仅首页允许在 H1 前放置图文布局标签。
 
 中文行长、表格是否过密、内容重复与操作是否清楚仍需人工判断，不设固定字数或列数。Vue 标签允许保留，组件和最终锚点另由构建及产物检查验证。
 
@@ -293,13 +293,14 @@ node scripts/smoke_ai_ui.mjs --demo
 
 打开启动时打印的本机地址，可以操作 Go 设置、电影与剧集智能搜索、匹配建议及二次确认；示例标题、密钥状态和返回候选都是内存中的虚构值，请勿输入真实密钥。此演示仅覆盖列出的页面，其他 API 返回明确的模拟缺失错误。`Ctrl+C` 停止服务、清除临时构建并丢弃内存修改。
 
-重新拍摄四张教程图：
+在仓库根目录按需重拍。第一条命令拍首页的小映问答，第二条拍智能服务设置、找片结果和电影、剧集的匹配候选。
 
 ```bash
+node scripts/smoke_ai_ui.mjs --capture-assistant
 node scripts/smoke_ai_ui.mjs --capture-docs
 ```
 
-拍摄前先运行同一脚本的浏览器冒烟，随后保存 Go 设置与模拟测试提示、直接找片的推荐结果、电影确认候选和剧集目录归属限制。Playwright 在 1440×1000 CSS、1x 视口生成原始 PNG，FFmpeg 转为 WebP q86，写入 `docs/assets/screenshots/ai-*.webp`；原图留在命令打印的 `/tmp/jzmedia-ai-ui-*` 供核对。仅更新找片及智能配置图片时使用 `--capture-search`。默认不传参数只执行冒烟，不更新教程图片。
+小映截图保留悬浮放映机、问题、回答和设置链接。四张教程图在浏览器冒烟通过后拍摄。FFmpeg 将 PNG 转为 WebP q86 并写入 `docs/assets/screenshots/`，原图保留在命令打印的临时目录。只更新找片和服务设置图可用 `--capture-search`。不传参数时只运行冒烟。
 
 截图成功后只更新素材清单内对应 AI 条目，每项分别记录版本、日期、代码基线、视口、哈希及“真实界面 + 模拟 API”的来源；旧批次全局来源和其他素材记录保留。`scripts/capture_docs_manifest.py` 同样保留已有 AI 条目及未变化历史素材的来源。更新后查看实际图片，确保 Go 用途提示、确认按钮和目录锁原因可读，再执行文档构建与检查。
 

@@ -1,48 +1,59 @@
 ---
 layout: home
 markdownStyles: false
-hero:
-  name: jzmedia 帮助中心
-  text: 从第一部影片开始
-  tagline: 跟着图解连接片库、添加内容和播放；需要时再学习匹配、整理与维护。
-  actions:
-    - theme: brand
-      text: 添加第一部影片
-      link: /user-guide/onboarding.html
-    - theme: alt
-      text: 安装 jzmedia
-      link: /getting-started/deployment.html
-features:
-  - title: 还没安装
-    details: 在家用电脑或 NAS 上安装，检查服务，再开始添加自己的媒体。
-    link: /getting-started/deployment.html
-  - title: 添加第一部影片
-    details: 已有可用实例，跟着四步图解连接片库、添加内容并第一次播放。
-    link: /user-guide/onboarding.html
-  - title: 日常观看与管理
-    details: 找片、追剧、调字幕，或按任务查扫描、匹配、上传和整理。
-    link: /user-guide/README.html
-  - title: 遇到问题
-    details: 影片看不到、资料匹配错、播放无声或字幕不对，从现象开始检查。
-    link: /user-guide/troubleshooting.html
+title: jzmedia 帮助中心
+description: 认识网页里的智能助手小映，连接自己的片库，开始找片、追剧和播放。
 ---
 
 <div class="docs-home-content">
+<div class="docs-home-intro">
+<div class="docs-home-copy">
+
+# 有问题，问小映
+
+小映是 jzmedia 网页里的智能助手。点开页面边缘的小放映机，问一句“怎么筛选没看过的电影？”，它会告诉你该点哪里。不用配置模型就能问常见用法，也可以请它跳支舞。
+
+- **想把字调大？** 小映可以带你找到字号设置。启用智能辅助后，可以直接告诉它想改多大，核对后再保存。[问设置助手](user-guide/settings.md#问设置助手)
+- **这集怎么播不了？** 普通模式下，在出问题的在线分集点“问小映”，就能检查视频源和播放线路。[诊断播放问题](user-guide/watch-online.md#online-source-diagnosis)
+
+<div class="docs-home-actions">
+
+[浏览时使用小映](user-guide/settings.md#浏览时使用小映) [添加第一部影片](user-guide/onboarding.md)
+
+</div>
+
+</div>
+
+<DocFigure src="./assets/screenshots/xiaoying-settings.webp" alt="小映回答“怎么调整字体大小？”，消息下方有“打开界面显示”链接" caption="在这段演示对话里，点“打开界面显示”就能找到字号滑块。" />
+
+</div>
 
 ## 常用操作
 
-[找电影](user-guide/find-movies.md) · [追剧与连播](user-guide/watch-tv.md) · [音轨与字幕](user-guide/subtitles.md) · [扫描与匹配](user-guide/metadata.md) · [整理目录](user-guide/organizing.md) · [Android TV 安装与连接（GitHub）](https://github.com/nojobnopay/jzmedia/blob/main/android-tv/README.md#已有-apk安装并连接)
+<div class="docs-home-tasks">
+<div id="先看到结果-再按需深入">
 
-## 先看到结果，再按需深入
+### 第一次使用
 
-<DocFigure src="./assets/screenshots/movie-library.webp" alt="电影海报墙中显示继续观看与电影海报" caption="连接自己的本地目录或 NAS，扫描后即可按海报找片；截图为当前界面的隔离演示，使用虚构媒体与原创海报。" />
+在电脑或 NAS 上[安装 jzmedia](getting-started/deployment.md)，再跟着[首次入库图解](user-guide/onboarding.md)连接自己的媒体目录，扫描并试播。
 
-jzmedia 管理你已经拥有的媒体文件，不提供下载源。首次配置完成后，能够找到内容并播放就已经可以开始使用；目录整理可稍后单独预览与确认。
+</div>
+<div>
 
-## 一次入库，四个独立动作
+### 找片与观看
 
-<DocDiagram src="./assets/diagrams/ingestion.svg" alt="扫描发现文件，匹配确定作品，按策略写资料，整理需要另行确认" caption="扫描、资料匹配与移动文件有不同影响，先完成首次试播，再决定是否整理。" />
+[找电影](user-guide/find-movies.md) · [追剧与连播](user-guide/watch-tv.md) · [音轨与字幕](user-guide/subtitles.md) · [Android TV 安装与连接](https://github.com/nojobnopay/jzmedia/blob/main/android-tv/README.md#已有-apk安装并连接)
 
-[完整任务目录](user-guide/README.md) · [配置参考](getting-started/configuration.md) · [开发者文档](developer/README.md)
+</div>
+<div id="一次入库-四个独立动作">
+
+### 管理片库
+
+[扫描与匹配](user-guide/metadata.md)帮你认出文件对应的作品。想移动文件时，再[预览并确认整理](user-guide/organizing.md)。
+
+</div>
+</div>
+
+[按现象排查问题](user-guide/troubleshooting.md) · [完整任务目录](user-guide/README.md) · [配置参考](getting-started/configuration.md) · [开发者文档](developer/README.md)
 
 </div>

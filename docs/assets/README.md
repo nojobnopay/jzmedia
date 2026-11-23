@@ -32,6 +32,7 @@
 | `scripts/online_fixture/tv_docs.py` | 原生电视端在线目录、影片详情及拼音键盘的隔离演示数据 |
 | `smoke_casting.mjs --capture-only` | 普通播放的手机暂停布局、投屏选择与进度缩略图（原始 PNG） |
 | `smoke_ai_ui.mjs --capture-docs` | AI 设置、搜索与匹配 |
+| `smoke_ai_ui.mjs --capture-assistant` | 帮助首页的小映对话与设置入口 |
 | `capture_docs.py` | 四步向导、首播、字幕、电影整理及连续录屏 |
 | `capture_docs.py --only subtitles` | 已入库演示的轨道快捷面板、字幕调整和本地字幕录屏 |
 | `capture_docs.py --only onboarding-mobile` | 全新隔离实例的手机欢迎卡与四步向导面板 |

@@ -2,7 +2,7 @@
 
 **把硬盘里的电影和剧集，变成好找、好看、好管理的私人影视库。**
 
-jzmedia 是面向家庭本地收藏的开源影视库。连接电脑或 NAS 上已有的媒体，在浏览器里逛海报墙、找片和续看，也能用 Android TV 客户端在电视上继续看。影片由使用者自行提供，jzmedia 不提供下载源。
+jzmedia 是面向家庭收藏的开源影视库。连接电脑或 NAS 上的影片，就能在网页里找片、追剧，或用 Android TV 接着看。网页里的智能助手[小映](#网页里的智能助手小映)能回答用法、帮你调整设置，也能排查在线分集播放问题。影片由使用者自行提供，jzmedia 不提供下载源。
 
 [开始安装](docs/getting-started/deployment.md) · [下载发行版](https://github.com/nojobnopay/jzmedia/releases) · [在线图文帮助](https://nojobnopay.github.io/jzmedia/) · [Android TV](android-tv/README.md#已有-apk安装并连接) · [版本说明](CHANGELOG.md)
 
@@ -41,6 +41,12 @@ docker run -d --name jzmedia \
 
 ## 主要功能
 
+### 网页里的智能助手小映
+
+点开页面边缘的小放映机，可以问小映怎么筛选未看的电影，也可以请它跳支舞。启用智能辅助后，在设置里说“把字体调到 18 像素”，它会先列出改动，等你确认再保存。遇到某一集在线视频播不了，还可以从播放器请它检查当前线路。[浏览时使用小映](docs/user-guide/settings.md#浏览时使用小映) · [问设置助手](docs/user-guide/settings.md#问设置助手) · [诊断播放问题](docs/user-guide/watch-online.md#online-source-diagnosis)
+
+<img src="docs/assets/screenshots/xiaoying-settings.webp" alt="小映回答如何调整字号，回复中提供手册和显示设置入口" width="478">
+
 <span id="追剧时看清播出进度和自己的收藏"></span>
 <span id="多版本收藏各自记住看到哪里"></span>
 
@@ -58,7 +64,7 @@ docker run -d --name jzmedia \
 
 ### 搜索与发现
 
-按类型、地区、评分和观看状态筛选，也可沿演员、合集找片。自然语言搜索和 AI 匹配建议需自行配置模型服务与 API Key，普通搜索与手动匹配可独立使用。[找片与筛选](docs/user-guide/find-movies.md) · [合集与人物](docs/user-guide/collections.md) · [辅助核对匹配](docs/user-guide/metadata.md#辅助核对匹配)
+按类型、地区、评分或观看状态筛选，也能沿着演员和合集找片。配置模型服务后，在“智能搜索”描述想看的故事，就能拿到具体片单，还可以接着追问。[找片与筛选](docs/user-guide/find-movies.md) · [合集与人物](docs/user-guide/collections.md) · [辅助核对匹配](docs/user-guide/metadata.md#辅助核对匹配)
 
 <span id="整理收藏前先看清每一处路径变化"></span>
 

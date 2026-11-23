@@ -1,4 +1,4 @@
-// Run: node scripts/smoke_ai_ui.mjs [--capture-docs | --capture-search | --settings-assistant-only | --demo]
+// Run: node scripts/smoke_ai_ui.mjs [--capture-docs | --capture-search | --capture-assistant | --settings-assistant-only | --demo]
 // Build the real Vue pages into /tmp, serve local static assets and mock every API.
 // --capture-docs also saves documented screenshots; --demo keeps the loopback UI open.
 // No backend, .env, data directory, NAS, or model service is opened. Vite config/env
@@ -18,11 +18,12 @@ import { chromium } from '../docs/node_modules/playwright/index.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
-assert.ok(args.every(arg => ['--capture-docs', '--capture-search', '--settings-assistant-only', '--demo'].includes(arg)), 'Unknown AI UI smoke mode')
+assert.ok(args.every(arg => ['--capture-docs', '--capture-search', '--capture-assistant', '--settings-assistant-only', '--demo'].includes(arg)), 'Unknown AI UI smoke mode')
 assert.ok(args.length <= 1, 'Choose one mode per run')
 const searchCapture = args.includes('--capture-search')
+const assistantCapture = args.includes('--capture-assistant')
 const assistantOnly = args.includes('--settings-assistant-only')
-const capture = args.includes('--capture-docs') || searchCapture, demo = args.includes('--demo')
+const capture = args.includes('--capture-docs') || searchCapture || assistantCapture, demo = args.includes('--demo')
 const simulatedConnection = '模拟响应：未连接 OpenCode Go 或其他模型服务'
 const desktop = { width: 1440, height: 1000 }
 const temporary = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-ai-ui-'))
@@ -1095,6 +1096,31 @@ async function checkSettingsAssistant(go) {
   console.log('PASS 小映的自我介绍、问候、笑哭舞动作及减弱动效，闲聊后可以继续查设置教程')
 }
 
+async function captureXiaoying(go, screenshot) {
+  Object.assign(settings, { enabled: true, api_key_set: true })
+  await go('/settings')
+  const launcher = page.getByRole('button', { name: '问设置助手', exact: true })
+  await launcher.focus()
+  await launcher.press('Home')
+  await launcher.click()
+  const panel = page.getByRole('complementary', { name: '设置助手', exact: true })
+  const question = '怎么调整字体大小？'
+  await panel.getByRole('textbox').fill(question)
+  await panel.getByRole('button', { name: '发送' }).click()
+  await panel.getByRole('heading', { name: question, exact: true }).waitFor()
+  await panel.getByRole('link', { name: '打开界面显示', exact: true }).waitFor()
+  await page.mouse.move(0, 0)
+  await page.evaluate(() => document.fonts.ready)
+  const [chat, pet] = await Promise.all([panel.boundingBox(), launcher.boundingBox()])
+  const viewport = page.viewportSize(), padding = 8
+  const x = Math.max(0, Math.floor(Math.min(chat.x, pet.x)) - padding)
+  const y = Math.max(0, Math.floor(Math.min(chat.y, pet.y)) - padding)
+  const right = Math.min(viewport.width, Math.ceil(Math.max(chat.x + chat.width, pet.x + pet.width)) + padding)
+  const bottom = Math.min(viewport.height, Math.ceil(Math.max(chat.y + chat.height, pet.y + pet.height)) + padding)
+  await screenshot('xiaoying-settings', 'index.md', '小映回答如何调整字体大小，提供手册和界面显示设置入口',
+    panel, { x, y, width: right - x, height: bottom - y })
+}
+
 async function captureDocs(go) {
   const binary = await ffmpegBinary(), assets = path.join(project, 'docs/assets')
   await mkdir(path.join(assets, 'screenshots'), { recursive: true })
@@ -1103,24 +1129,39 @@ async function captureDocs(go) {
   const manifestFile = path.join(assets, 'manifest.json')
   const manifest = JSON.parse(await readFile(manifestFile, 'utf8'))
   const entries = []
-  async function screenshot(name, doc, scene, target) {
-    await target.evaluate(element => window.scrollTo(0, Math.max(0, element.getBoundingClientRect().top + window.scrollY - 90)))
+  async function screenshot(name, doc, scene, target, clip) {
+    if (!clip) await target.evaluate(element => window.scrollTo(0, Math.max(0, element.getBoundingClientRect().top + window.scrollY - 90)))
     await page.evaluate(() => document.fonts.ready)
     const file = `screenshots/${name}.webp`, png = path.join(temporary, `${name}.png`)
-    await page.screenshot({ path: png, animations: 'disabled' })
+    await page.screenshot({ path: png, clip, animations: 'disabled' })
     execFileSync(binary, ['-hide_banner', '-loglevel', 'error', '-y', '-i', png, '-quality', '86', path.join(assets, file)])
-    const bytes = await readFile(path.join(assets, file))
+    const bytes = await readFile(path.join(assets, file)), scale = await page.evaluate(() => window.devicePixelRatio)
     entries.push({ file, page: doc, scene, verified_at: new Date().toISOString().slice(0, 10),
-      app_version: appVersion, source_commit: commit, source_state: '当前工作区 OpenCode Go 与智能辅助界面',
+      app_version: appVersion, source_commit: commit, source_state: '当前工作区的智能辅助界面',
       source: '真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果',
-      viewport: { width: desktop.width, height: desktop.height, device_scale_factor: 1 },
-      recording_script: 'scripts/smoke_ai_ui.mjs ' + (searchCapture ? '--capture-search' : '--capture-docs'),
+      viewport: { ...page.viewportSize(), device_scale_factor: scale },
+      recording_script: 'scripts/smoke_ai_ui.mjs ' + args[0],
       fixtures: 'scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应',
       ...(name === 'ai-search-preview' ? { artwork_sha256: artworkFingerprint } : {}),
+      ...(clip ? { capture_mode: 'clip', capture_clip: clip, width: clip.width * scale, height: clip.height * scale } : {}),
       format: 'WebP q86', bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
     console.log('CAPTURE ' + file)
   }
-  await page.setViewportSize(desktop)
+  await page.setViewportSize(assistantCapture ? { width: 1700, height: 900 } : desktop)
+  if (assistantCapture) await captureXiaoying(go, screenshot)
+  else await captureAIForms(go, screenshot)
+  assert.deepEqual(unexpected, [], 'Capture must remain entirely mocked')
+  assert.deepEqual(errors, [], 'Capture browser errors')
+  // Preserve every historic batch field and asset; new entries carry their own provenance.
+  const replacements = new Map(entries.map(entry => [entry.file, entry]))
+  const previous = new Set(manifest.assets.map(entry => entry.file))
+  manifest.assets = [...manifest.assets.map(entry => replacements.get(entry.file) || entry),
+    ...entries.filter(entry => !previous.has(entry.file))]
+  await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + '\n')
+  console.log('Updated AI entries only: docs/assets/manifest.json; raw PNGs: ' + temporary)
+}
+
+async function captureAIForms(go, screenshot) {
   Object.assign(settings, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-flash',
     enabled: false, api_key_set: false, api_key_source: 'unset', api_key_masked: '',
     usage: { date: new Date().toISOString().slice(0, 10), requests: 0, input_tokens: 0, output_tokens: 0 } })
@@ -1162,15 +1203,6 @@ async function captureDocs(go) {
     await screenshot(`ai-match-${kind}`, kind === 'tv' ? 'user-guide/tv-matching.md' : 'user-guide/metadata.md',
       kind === 'tv' ? '模拟整剧建议与二次确认；展示目录归属限制' : '模拟电影候选与二次确认；未执行绑定', suggestions)
   }
-  assert.deepEqual(unexpected, [], 'Capture must remain entirely mocked')
-  assert.deepEqual(errors, [], 'Capture browser errors')
-  // Preserve every historic batch field and asset; new entries carry their own provenance.
-  const replacements = new Map(entries.map(entry => [entry.file, entry]))
-  const previous = new Set(manifest.assets.map(entry => entry.file))
-  manifest.assets = [...manifest.assets.map(entry => replacements.get(entry.file) || entry),
-    ...entries.filter(entry => !previous.has(entry.file))]
-  await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + '\n')
-  console.log('Updated AI entries only: docs/assets/manifest.json; raw PNGs: ' + temporary)
 }
 
 async function runSmoke() {
@@ -1215,7 +1247,7 @@ async function runSmoke() {
     await new Promise(resolve => { process.once('SIGINT', resolve); process.once('SIGTERM', resolve) })
   } else {
   browser = await chromium.launch({ headless: true })
-  const context = await browser.newContext({ viewport: desktop, serviceWorkers: 'block' })
+  const context = await browser.newContext({ viewport: desktop, deviceScaleFactor: assistantCapture ? 2 : 1, serviceWorkers: 'block' })
   await context.route('**/*', route => {
     const url = new URL(route.request().url())
     if (url.origin !== base) { unexpected.push('External request blocked: ' + url.origin); return route.abort() }
@@ -1240,6 +1272,7 @@ async function runSmoke() {
     else await page.getByRole('combobox', { name: '切换媒体库' }).waitFor()
   }
 
+  if (assistantCapture) return captureDocs(go)
   await checkSettingsAssistant(go)
   assert.deepEqual(unexpected, [])
   assert.deepEqual(errors, [])

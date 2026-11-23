@@ -41,7 +41,7 @@ export default {
   },
   customRules: projectRules,
   overrides: [{
-    // VitePress renders this page's H1 from hero frontmatter.
+    // The home page wraps its introductory heading and figure in a grid.
     filter: ['docs/index.md'], combine: 'merge', config: { MD041: false },
   }],
 }

@@ -4,14 +4,12 @@ search: false
 
 # 文档导航
 
-[打开图文帮助首页](index.md)，从当前要完成的任务开始。应用内入口为“帮助”；已安装实例的帮助站点位于 `/help/`，API 调试文档仍在 `/docs`。
+在[图文帮助首页](index.md)认识小映，或直接跟着[首次入库图解](user-guide/onboarding.md)播放第一部影片。
 
-[在线图文帮助](https://nojobnopay.github.io/jzmedia/)展示最新正式版本的文档，无需启动应用。查阅已安装版本时使用应用内帮助。
+应用内“帮助”（`/help/`）对应已安装的版本，[在线帮助](https://nojobnopay.github.io/jzmedia/)对应最新正式版本。API 调试文档位于 `/docs`。
 
-按读者查阅：[安装与维护](getting-started/README.md) · [用户任务目录](user-guide/README.md) · [开发者参考](developer/README.md)。
+[安装与维护](getting-started/README.md) · [用户任务目录](user-guide/README.md) · [开发者参考](developer/README.md)
 
 ## 文档基线与维护
 
-这些目录中的 Markdown 是应用内帮助、在线帮助与离线包共用的正文源，修改正文后重新构建即可；生成的 HTML 不单独维护。帮助站统一显示构建版本，普通页面不维护页首版本号与核对日期；涉及兼容范围或实测结果时，在相关正文中写明版本、日期和验证范围。
-
-内容归属、兼容入口、素材与发布检查统一见[文档制作与发布](developer/documentation.md)。开发计划、完成状态与待验收事项保留在仓库 `docs/roadmap/`，不进入帮助站；代码约束以本地工作区根 `AGENTS.md` 为准（该文件不入库）。
+应用内帮助、在线帮助与离线包共用这里的 Markdown。编辑正文后重新构建，版本标注、素材和发布检查见[文档制作与发布](developer/documentation.md)。开发计划与待验收事项在仓库 `docs/roadmap/`，本地代理约定见根目录 `AGENTS.md`。
